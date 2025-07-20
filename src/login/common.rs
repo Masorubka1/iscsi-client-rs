@@ -1,10 +1,11 @@
 use std::fmt;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use hmac::{Hmac, Mac};
 use md5::Md5;
 
 use crate::{
+    cfg::config::{Auth, Config, ToLoginKeys},
     client::client::Connection,
     login::{request::LoginRequestBuilder, response::LoginResponse},
 };
@@ -75,35 +76,26 @@ impl Stage {
 
 /// Performs a plain-text login to the target by sending the initiator name and
 /// requesting no authentication.
-pub async fn login_plain(
-    conn: &mut Connection,
-    isid: [u8; 6],
-    initiator_name: &str,
-) -> Result<LoginResponse> {
-    let task_tag = 0;
-    let cmd_sn = 0;
-    let exp_stat_sn = 0;
-    let tsih = 0u16;
-
-    let req = LoginRequestBuilder::new(isid, tsih)
+pub async fn login_plain(conn: &mut Connection, cfg: &Config) -> Result<LoginResponse> {
+    let mut req = LoginRequestBuilder::new(cfg.initiator.isid, 0u16)
         .transit()
         .csg(Stage::Security)
         .nsg(Stage::Operational)
-        .task_tag(task_tag)
         .connection_id(1)
-        .cmd_sn(cmd_sn)
-        .exp_stat_sn(exp_stat_sn)
-        .with_data(
-            format!("InitiatorName={initiator_name}\x00")
-                .as_bytes()
-                .to_vec(),
-        )
-        .with_data(b"InitiatorAlias=iscsi-vm\x00".to_vec())
-        .with_data(b"TargetName=iqn.2025-07.com.example:target0\x00".to_vec())
-        .with_data(b"SessionType=Normal\x00".to_vec())
-        .with_data(b"AuthMethod=None\x00".to_vec())
-        .with_data(b"HeaderDigest=None\x00".to_vec())
-        .with_data(b"DataDigest=None\x00".to_vec());
+        .versions(cfg.negotiation.version_min, cfg.negotiation.version_max);
+
+    for key in cfg
+        .initiator
+        .to_login_keys()
+        .into_iter()
+        .chain(cfg.target.to_login_keys())
+        .chain(cfg.negotiation.to_login_keys())
+        .chain(cfg.auth.to_login_keys())
+    {
+        req = req.with_data(key.into_bytes());
+    }
+
+    req = req.with_data(cfg.extra_text.clone().into_bytes());
 
     let (hdr, _data, _dig) = conn.call::<_, LoginResponse>(req).await?;
     Ok(hdr)
@@ -113,14 +105,13 @@ pub async fn login_plain(
 /// and requesting a CHAP challenge from the target.
 async fn chap_step1(
     conn: &mut Connection,
-    isid: [u8; 6],
+    cfg: &Config,
     tsih: u16,
     task_tag: u32,
     cmd_sn: u32,
     exp_stat_sn: u32,
-    initiator_name: &str,
 ) -> Result<(LoginResponse, Vec<u8>)> {
-    let req = LoginRequestBuilder::new(isid, tsih)
+    let mut req = LoginRequestBuilder::new(cfg.initiator.isid, tsih)
         .transit()
         .csg(Stage::Security)
         .nsg(Stage::Operational)
@@ -128,15 +119,17 @@ async fn chap_step1(
         .connection_id(1)
         .cmd_sn(cmd_sn)
         .exp_stat_sn(exp_stat_sn)
-        .with_data(
-            format!("InitiatorName={initiator_name}\x00")
-                .as_bytes()
-                .to_vec(),
-        )
-        .with_data(b"InitiatorAlias=iscsi-vm\x00".to_vec())
-        .with_data(b"TargetName=iqn.2025-07.com.example:target0\x00".to_vec())
-        .with_data(b"SessionType=Normal\x00".to_vec())
         .with_data(b"AuthMethod=CHAP,None\x00".to_vec());
+
+    for key in cfg
+        .initiator
+        .to_login_keys()
+        .into_iter()
+        .chain(cfg.target.to_login_keys())
+        .chain(cfg.negotiation.to_login_keys())
+    {
+        req = req.with_data(key.into_bytes());
+    }
     let (hdr, data, _dig) = conn.call::<_, LoginResponse>(req).await?;
     println!("data: {:?}", String::from_utf8(data.to_vec())?);
     Ok((hdr, data))
@@ -161,18 +154,15 @@ fn parse_chap_challenge(challenge_data: &[u8]) -> Result<(u8, Vec<u8>)> {
 }
 
 /// Step 2: send CHAP response (CHAP_A, CHAP_I, CHAP_R, UserName), return header
-#[allow(clippy::too_many_arguments)]
 async fn chap_step2(
     conn: &mut Connection,
-    isid: [u8; 6],
+    cfg: &Config,
     tsih: u16,
     task_tag: u32,
     cmd_sn: u32,
     exp_stat_sn: u32,
-    user: &str,
-    secret: &[u8],
 ) -> Result<LoginResponse> {
-    let req = LoginRequestBuilder::new(isid, tsih)
+    let req = LoginRequestBuilder::new(cfg.initiator.isid, tsih)
         .csg(Stage::Security)
         .nsg(Stage::Operational)
         .cont()
@@ -186,12 +176,17 @@ async fn chap_step2(
 
     let (chap_i, chap_n) = parse_chap_challenge(&data)?;
 
-    let mut mac = HmacMd5::new_from_slice(secret)?;
+    let (secret_key, username) = match &cfg.auth {
+        Auth::Chap { secret, username } => (secret.as_bytes(), username),
+        Auth::None => bail!("CHAP authentication required but none configured"),
+    };
+
+    let mut mac = HmacMd5::new_from_slice(secret_key)?;
     mac.update(&[chap_i]);
     mac.update(&chap_n);
     let chap_r = mac.finalize().into_bytes();
 
-    let req = LoginRequestBuilder::new(isid, tsih)
+    let req = LoginRequestBuilder::new(cfg.initiator.isid, tsih)
         .csg(Stage::Security)
         .nsg(Stage::Operational)
         .cont()
@@ -199,7 +194,7 @@ async fn chap_step2(
         .connection_id(1)
         .cmd_sn(cmd_sn)
         .exp_stat_sn(exp_stat_sn)
-        .with_data(format!("CHAP_N={user}\x00").as_bytes().to_vec())
+        .with_data(format!("CHAP_N={username}\x00").as_bytes().to_vec())
         .with_data(
             format!("CHAP_R={}\x00", hex::encode(chap_r))
                 .as_bytes()
@@ -212,64 +207,36 @@ async fn chap_step2(
 /// Step 3: complete login → FullFeature
 async fn chap_step3(
     conn: &mut Connection,
-    isid: [u8; 6],
+    cfg: &Config,
     hdr2: &LoginResponse,
-    task_tag: u32,
 ) -> Result<LoginResponse> {
-    let req = LoginRequestBuilder::new(isid, hdr2.tsih)
+    let req = LoginRequestBuilder::new(cfg.initiator.isid, hdr2.tsih)
         .transit()
         .csg(Stage::Operational)
         .nsg(Stage::FullFeature)
         .versions(hdr2.version_max, hdr2.version_active)
-        .task_tag(task_tag)
+        .task_tag(hdr2.initiator_task_tag)
         .connection_id(1)
         .cmd_sn(hdr2.exp_cmd_sn)
-        .exp_stat_sn(hdr2.max_cmd_sn)
-        .with_login_parameters("");
+        .exp_stat_sn(hdr2.max_cmd_sn);
     let (hdr3, _data3, _dig3) = conn.call::<_, LoginResponse>(req).await?;
     Ok(hdr3)
 }
 
 /// High‐level CHAP login flow
-pub async fn login_chap(
-    conn: &mut Connection,
-    isid: [u8; 6],
-    initiator_name: &str,
-    user: &str,
-    secret: &[u8],
-) -> Result<LoginResponse> {
-    let task_tag = 0;
-    let cmd_sn = 0;
-    let exp_stat_sn = 0;
-    let mut tsih = 0;
+pub async fn login_chap(conn: &mut Connection, cfg: &Config) -> Result<LoginResponse> {
+    let (hdr1, _raw1) = chap_step1(conn, cfg, 0, 0, 0, 0).await?;
 
-    // 1) CHAP step 1
-    let (hdr1, _raw1) = chap_step1(
-        conn,
-        isid,
-        tsih,
-        task_tag,
-        cmd_sn,
-        exp_stat_sn,
-        initiator_name,
-    )
-    .await?;
-    tsih = hdr1.tsih;
-
-    // 4) CHAP step 2
     let hdr2 = chap_step2(
         conn,
-        isid,
-        tsih,
-        task_tag,
-        cmd_sn,
-        exp_stat_sn,
-        user,
-        secret,
+        cfg,
+        hdr1.tsih,
+        hdr1.initiator_task_tag,
+        hdr1.max_cmd_sn,
+        hdr1.exp_cmd_sn,
     )
     .await?;
 
-    // 5) finalize into full feature
-    let hdr3 = chap_step3(conn, isid, &hdr2, task_tag).await?;
+    let hdr3 = chap_step3(conn, cfg, &hdr2).await?;
     Ok(hdr3)
 }

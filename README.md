@@ -2,6 +2,8 @@ iscsi-client-rs
 
 A pure-Rust iSCSI initiator library and CLI for interacting with iSCSI targets.  It lets you build and send iSCSI PDUs, perform login (including CHAP), and exchange SCSI commands over TCP.
 
+## WARNING ALL CODE TESTED ONLY WITH `targetcli`. ON OTHER TARGETS BEHAVIOUR UNEXPECTED
+
 ⸻
 
 Features

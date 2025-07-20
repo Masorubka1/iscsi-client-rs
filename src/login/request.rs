@@ -5,21 +5,21 @@ use crate::{
     login::common::{LoginFlags, Stage},
 };
 
-/// BHS для Login Request PDU (48 байт)
+/// BHS form LoginRequest PDU
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct LoginRequest {
-    pub opcode: u8, // always 0x03
+    pub opcode: u8, // always 0x03 by RFC
     pub flags: LoginFlags,
     pub version_max: u8,
     pub version_min: u8,
-    pub total_ahs_length: u8, // в 4-байтовых словах
+    pub total_ahs_length: u8,
     pub data_segment_length: [u8; 3],
     pub isid: [u8; 6],
     pub tsih: u16,
     pub initiator_task_tag: u32,
     pub cid: u16,
-    // 2 байта RESERVED
+    // 2 bytes RESERVED
     reserved1: [u8; 2],
     pub cmd_sn: u32,
     pub exp_stat_sn: u32,
@@ -30,7 +30,7 @@ pub struct LoginRequest {
 impl LoginRequest {
     pub const HEADER_LEN: usize = 48;
 
-    /// Сериализует BHS в ровно 48 байт
+    /// Serialize BHS in 48 bytes
     pub fn to_bhs_bytes(&self) -> [u8; Self::HEADER_LEN] {
         let mut buf = [0u8; Self::HEADER_LEN];
         buf[0] = self.opcode;
@@ -66,7 +66,6 @@ impl LoginRequest {
         let tsih = u16::from_be_bytes([buf[14], buf[15]]);
         let initiator_task_tag = u32::from_be_bytes(buf[16..20].try_into()?);
         let cid = u16::from_be_bytes(buf[20..22].try_into()?);
-        // buf[22..24] reserved1
         let mut reserved1 = [0u8; 2];
         reserved1.copy_from_slice(&buf[22..24]);
         let cmd_sn = u32::from_be_bytes(buf[24..28].try_into()?);
@@ -92,7 +91,7 @@ impl LoginRequest {
     }
 }
 
-/// Builder для Login Request
+/// Builder Login Request
 pub struct LoginRequestBuilder {
     pub header: LoginRequest,
     pub data: Vec<u8>,
@@ -122,19 +121,19 @@ impl LoginRequestBuilder {
         }
     }
 
-    /// Установить флаг Transit (T = bit7)
+    /// Set Transit (T = bit7)
     pub fn transit(mut self) -> Self {
         self.header.flags.insert(LoginFlags::TRANSIT);
         self
     }
 
-    /// Установить флаг Continue (C = bit6)
+    /// Set Continue (C = bit6)
     pub fn cont(mut self) -> Self {
         self.header.flags.insert(LoginFlags::CONTINUE);
         self
     }
 
-    /// Задать CSG (connection-stage: bits 3–4)
+    /// Set CSG (connection-stage: bits 3–4)
     pub fn csg(mut self, stage: Stage) -> Self {
         let bits = (stage as u8 & 0b11) << 2;
         self.header.flags.remove(LoginFlags::CSG_MASK);
@@ -144,7 +143,7 @@ impl LoginRequestBuilder {
         self
     }
 
-    /// Задать NSG (next-stage: bits 0–1)
+    /// Set NSG (next-stage: bits 0–1)
     pub fn nsg(mut self, stage: Stage) -> Self {
         let bits = stage as u8 & 0b11;
         self.header.flags.remove(LoginFlags::NSG_MASK);
@@ -154,59 +153,60 @@ impl LoginRequestBuilder {
         self
     }
 
-    /// Версии
+    /// Minimal and maximum version of protocol
     pub fn versions(mut self, max: u8, min: u8) -> Self {
         self.header.version_max = max;
         self.header.version_min = min;
         self
     }
 
-    /// Идентификаторы
+    /// Sets the initiator task tag, a unique identifier for this command.
     pub fn task_tag(mut self, tag: u32) -> Self {
         self.header.initiator_task_tag = tag;
         self
     }
 
+    /// Sets the connection ID (CID) for multiplexing sessions.
     pub fn connection_id(mut self, cid: u16) -> Self {
         self.header.cid = cid;
         self
     }
 
+    /// Sets the command sequence number (CmdSN) for this request.
     pub fn cmd_sn(mut self, sn: u32) -> Self {
         self.header.cmd_sn = sn;
         self
     }
 
+    /// Sets the expected status sequence number (ExpStatSN) from the target.
     pub fn exp_stat_sn(mut self, sn: u32) -> Self {
         self.header.exp_stat_sn = sn;
         self
     }
 
+    /// Appends raw bytes to the Data Segment and updates its length field.
     fn append_data(mut self, more: Vec<u8>) -> Self {
         self.data.extend_from_slice(&more);
         let len = self.data.len() as u32;
         let be = len.to_be_bytes();
         self.header.data_segment_length = [be[1], be[2], be[3]];
+
         self
     }
 
-    /// Опциональные параметры текста (login key=value), в формате ASCII,
-    /// заканчивается "\x00"
+    /// Adds a null-terminated ASCII key=value string to the Data Segment.
     pub fn with_login_parameters(self, kv: &str) -> Self {
         self.append_data(kv.as_bytes().to_vec())
     }
 
+    /// Adds arbitrary binary data to the Data Segment.
     pub fn with_data(self, data: Vec<u8>) -> Self {
         self.append_data(data)
     }
 
-    /// Собрать финальный PDU (BHS + DataSegment)
+    /// Build finnal PDU (BHS + DataSegment)
     fn build(mut self) -> ([u8; 48], Vec<u8>) {
-        let data_len = self.data.len() as u32;
-        let be = data_len.to_be_bytes();
-        self.header.data_segment_length = [be[1], be[2], be[3]];
-
-        let pad = (4 - ((LoginRequest::HEADER_LEN + self.data.len()) % 4)) % 4;
+        let pad = (4 - (self.data.len() % 4)) % 4;
         self.data.extend(std::iter::repeat_n(0, pad));
 
         (self.header.to_bhs_bytes(), self.data)
