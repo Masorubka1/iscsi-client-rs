@@ -1,4 +1,4 @@
-use anyhow::{Result, anyhow};
+use anyhow::{Context, Result, anyhow};
 
 use crate::{
     client::pdu_connection::FromBytes,
@@ -8,11 +8,11 @@ use crate::{
     },
 };
 
-/// Структура для Login Response PDU
+/// Header LoginResponse PDU
 #[repr(C)]
 #[derive(Debug, PartialEq)]
 pub struct LoginResponse {
-    pub opcode: u8, // 0x23
+    pub opcode: u8, // 0x23 always according rfc
     pub flags: LoginFlags,
     pub version_max: u8,
     pub version_active: u8,
@@ -21,16 +21,15 @@ pub struct LoginResponse {
     pub isid: [u8; 6], // Initiator Session ID
     pub tsih: u16,     // Target Session ID Handle
     pub initiator_task_tag: u32,
-    // 4 байта RESERVED
+    // 4 bytes RESERVED
     reserved1: [u8; 4],
     pub stat_sn: u32,
     pub exp_cmd_sn: u32,
     pub max_cmd_sn: u32,
     pub status_class: StatusClass,
     pub status_detail: StatusDetail,
-    // (38..48) байта RESERVED
+    // (38..48) bytes RESERVED
     reserved2: [u8; 10],
-    // далее DataSegment (login parameters) и Digest — парсим отдельно
 }
 
 impl LoginResponse {
@@ -38,33 +37,21 @@ impl LoginResponse {
     pub const HEADER_DIGEST: u8 = 0x02;
     pub const HEADER_LEN: usize = 48;
 
-    /// Парсит только BHS Login Response (48 байт)
+    /// Parsing only BHS LoginResponse (48 bytes)
     pub fn parse_bhs(buf: &[u8; 48]) -> Result<Self> {
-        // 1) flags
         let raw_flags = buf[1];
         let flags = LoginFlags::from_bits(raw_flags)
             .ok_or_else(|| anyhow!("invalid LoginFlags: {:#02x}", raw_flags))?;
 
-        // 2) data-length etc.
         let mut data_segment_length = [0u8; 3];
         data_segment_length.copy_from_slice(&buf[5..8]);
 
         let mut isid = [0u8; 6];
         isid.copy_from_slice(&buf[8..14]);
 
-        let tsih = u16::from_be_bytes([buf[14], buf[15]]);
-        let initiator_task_tag = u32::from_be_bytes(buf[16..20].try_into().unwrap());
-
-        let stat_sn = u32::from_be_bytes(buf[24..28].try_into().unwrap());
-        let exp_cmd_sn = u32::from_be_bytes(buf[28..32].try_into().unwrap());
-        let max_cmd_sn = u32::from_be_bytes(buf[32..36].try_into().unwrap());
-
-        // 3) status class & detail
-        let raw_status_class = buf[36];
-        let raw_status_detail = buf[37];
-        let status_class = StatusClass::from(raw_status_class);
-        let status_detail = StatusDetail::try_from((status_class, raw_status_detail))
-            .map_err(|e| {
+        let status_class = StatusClass::from(buf[36]);
+        let status_detail =
+            StatusDetail::try_from((status_class, buf[37])).map_err(|e| {
                 anyhow!("invalid StatusDetail for class {:?}: {}", status_class, e)
             })?;
 
@@ -76,15 +63,29 @@ impl LoginResponse {
             total_ahs_length: buf[4],
             data_segment_length,
             isid,
-            tsih,
-            initiator_task_tag,
-            reserved1: buf[20..24].try_into().unwrap(),
-            stat_sn,
-            exp_cmd_sn,
-            max_cmd_sn,
+            tsih: u16::from_be_bytes([buf[14], buf[15]]),
+            initiator_task_tag: u32::from_be_bytes(
+                buf[16..20]
+                    .try_into()
+                    .context("failed to get initiator_task_tag")?,
+            ),
+            reserved1: buf[20..24]
+                .try_into()
+                .context("failed to get reserved data")?,
+            stat_sn: u32::from_be_bytes(
+                buf[24..28].try_into().context("failed to get stat_sn")?,
+            ),
+            exp_cmd_sn: u32::from_be_bytes(
+                buf[28..32].try_into().context("failed to get exp_cmd_sn")?,
+            ),
+            max_cmd_sn: u32::from_be_bytes(
+                buf[32..36].try_into().context("failed to get max_cmd_sn")?,
+            ),
             status_class,
             status_detail,
-            reserved2: buf[38..48].try_into().unwrap(),
+            reserved2: buf[38..48]
+                .try_into()
+                .context("failed to get reserved data")?,
         })
     }
 
@@ -101,34 +102,31 @@ impl LoginResponse {
         ]) as usize
     }
 
-    /// Полный парсинг PDU включая DataSegment и Digest
+    /// Parsing PDU with DataSegment and Digest
     pub fn parse(buf: &[u8]) -> Result<(Self, Vec<u8>, Option<usize>)> {
-        // Must have at least the 48‐byte BHS.
         if buf.len() < Self::HEADER_LEN {
             return Err(anyhow!("Buffer too small for LoginResponse BHS"));
         }
 
-        // 1) Copy out the BHS and parse it
         let mut bhs = [0u8; Self::HEADER_LEN];
         bhs.copy_from_slice(&buf[..Self::HEADER_LEN]);
-        let header = Self::parse_bhs(&bhs)?; // <-- now returns Result
+        let header = Self::parse_bhs(&bhs)?;
 
-        // 2) Compute offsets
         let ahs_len = header.ahs_length_bytes();
         let data_len = header.data_length_bytes();
         let mut offset = Self::HEADER_LEN + ahs_len;
 
-        // 3) Extract DataSegment
         if buf.len() < offset + data_len {
             return Err(anyhow!("Buffer too small for DataSegment"));
         }
         let data = buf[offset..offset + data_len].to_vec();
         offset += data_len;
 
-        // 4) Optionally extract a 4‐byte header digest
         let hd = if buf.len() >= offset + 4 {
             Some(usize::from_be_bytes(
-                buf[offset..offset + 4].try_into().unwrap(),
+                buf[offset..offset + 4]
+                    .try_into()
+                    .context("Failed to get offset from buf")?,
             ))
         } else {
             None

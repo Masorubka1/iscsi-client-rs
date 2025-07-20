@@ -18,3 +18,20 @@ hex = "0.4.3"
 bitflags = "2.9.1"
 md-5 = "0.10.0"
 hmac = "0.12.1"
+serde_yaml = "0.9.34"
+
+[workspace]
+members = ["."]
+
+[lints]
+workspace = true
+
+[workspace.lints.clippy]
+perf = { level = "deny", priority = -1 }
+complexity = { level = "deny", priority = -1 }
+style = { level = "deny", priority = -1 }
+
+unwrap_used = "deny"
+redundant_clone = "deny"
+unnecessary_to_owned = "deny"
+large_enum_variant = "deny"

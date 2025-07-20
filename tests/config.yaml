@@ -1,0 +1,35 @@
+## WARNING ALL CODE TESTED ONLY WITH `targetcli`. ON OTHER TARGETS BEHAVIOUR UNEXPECTED
+
+target:
+  # iSCSI portal and target IQN
+  iqn: "iqn.2025-07.com.example:target0"
+  address: "192.168.64.2:3260"
+
+initiator:
+  # your initiator IQN and ISID (6-byte hex)
+  iqn: "iqn.2004-10.com.ubuntu:01:c676ed18968f"
+  alias: "iscsi-vm"
+  isid: "00023d000009"
+
+auth:
+  # choose "none" or "chap"
+  # method: "chap"
+  method: "none"
+  # only if method = "chap"
+  username: "myuser"
+  secret: "mypassword"
+
+negotiation:
+  version_max: 0
+  version_min: 0
+  header_digest: "None" # e.g. "None" or "CRC32C"
+  data_digest: "None" # e.g. "None" or "CRC32C"
+  session_type: "Normal"
+
+performance:
+  # protocol parameter values
+  max_recv_data_segment_length: 262144
+  max_burst_length: 16776192
+  first_burst_length: 262144
+
+extra_text: "DefaultTime2Wait=2\x00DefaultTime2Retain=0\x00IFMarker=No\x00OFMarker=No\x00ErrorRecoveryLevel=0\x00InitialR2T=No\x00ImmediateData=Yes\x00MaxOutstandingR2T=1\x00MaxConnections=1\x00DataPDUInOrder=Yes\x00DataSequenceInOrder=Yes\x00"

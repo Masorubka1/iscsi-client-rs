@@ -1,13 +1,17 @@
-use anyhow::{Result, anyhow};
+use anyhow::{Result, anyhow, bail};
 
 /// The status classes as per RFC 3720 §11.11.1
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StatusClass {
-    Success = 0,        // target accepted the request
-    Redirection = 1,    // initiator must follow TargetAddress
-    InitiatorError = 2, // mistake on initiator side; do not retry
-    TargetError = 3,    // target temporarily cannot fulfil; may retry
+    /// target accepted the request
+    Success = 0,
+    /// initiator must follow TargetAddress
+    Redirection = 1,
+    /// mistake on initiator side; do not retry
+    InitiatorError = 2,
+    /// target temporarily cannot fulfil; may retry
+    TargetError = 3,
     Unknown(u8),
 }
 
@@ -95,27 +99,27 @@ pub enum InitiatorErrorDetail {
     SessionDoesNotExist = 0x0a,
     /// 0x0b — Invalid during login
     InvalidDuringLogin = 0x0b,
-    // 0x0c–0xff — зарезервировано
+    /// 0x0c–0xff — RESERVATED
+    Reserved(u8),
 }
 
 impl TryFrom<u8> for InitiatorErrorDetail {
     type Error = anyhow::Error;
 
     fn try_from(byte: u8) -> Result<Self> {
-        use InitiatorErrorDetail::*;
         match byte {
-            0x00 => Ok(InitiatorError),
-            0x01 => Ok(AuthFailed),
-            0x02 => Ok(AuthzFailed),
-            0x03 => Ok(NotFound),
-            0x04 => Ok(TargetRemoved),
-            0x05 => Ok(UnsupportedVersion),
-            0x06 => Ok(TooManyConnections),
-            0x07 => Ok(MissingParameter),
-            0x08 => Ok(CantIncludeInSession),
-            0x09 => Ok(SessionTypeNotSupported),
-            0x0a => Ok(SessionDoesNotExist),
-            0x0b => Ok(InvalidDuringLogin),
+            0x00 => Ok(InitiatorErrorDetail::InitiatorError),
+            0x01 => Ok(InitiatorErrorDetail::AuthFailed),
+            0x02 => Ok(InitiatorErrorDetail::AuthzFailed),
+            0x03 => Ok(InitiatorErrorDetail::NotFound),
+            0x04 => Ok(InitiatorErrorDetail::TargetRemoved),
+            0x05 => Ok(InitiatorErrorDetail::UnsupportedVersion),
+            0x06 => Ok(InitiatorErrorDetail::TooManyConnections),
+            0x07 => Ok(InitiatorErrorDetail::MissingParameter),
+            0x08 => Ok(InitiatorErrorDetail::CantIncludeInSession),
+            0x09 => Ok(InitiatorErrorDetail::SessionTypeNotSupported),
+            0x0a => Ok(InitiatorErrorDetail::SessionDoesNotExist),
+            0x0b => Ok(InitiatorErrorDetail::InvalidDuringLogin),
             other => Err(anyhow!("unknown InitiatorErrorDetail: 0x{:02x}", other)),
         }
     }
@@ -170,7 +174,7 @@ impl TryFrom<(StatusClass, u8)> for StatusDetail {
             StatusClass::TargetError => {
                 StatusDetail::TargetErr(TargetErrorDetail::try_from(raw)?)
             },
-            _ => return Err(anyhow!("invalid class")),
+            _ => bail!("invalid class"),
         })
     }
 }
