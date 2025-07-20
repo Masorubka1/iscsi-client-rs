@@ -1,0 +1,20 @@
+[package]
+name = "iscsi-client-rs"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+bytes = "1"
+uuid = { version = "1", features = ["v4"] }
+nom = "7"
+tracing = "0.1"
+serde = { version = "1.0.219", features = ["derive", "serde_derive"] }
+crc32c = "0.6.8"
+anyhow = "1.0.98"
+thiserror = "2.0.12"
+hex-literal = "1.0.0"
+hex = "0.4.3"
+bitflags = "2.9.1"
+md-5 = "0.10.0"
+hmac = "0.12.1"

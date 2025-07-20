@@ -1,0 +1,275 @@
+use std::fmt;
+
+use anyhow::{Context, Result};
+use hmac::{Hmac, Mac};
+use md5::Md5;
+
+use crate::{
+    client::client::Connection,
+    login::{request::LoginRequestBuilder, response::LoginResponse},
+};
+
+type HmacMd5 = Hmac<Md5>;
+
+bitflags::bitflags! {
+    #[derive(Clone, PartialEq)]
+    pub struct LoginFlags: u8 {
+        /// Transit bit (next stage)
+        const TRANSIT = 0x80;
+        /// Continue bit (more text)
+        const CONTINUE = 0x40;
+        /// Current Stage bits (bits 3-4)
+        const CSG_MASK = 0b0000_1100;
+        /// Next Stage bits (bits 0-1)
+        const NSG_MASK = 0b0000_0011;
+    }
+}
+
+impl fmt::Debug for LoginFlags {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut parts = Vec::new();
+
+        if self.contains(LoginFlags::TRANSIT) {
+            parts.push("TRANSIT");
+        }
+        if self.contains(LoginFlags::CONTINUE) {
+            parts.push("CONTINUE");
+        }
+
+        match (self.bits() & LoginFlags::CSG_MASK.bits()) >> 2 {
+            0 => {},
+            1 => parts.push("CSG=Operational"),
+            3 => parts.push("CSG=FullFeature"),
+            _ => parts.push("CSG=Unknown"),
+        }
+
+        match self.bits() & LoginFlags::NSG_MASK.bits() {
+            0 => {},
+            1 => parts.push("NSG=Operational"),
+            3 => parts.push("NSG=FullFeature"),
+            _ => parts.push("NSG=Unknown"),
+        }
+
+        write!(f, "LoginFlags({})", parts.join("|"))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(u8)]
+pub enum Stage {
+    Security = 0,
+    Operational = 1,
+    FullFeature = 3,
+}
+
+impl Stage {
+    pub fn from_bits(bits: u8) -> Option<Self> {
+        match bits & 0b11 {
+            0 => Some(Stage::Security),
+            1 => Some(Stage::Operational),
+            3 => Some(Stage::FullFeature),
+            _ => None,
+        }
+    }
+}
+
+/// Performs a plain-text login to the target by sending the initiator name and
+/// requesting no authentication.
+pub async fn login_plain(
+    conn: &mut Connection,
+    isid: [u8; 6],
+    initiator_name: &str,
+) -> Result<LoginResponse> {
+    let task_tag = 0;
+    let cmd_sn = 0;
+    let exp_stat_sn = 0;
+    let tsih = 0u16;
+
+    let req = LoginRequestBuilder::new(isid, tsih)
+        .transit()
+        .csg(Stage::Security)
+        .nsg(Stage::Operational)
+        .task_tag(task_tag)
+        .connection_id(1)
+        .cmd_sn(cmd_sn)
+        .exp_stat_sn(exp_stat_sn)
+        .with_data(
+            format!("InitiatorName={initiator_name}\x00")
+                .as_bytes()
+                .to_vec(),
+        )
+        .with_data(b"InitiatorAlias=iscsi-vm\x00".to_vec())
+        .with_data(b"TargetName=iqn.2025-07.com.example:target0\x00".to_vec())
+        .with_data(b"SessionType=Normal\x00".to_vec())
+        .with_data(b"AuthMethod=None\x00".to_vec())
+        .with_data(b"HeaderDigest=None\x00".to_vec())
+        .with_data(b"DataDigest=None\x00".to_vec());
+
+    let (hdr, _data, _dig) = conn.call::<_, LoginResponse>(req).await?;
+    Ok(hdr)
+}
+
+/// Performs the first CHAP authentication step by sending the initiator name
+/// and requesting a CHAP challenge from the target.
+async fn chap_step1(
+    conn: &mut Connection,
+    isid: [u8; 6],
+    tsih: u16,
+    task_tag: u32,
+    cmd_sn: u32,
+    exp_stat_sn: u32,
+    initiator_name: &str,
+) -> Result<(LoginResponse, Vec<u8>)> {
+    let req = LoginRequestBuilder::new(isid, tsih)
+        .transit()
+        .csg(Stage::Security)
+        .nsg(Stage::Operational)
+        .task_tag(task_tag)
+        .connection_id(1)
+        .cmd_sn(cmd_sn)
+        .exp_stat_sn(exp_stat_sn)
+        .with_data(
+            format!("InitiatorName={initiator_name}\x00")
+                .as_bytes()
+                .to_vec(),
+        )
+        .with_data(b"InitiatorAlias=iscsi-vm\x00".to_vec())
+        .with_data(b"TargetName=iqn.2025-07.com.example:target0\x00".to_vec())
+        .with_data(b"SessionType=Normal\x00".to_vec())
+        .with_data(b"AuthMethod=CHAP,None\x00".to_vec());
+    let (hdr, data, _dig) = conn.call::<_, LoginResponse>(req).await?;
+    println!("data: {:?}", String::from_utf8(data.to_vec())?);
+    Ok((hdr, data))
+}
+
+/// Extract CHAP_I and CHAP_N values from the target’s challenge string
+fn parse_chap_challenge(challenge_data: &[u8]) -> Result<(u8, Vec<u8>)> {
+    let txt = String::from_utf8(challenge_data.to_vec())?;
+    let mut chap_i = None;
+    let mut chap_n = None;
+    for kv in txt.split('\x00') {
+        let mut parts = kv.splitn(2, '=');
+        match (parts.next(), parts.next()) {
+            (Some("CHAP_I"), Some(v)) => chap_i = Some(v.parse()?),
+            (Some("CHAP_С"), Some(hex)) => chap_n = Some(hex::decode(hex)?),
+            _ => {},
+        }
+    }
+    let i = chap_i.context("missing CHAP_I")?;
+    let n = chap_n.context("missing CHAP_N")?;
+    Ok((i, n))
+}
+
+/// Step 2: send CHAP response (CHAP_A, CHAP_I, CHAP_R, UserName), return header
+#[allow(clippy::too_many_arguments)]
+async fn chap_step2(
+    conn: &mut Connection,
+    isid: [u8; 6],
+    tsih: u16,
+    task_tag: u32,
+    cmd_sn: u32,
+    exp_stat_sn: u32,
+    user: &str,
+    secret: &[u8],
+) -> Result<LoginResponse> {
+    let req = LoginRequestBuilder::new(isid, tsih)
+        .csg(Stage::Security)
+        .nsg(Stage::Operational)
+        .cont()
+        .task_tag(task_tag)
+        .connection_id(1)
+        .cmd_sn(cmd_sn)
+        .exp_stat_sn(exp_stat_sn)
+        .with_data(b"CHAP_A=5\x00".to_vec());
+    let (hdr, data, _dig) = conn.call::<_, LoginResponse>(req).await?;
+    println!("hrd: {hdr:?}, data: {data:?}");
+
+    let (chap_i, chap_n) = parse_chap_challenge(&data)?;
+
+    let mut mac = HmacMd5::new_from_slice(secret)?;
+    mac.update(&[chap_i]);
+    mac.update(&chap_n);
+    let chap_r = mac.finalize().into_bytes();
+
+    let req = LoginRequestBuilder::new(isid, tsih)
+        .csg(Stage::Security)
+        .nsg(Stage::Operational)
+        .cont()
+        .task_tag(task_tag)
+        .connection_id(1)
+        .cmd_sn(cmd_sn)
+        .exp_stat_sn(exp_stat_sn)
+        .with_data(format!("CHAP_N={user}\x00").as_bytes().to_vec())
+        .with_data(
+            format!("CHAP_R={}\x00", hex::encode(chap_r))
+                .as_bytes()
+                .to_vec(),
+        );
+    let (hdr, _data, _dig) = conn.call::<_, LoginResponse>(req).await?;
+    Ok(hdr)
+}
+
+/// Step 3: complete login → FullFeature
+async fn chap_step3(
+    conn: &mut Connection,
+    isid: [u8; 6],
+    hdr2: &LoginResponse,
+    task_tag: u32,
+) -> Result<LoginResponse> {
+    let req = LoginRequestBuilder::new(isid, hdr2.tsih)
+        .transit()
+        .csg(Stage::Operational)
+        .nsg(Stage::FullFeature)
+        .versions(hdr2.version_max, hdr2.version_active)
+        .task_tag(task_tag)
+        .connection_id(1)
+        .cmd_sn(hdr2.exp_cmd_sn)
+        .exp_stat_sn(hdr2.max_cmd_sn)
+        .with_login_parameters("");
+    let (hdr3, _data3, _dig3) = conn.call::<_, LoginResponse>(req).await?;
+    Ok(hdr3)
+}
+
+/// High‐level CHAP login flow
+pub async fn login_chap(
+    conn: &mut Connection,
+    isid: [u8; 6],
+    initiator_name: &str,
+    user: &str,
+    secret: &[u8],
+) -> Result<LoginResponse> {
+    let task_tag = 0;
+    let cmd_sn = 0;
+    let exp_stat_sn = 0;
+    let mut tsih = 0;
+
+    // 1) CHAP step 1
+    let (hdr1, _raw1) = chap_step1(
+        conn,
+        isid,
+        tsih,
+        task_tag,
+        cmd_sn,
+        exp_stat_sn,
+        initiator_name,
+    )
+    .await?;
+    tsih = hdr1.tsih;
+
+    // 4) CHAP step 2
+    let hdr2 = chap_step2(
+        conn,
+        isid,
+        tsih,
+        task_tag,
+        cmd_sn,
+        exp_stat_sn,
+        user,
+        secret,
+    )
+    .await?;
+
+    // 5) finalize into full feature
+    let hdr3 = chap_step3(conn, isid, &hdr2, task_tag).await?;
+    Ok(hdr3)
+}
