@@ -2,7 +2,7 @@ use anyhow::{Context, Result, anyhow};
 
 use crate::{
     client::pdu_connection::FromBytes,
-    login::{
+    models::login::{
         common::LoginFlags,
         status::{StatusClass, StatusDetail},
     },
@@ -41,7 +41,7 @@ impl LoginResponse {
     pub fn parse_bhs(buf: &[u8; 48]) -> Result<Self> {
         let raw_flags = buf[1];
         let flags = LoginFlags::from_bits(raw_flags)
-            .ok_or_else(|| anyhow!("invalid LoginFlags: {:#02x}", raw_flags))?;
+            .ok_or_else(|| anyhow!("invalid LoginFlags: {}", raw_flags))?;
 
         let mut data_segment_length = [0u8; 3];
         data_segment_length.copy_from_slice(&buf[5..8]);
@@ -103,7 +103,7 @@ impl LoginResponse {
     }
 
     /// Parsing PDU with DataSegment and Digest
-    pub fn parse(buf: &[u8]) -> Result<(Self, Vec<u8>, Option<usize>)> {
+    pub fn parse(buf: &[u8]) -> Result<(Self, Vec<u8>, Option<u32>)> {
         if buf.len() < Self::HEADER_LEN {
             return Err(anyhow!("Buffer too small for LoginResponse BHS"));
         }
@@ -122,22 +122,26 @@ impl LoginResponse {
         let data = buf[offset..offset + data_len].to_vec();
         offset += data_len;
 
-        let hd = if buf.len() >= offset + 4 {
-            Some(usize::from_be_bytes(
+        let pad = (4 - ((Self::HEADER_LEN + ahs_len + data_len) % 4)) % 4;
+        offset += pad;
+
+        let header_digest = if buf.len() >= offset + 4 {
+            let h = u32::from_be_bytes(
                 buf[offset..offset + 4]
                     .try_into()
-                    .context("Failed to get offset from buf")?,
-            ))
+                    .context("failed to parse header digest")?,
+            );
+            Some(h)
         } else {
             None
         };
 
-        Ok((header, data, hd))
+        Ok((header, data, header_digest))
     }
 }
 
 impl FromBytes for LoginResponse {
-    type Response = (Self, Vec<u8>, Option<usize>);
+    type Response = (Self, Vec<u8>, Option<u32>);
 
     const HEADER_LEN: usize = LoginResponse::HEADER_LEN;
 
@@ -162,6 +166,10 @@ impl FromBytes for LoginResponse {
     }
 
     fn from_bytes(buf: &[u8]) -> Result<Self::Response> {
+        /*println!(
+            "LoginResponse parse_bhs {} {} {} {}",
+            buf[0], buf[1], buf[2], buf[3]
+        );*/
         let (hdr, data, digest) = LoginResponse::parse(buf)?;
         Ok((hdr, data, digest))
     }

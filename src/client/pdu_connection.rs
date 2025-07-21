@@ -5,6 +5,7 @@ pub trait ToBytes<const HEADER_LEN: usize>: Sized {
     /// Consume the PDU builder or object and produce:
     /// - A fixed-size array of `HEADER_LEN` bytes representing the PDU header.
     /// - A `Vec<u8>` containing the variable-length data segment.
+    /// - A `Option<Vec<u8>>` containing the data-digest data segment.
     fn to_bytes(self) -> ([u8; HEADER_LEN], Vec<u8>);
 }
 
