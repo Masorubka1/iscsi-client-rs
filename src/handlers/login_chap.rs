@@ -82,7 +82,7 @@ async fn chap_step2(
         .cmd_sn(cmd_sn)
         .exp_stat_sn(exp_stat_sn)
         .with_data(b"CHAP_A=5\x00".to_vec());
-    let (hdr, data, _dig) = conn.call::<_, LoginResponse>(req).await?;
+    let (_hdr, data, _dig) = conn.call::<_, LoginResponse>(req).await?;
     //println!("hrd: {hdr:?}, data: {data:?}");
 
     let (chap_i, chap_n) = parse_chap_challenge(&data)?;
