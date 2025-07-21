@@ -2,7 +2,7 @@ use anyhow::{Context, Result, anyhow};
 
 use crate::{
     client::pdu_connection::ToBytes,
-    login::common::{LoginFlags, Stage},
+    models::login::common::{LoginFlags, Stage},
 };
 
 /// BHS form LoginRequest PDU
@@ -66,12 +66,10 @@ impl LoginRequest {
         let tsih = u16::from_be_bytes([buf[14], buf[15]]);
         let initiator_task_tag = u32::from_be_bytes(buf[16..20].try_into()?);
         let cid = u16::from_be_bytes(buf[20..22].try_into()?);
-        let mut reserved1 = [0u8; 2];
-        reserved1.copy_from_slice(&buf[22..24]);
+        // buf[22..24] -- reserved
         let cmd_sn = u32::from_be_bytes(buf[24..28].try_into()?);
         let exp_stat_sn = u32::from_be_bytes(buf[28..32].try_into()?);
-        let mut reserved2 = [0u8; 16];
-        reserved2.copy_from_slice(&buf[32..48]);
+        // buf[32..48] -- reserved
         Ok(LoginRequest {
             opcode,
             flags,
@@ -83,15 +81,16 @@ impl LoginRequest {
             tsih,
             initiator_task_tag,
             cid,
-            reserved1,
+            reserved1: [0u8; 2],
             cmd_sn,
             exp_stat_sn,
-            reserved2,
+            reserved2: [0u8; 16],
         })
     }
 }
 
 /// Builder Login Request
+#[derive(Debug)]
 pub struct LoginRequestBuilder {
     pub header: LoginRequest,
     pub data: Vec<u8>,
@@ -100,7 +99,7 @@ pub struct LoginRequestBuilder {
 impl LoginRequestBuilder {
     pub fn new(isid: [u8; 6], tsih: u16) -> Self {
         let header = LoginRequest {
-            opcode: 0x43,
+            opcode: 0x03 + (1 << 7),
             flags: LoginFlags::empty(),
             version_max: 0x00,
             version_min: 0x00,
@@ -215,6 +214,13 @@ impl LoginRequestBuilder {
 
 impl ToBytes<48> for LoginRequestBuilder {
     fn to_bytes(self) -> ([u8; 48], Vec<u8>) {
+        /*println!(
+            "LoginRequest parse_bhs {} {:?} {} {}",
+            self.header.opcode,
+            self.header.flags,
+            self.header.version_min,
+            self.header.version_max
+        );*/
         self.build()
     }
 }

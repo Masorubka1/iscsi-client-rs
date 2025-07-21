@@ -1,5 +1,3 @@
-use std::fmt;
-
 use anyhow::{Context, Result, bail};
 use hmac::{Hmac, Mac};
 use md5::Md5;
@@ -7,104 +5,17 @@ use md5::Md5;
 use crate::{
     cfg::config::{Auth, Config, ToLoginKeys},
     client::client::Connection,
-    login::{request::LoginRequestBuilder, response::LoginResponse},
+    models::login::{
+        common::Stage, request::LoginRequestBuilder, response::LoginResponse,
+    },
 };
 
 type HmacMd5 = Hmac<Md5>;
 
-bitflags::bitflags! {
-    #[derive(Clone, PartialEq)]
-    pub struct LoginFlags: u8 {
-        /// Transit bit (next stage)
-        const TRANSIT = 0x80;
-        /// Continue bit (more text)
-        const CONTINUE = 0x40;
-        /// Current Stage bits (bits 3-4)
-        const CSG_MASK = 0b0000_1100;
-        /// Next Stage bits (bits 0-1)
-        const NSG_MASK = 0b0000_0011;
-    }
-}
-
-impl fmt::Debug for LoginFlags {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut parts = Vec::new();
-
-        if self.contains(LoginFlags::TRANSIT) {
-            parts.push("TRANSIT");
-        }
-        if self.contains(LoginFlags::CONTINUE) {
-            parts.push("CONTINUE");
-        }
-
-        match (self.bits() & LoginFlags::CSG_MASK.bits()) >> 2 {
-            0 => {},
-            1 => parts.push("CSG=Operational"),
-            3 => parts.push("CSG=FullFeature"),
-            _ => parts.push("CSG=Unknown"),
-        }
-
-        match self.bits() & LoginFlags::NSG_MASK.bits() {
-            0 => {},
-            1 => parts.push("NSG=Operational"),
-            3 => parts.push("NSG=FullFeature"),
-            _ => parts.push("NSG=Unknown"),
-        }
-
-        write!(f, "LoginFlags({})", parts.join("|"))
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-#[repr(u8)]
-pub enum Stage {
-    Security = 0,
-    Operational = 1,
-    FullFeature = 3,
-}
-
-impl Stage {
-    pub fn from_bits(bits: u8) -> Option<Self> {
-        match bits & 0b11 {
-            0 => Some(Stage::Security),
-            1 => Some(Stage::Operational),
-            3 => Some(Stage::FullFeature),
-            _ => None,
-        }
-    }
-}
-
-/// Performs a plain-text login to the target by sending the initiator name and
-/// requesting no authentication.
-pub async fn login_plain(conn: &mut Connection, cfg: &Config) -> Result<LoginResponse> {
-    let mut req = LoginRequestBuilder::new(cfg.initiator.isid, 0u16)
-        .transit()
-        .csg(Stage::Security)
-        .nsg(Stage::Operational)
-        .connection_id(1)
-        .versions(cfg.negotiation.version_min, cfg.negotiation.version_max);
-
-    for key in cfg
-        .initiator
-        .to_login_keys()
-        .into_iter()
-        .chain(cfg.target.to_login_keys())
-        .chain(cfg.negotiation.to_login_keys())
-        .chain(cfg.auth.to_login_keys())
-    {
-        req = req.with_data(key.into_bytes());
-    }
-
-    req = req.with_data(cfg.extra_text.clone().into_bytes());
-
-    let (hdr, _data, _dig) = conn.call::<_, LoginResponse>(req).await?;
-    Ok(hdr)
-}
-
 /// Performs the first CHAP authentication step by sending the initiator name
 /// and requesting a CHAP challenge from the target.
 async fn chap_step1(
-    conn: &mut Connection,
+    conn: &Connection,
     cfg: &Config,
     tsih: u16,
     task_tag: u32,
@@ -131,7 +42,7 @@ async fn chap_step1(
         req = req.with_data(key.into_bytes());
     }
     let (hdr, data, _dig) = conn.call::<_, LoginResponse>(req).await?;
-    println!("data: {:?}", String::from_utf8(data.to_vec())?);
+    //println!("data: {:?}", String::from_utf8(data.to_vec())?);
     Ok((hdr, data))
 }
 
@@ -155,7 +66,7 @@ fn parse_chap_challenge(challenge_data: &[u8]) -> Result<(u8, Vec<u8>)> {
 
 /// Step 2: send CHAP response (CHAP_A, CHAP_I, CHAP_R, UserName), return header
 async fn chap_step2(
-    conn: &mut Connection,
+    conn: &Connection,
     cfg: &Config,
     tsih: u16,
     task_tag: u32,
@@ -172,7 +83,7 @@ async fn chap_step2(
         .exp_stat_sn(exp_stat_sn)
         .with_data(b"CHAP_A=5\x00".to_vec());
     let (hdr, data, _dig) = conn.call::<_, LoginResponse>(req).await?;
-    println!("hrd: {hdr:?}, data: {data:?}");
+    //println!("hrd: {hdr:?}, data: {data:?}");
 
     let (chap_i, chap_n) = parse_chap_challenge(&data)?;
 
@@ -206,7 +117,7 @@ async fn chap_step2(
 
 /// Step 3: complete login → FullFeature
 async fn chap_step3(
-    conn: &mut Connection,
+    conn: &Connection,
     cfg: &Config,
     hdr2: &LoginResponse,
 ) -> Result<LoginResponse> {
@@ -224,7 +135,7 @@ async fn chap_step3(
 }
 
 /// High‐level CHAP login flow
-pub async fn login_chap(conn: &mut Connection, cfg: &Config) -> Result<LoginResponse> {
+pub async fn login_chap(conn: &Connection, cfg: &Config) -> Result<LoginResponse> {
     let (hdr1, _raw1) = chap_step1(conn, cfg, 0, 0, 0, 0).await?;
 
     let hdr2 = chap_step2(
