@@ -20,7 +20,7 @@ jobs:
           components: clippy, rustfmt
 
       - name: rustfmt check
-        run: cargo fmt -- --check
+        run: cargo +nightly fmt -- --check
 
       - name: clippy check
         run: cargo clippy --tests --examples --benches --no-deps --all-targets -- -D warnings
