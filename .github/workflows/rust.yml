@@ -16,7 +16,7 @@ jobs:
       - name: Install Rust toolchain
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: stable
+          toolchain: nightly
           components: clippy, rustfmt
 
       - name: rustfmt check
@@ -34,7 +34,7 @@ jobs:
       - name: Install Rust toolchain
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: stable
+          toolchain: nightly
 
       - name: Run tests
         run: cargo test --tests --no-fail-fast --verbose
