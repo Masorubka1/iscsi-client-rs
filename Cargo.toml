@@ -2,6 +2,12 @@
 name = "iscsi-client-rs"
 version = "0.0.1"
 edition = "2024"
+description = "A pure-Rust iSCSI initiator library and CLI"
+license = "MIT"
+repository = "https://github.com/Masorubka1/iscsI-client-rs.git"
+homepage = "https://github.com/Masorubka1/iscsI-client-rs.git"
+documentation = "https://docs.rs/iscsi-client-rs"
+keywords = ["iscsi", "storage", "async", "tokio"]
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
