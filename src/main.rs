@@ -1,12 +1,13 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use anyhow::{Context, Result};
 use iscsi_client_rs::{
     cfg::{cli::resolve_config_path, config::Config},
     client::client::Connection,
-    handlers::login_simple::login_plain,
+    handlers::{login_simple::login_plain, nop_handler::send_nop},
+    models::nop::request_response::NopInOut,
 };
-use tokio::main;
+use tokio::{main, time};
 
 #[main]
 async fn main() -> Result<()> {
@@ -20,7 +21,7 @@ async fn main() -> Result<()> {
     let login_rsp = login_plain(&conn, &config).await?;
     println!("Res1: {login_rsp:?}");
 
-    /*let mut cmd_sn = login_rsp.exp_cmd_sn;
+    let mut cmd_sn = login_rsp.exp_cmd_sn;
     let mut exp_stat_sn = login_rsp.max_cmd_sn;
 
     let hb_conn = conn.clone();
@@ -40,13 +41,13 @@ async fn main() -> Result<()> {
                 .await
             };
             match result {
-                Ok((hdr, _data, _dig)) => {
-                    println!("[heartbeat] got NOP-In: {:?}", hdr);
+                Ok((hdr, data, _dig)) => {
+                    println!("[heartbeat] got NOP-In: {hdr:?}\n\n {data:?}");
                     cmd_sn = hdr.exp_stat_sn;
                     exp_stat_sn = hdr.cmd_sn.wrapping_add(1);
                 },
                 Err(e) => {
-                    eprintln!("[heartbeat] NOP failed: {}", e);
+                    eprintln!("[heartbeat] NOP failed: {e}");
                 },
             }
 
@@ -55,7 +56,7 @@ async fn main() -> Result<()> {
         }
     });
 
-    time::sleep(Duration::from_secs(20)).await;*/
+    time::sleep(Duration::from_secs(40)).await;
 
     Ok(())
 }

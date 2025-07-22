@@ -1,13 +1,16 @@
 use anyhow::{Context, Result, anyhow};
 use crc::{CRC_32_ISCSI, Crc};
 
-use crate::client::pdu_connection::{FromBytes, ToBytes};
+use crate::{
+    client::pdu_connection::{FromBytes, ToBytes},
+    models::nop::common::NopFlags,
+};
 
 /// BHS for NopOutRequest PDU
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct NopInOut {
-    pub opcode: u8, // always 0x00(Out) && 0x20(In) by RFC
+    pub opcode: NopFlags, // always 0x00(Out) && 0x20(In) by RFC
     reserved1: [u8; 3],
     pub total_ahs_length: u8,
     pub data_segment_length: [u8; 3],
@@ -27,8 +30,11 @@ impl NopInOut {
     /// Serialize BHS in 48 bytes
     pub fn to_bhs_bytes(&self) -> [u8; Self::HEADER_LEN] {
         let mut buf = [0u8; Self::HEADER_LEN];
-        buf[0] = self.opcode;
+        buf[0] = self.opcode.bits();
         // buf[1..4] -- reserved
+        // we copy cause in doc 7 bit always 1
+        buf[1..4].copy_from_slice(&self.reserved1);
+
         buf[4] = self.total_ahs_length;
         buf[5..8].copy_from_slice(&self.data_segment_length);
         buf[8..16].copy_from_slice(&self.lun);
@@ -45,8 +51,14 @@ impl NopInOut {
         if buf.len() < Self::HEADER_LEN {
             return Err(anyhow!("buffer too small"));
         }
-        let opcode = buf[0];
+        let opcode = NopFlags::from_bits(buf[0])
+            .ok_or_else(|| anyhow!("invalid LoginFlags: {}", buf[0]))?;
         // buf[1..4] -- reserved
+        let reserved1 = {
+            let mut tmp = [0u8; 3];
+            tmp[0] |= 1 << 7; // cause in doc 7 bit always 1
+            tmp
+        };
         let total_ahs_length = buf[4];
         let data_segment_length = [buf[5], buf[6], buf[7]];
         let mut lun = [0u8; 8];
@@ -59,7 +71,7 @@ impl NopInOut {
         let header_digest = u32::from_be_bytes(buf[44..48].try_into()?);
         Ok(NopInOut {
             opcode,
-            reserved1: [0u8; 3],
+            reserved1,
             total_ahs_length,
             lun,
             data_segment_length,
@@ -135,8 +147,12 @@ impl NopOutRequestBuilder {
         exp_stat_sn: u32,
     ) -> Self {
         let header = NopInOut {
-            opcode: 0x00,
-            reserved1: [0; 3],
+            opcode: NopFlags::empty(),
+            reserved1: {
+                let mut tmp = [0; 3];
+                tmp[0] |= 1 << 7;
+                tmp
+            },
             total_ahs_length: 0,
             data_segment_length: [0; 3],
             lun,
@@ -155,19 +171,19 @@ impl NopOutRequestBuilder {
         }
     }
 
-    /// Set I (I = bit7)
+    /// Set Ping bit (Ping = bit6)
     pub fn ping(mut self) -> Self {
-        self.header.opcode ^= 1 << 7;
+        self.header.opcode.insert(NopFlags::PING);
         self
     }
 
-    /// Enable HeaderDigest (I-bit у NOP-Out).
+    /// Enable HeaderDigest in NOP-Out.
     pub fn with_header_digest(mut self) -> Self {
         self.want_header_digest = true;
         self
     }
 
-    /// Enable DataDigest (D-bit у NOP-Out).
+    /// Enable DataDigest in NOP-Out.
     pub fn with_data_digest(mut self) -> Self {
         self.want_data_digest = true;
         self

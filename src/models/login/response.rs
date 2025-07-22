@@ -94,12 +94,16 @@ impl LoginResponse {
     }
 
     pub fn data_length_bytes(&self) -> usize {
-        u32::from_be_bytes([
+        let data_size = u32::from_be_bytes([
             0,
             self.data_segment_length[0],
             self.data_segment_length[1],
             self.data_segment_length[2],
-        ]) as usize
+        ]) as usize;
+
+        let pad = (4 - (data_size % 4)) % 4;
+        // WTF? SHOULD BE 0....
+        if data_size == 0 { 4 } else { data_size + pad }
     }
 
     /// Parsing PDU with DataSegment and Digest
@@ -121,9 +125,6 @@ impl LoginResponse {
         }
         let data = buf[offset..offset + data_len].to_vec();
         offset += data_len;
-
-        let pad = (4 - ((Self::HEADER_LEN + ahs_len + data_len) % 4)) % 4;
-        offset += pad;
 
         let header_digest = if buf.len() >= offset + 4 {
             let h = u32::from_be_bytes(
@@ -154,13 +155,8 @@ impl FromBytes for LoginResponse {
         b.copy_from_slice(&header[..48]);
         let hdr = LoginResponse::parse_bhs(&b)?;
 
-        let ahs_len = hdr.total_ahs_length as usize;
-        let data_len = u32::from_be_bytes([
-            0,
-            hdr.data_segment_length[0],
-            hdr.data_segment_length[1],
-            hdr.data_segment_length[2],
-        ]) as usize;
+        let ahs_len = hdr.ahs_length_bytes();
+        let data_len = hdr.data_length_bytes();
 
         Ok(Self::HEADER_LEN + ahs_len + data_len)
     }

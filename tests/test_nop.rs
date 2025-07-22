@@ -1,5 +1,17 @@
+use std::fs;
+
+use anyhow::Result;
+use hex::FromHex;
+use iscsi_client_rs::{
+    client::pdu_connection::ToBytes,
+    models::nop::{
+        common::NopFlags,
+        request_response::{NopInOut, NopOutRequestBuilder},
+    },
+};
+
 // Helper to load a hex fixture and decode it to a byte vector.
-/*fn load_fixture(path: &str) -> Result<Vec<u8>> {
+fn load_fixture(path: &str) -> Result<Vec<u8>> {
     let s = fs::read_to_string(path)?;
     let cleaned = s.trim().replace(|c: char| c.is_whitespace(), "");
     Ok(Vec::from_hex(&cleaned)?)
@@ -11,39 +23,10 @@ fn test_nop_out_minimal() -> Result<()> {
     assert_eq!(bytes.len(), 48);
 
     let lun = [0u8; 8];
-    let itt = 0x0A0B0C0D;
-    let ttt = NopInOut::DEFAULT_TAG;
-    let cmd_sn = 287454020;
-    let exp_sn = 1432778632;
-
-    let builder = NopOutRequestBuilder::new(lun, itt, ttt, exp_sn)
-        .cmd_sn(cmd_sn)
-        .exp_stat_sn(exp_sn);
-
-    let expected = NopInOut::from_bhs_bytes(&bytes)?;
-
-    assert_eq!(&builder.header, &expected, "PDU bytes do not match fixture");
-
-    let (hdr, data) = builder.to_bytes();
-    assert!(data.is_empty());
-
-    println!("Header: {}", hdr.encode_hex::<String>());
-    println!("Body:   {}", data.encode_hex::<String>());
-
-    assert_eq!(&hdr[..], &bytes[..48], "NOP-OUT ping header mismatch");
-    Ok(())
-}
-
-#[test]
-fn test_nop_out_builder_with_ping() -> Result<()> {
-    let bytes = load_fixture("tests/fixtures/nop_out_request_ping.hex")?;
-    assert_eq!(bytes.len(), 48);
-
-    let lun = [0u8; 8];
-    let itt = 0x0A0B0C0D;
-    let ttt = NopInOut::DEFAULT_TAG;
-    let cmd_sn = 0x11223344;
-    let exp_sn = 0x55667788;
+    let itt = NopInOut::DEFAULT_TAG;
+    let ttt = 189;
+    let cmd_sn = 191;
+    let exp_sn = 3699214689;
 
     let builder = NopOutRequestBuilder::new(lun, itt, ttt, exp_sn)
         .cmd_sn(cmd_sn)
@@ -56,6 +39,9 @@ fn test_nop_out_builder_with_ping() -> Result<()> {
 
     let (hdr, data) = builder.to_bytes();
     assert!(data.is_empty());
+
+    //println!("Header: {}", hdr.encode_hex::<String>());
+    //println!("Body:   {}", data.encode_hex::<String>());
 
     assert_eq!(&hdr[..], &bytes[..48], "NOP-OUT ping header mismatch");
     Ok(())
@@ -70,14 +56,18 @@ fn test_nop_in_parse() -> Result<()> {
     assert!(data.is_empty());
     assert!(digest.is_none());
 
-    assert_eq!(parsed.opcode & 0x7F, 0x19, "expected NOP-IN opcode 0x19");
-    assert_eq!(parsed.cmd_sn, 0xCAFEBABE);
-    assert_eq!(parsed.exp_stat_sn, 0xDEADC0DE);
+    assert_eq!(
+        parsed.opcode.bits(),
+        NopFlags::NOP_IN.bits(),
+        "expected NOP-IN opcode 0x20"
+    );
+    assert_eq!(parsed.cmd_sn, 3699214689);
+    assert_eq!(parsed.exp_stat_sn, 191);
 
     Ok(())
 }
 
-#[test]
+/*#[test]
 fn test_nop_out_header_digest() -> Result<()> {
     let expected = load_fixture("tests/fixtures/nop_out_request_crc_header.hex")?;
     assert_eq!(expected.len(), 48);
@@ -124,5 +114,4 @@ fn test_nop_out_data_digest() -> Result<()> {
 
     assert_eq!(&actual[..], &expected[..], "data-digest mismatch");
     Ok(())
-}
-*/
+}*/

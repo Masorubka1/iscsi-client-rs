@@ -40,7 +40,6 @@ impl Connection {
             if !out_data.is_empty() {
                 socket.write_all(&out_data).await?;
             }
-            //println!("send {} {}", out_header.len(), out_data.len());
         }
 
         // get
@@ -51,7 +50,7 @@ impl Connection {
 
             let total_len = Res::peek_total_len(&header_buf)?;
 
-            let mut rest = vec![0u8; total_len - Res::HEADER_LEN + 1];
+            let mut rest = vec![0u8; total_len - Res::HEADER_LEN];
             socket.read_exact(&mut rest).await?;
             (header_buf, rest)
         };
