@@ -2,14 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
-## \[Unreleased]
+## [Unreleased]
 
-* Refactor flag handling in `LoginFlags` (bitflags, custom Debug)
-* Improve BHS/DataSegment padding and length calculations in `LoginRequestBuilder`
-* Enhance `LoginResponse` parsing: support for StatusClass/StatusDetail enums
-* Split CHAP login sequence into reusable helper functions
-* Add HMAC-MD5 CHAP authentication support
-* Expose full data segment and optional digest via `FromBytes` trait
+* Add NOP-Out / NOP-In support: `NopOutRequestBuilder`, `NopInOut` parsing, ping flag, data/header-digest options
+* Introduce `PduResponse` enum and first-class Reject–PDU handling in `Connection::call`
+* Refactor `FromBytes` to return optional digest (u32) and unify digest handling
+* Implement `Opcode` / `BhsOpcode` with top-bit flag masking (I/F bits)
+* Expand `LoginFlags` & `ToLoginKeys` traits; improve YAML config support (Auth enum, ISID deserializer)
+* Add `BasicHeaderSegment` / `Pdu` traits for common PDU logic, BHS-length & data-length plumbing
+* Expose header-digest & data-digest support on both Login and NOP PDUs via CRC-32 iSCSI
+* Refactor `Connection` to use `Mutex<TcpStream>` and dynamic header read for 48- vs 52-byte PDUs
+* Unit tests for NOP and Reject PDUs and for full end-to-end login + heartbeat loops
 
 ## \[0.1.0] - 2025-07-20
 

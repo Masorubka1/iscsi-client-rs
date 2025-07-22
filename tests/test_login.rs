@@ -8,10 +8,13 @@ use iscsi_client_rs::{
         config::{Config, ToLoginKeys},
     },
     client::pdu_connection::ToBytes,
-    models::login::{
-        common::Stage,
-        request::{LoginRequest, LoginRequestBuilder},
-        response::LoginResponse,
+    models::{
+        common::Builder,
+        login::{
+            common::Stage,
+            request::{LoginRequest, LoginRequestBuilder},
+            response::LoginResponse,
+        },
     },
 };
 
@@ -45,9 +48,9 @@ fn test_login_request() -> Result<()> {
         .chain(cfg.auth.to_login_keys())
         .chain(cfg.performance.to_login_keys())
     {
-        builder = builder.with_data(key.into_bytes());
+        builder = builder.append_data(key.into_bytes());
     }
-    builder = builder.with_data(cfg.extra_text.into_bytes());
+    builder = builder.append_data(cfg.extra_text.into_bytes());
 
     assert_eq!(builder.header, expected, "PDU bytes do not match fixture");
 
@@ -82,9 +85,9 @@ fn test_login_body_only() -> Result<()> {
         .chain(cfg.auth.to_login_keys())
         .chain(cfg.performance.to_login_keys())
     {
-        builder = builder.with_data(key.into_bytes());
+        builder = builder.append_data(key.into_bytes());
     }
-    builder = builder.with_data(cfg.extra_text.into_bytes());
+    builder = builder.append_data(cfg.extra_text.into_bytes());
 
     let (_hdr, body) = builder.to_bytes();
     assert_eq!(&body[..], expected_body);
@@ -112,9 +115,9 @@ fn test_login_response_echo() -> Result<()> {
         .chain(cfg.auth.to_login_keys())
         .chain(cfg.performance.to_login_keys())
     {
-        req_builder = req_builder.with_data(key.into_bytes());
+        req_builder = req_builder.append_data(key.into_bytes());
     }
-    req_builder = req_builder.with_data(cfg.extra_text.into_bytes());
+    req_builder = req_builder.append_data(cfg.extra_text.into_bytes());
 
     let hex_str = fs::read_to_string("tests/fixtures/login_response.hex")?
         .trim()

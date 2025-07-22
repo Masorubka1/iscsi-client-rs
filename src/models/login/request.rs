@@ -2,14 +2,18 @@ use anyhow::{Context, Result, anyhow};
 
 use crate::{
     client::pdu_connection::ToBytes,
-    models::login::common::{LoginFlags, Stage},
+    models::{
+        common::{BasicHeaderSegment, Builder},
+        login::common::{LoginFlags, Stage},
+        opcode::{BhsOpcode, IfFlags, Opcode},
+    },
 };
 
 /// BHS form LoginRequest PDU
 #[repr(C)]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct LoginRequest {
-    pub opcode: u8, // always 0x03 by RFC
+    pub opcode: BhsOpcode,
     pub flags: LoginFlags,
     pub version_max: u8,
     pub version_min: u8,
@@ -33,7 +37,7 @@ impl LoginRequest {
     /// Serialize BHS in 48 bytes
     pub fn to_bhs_bytes(&self) -> [u8; Self::HEADER_LEN] {
         let mut buf = [0u8; Self::HEADER_LEN];
-        buf[0] = self.opcode;
+        buf[0] = self.opcode.clone().into();
         buf[1] = self.flags.bits();
         buf[2] = self.version_max;
         buf[3] = self.version_min;
@@ -54,7 +58,7 @@ impl LoginRequest {
         if buf.len() < Self::HEADER_LEN {
             return Err(anyhow!("buffer too small"));
         }
-        let opcode = buf[0];
+        let opcode = buf[0].try_into()?;
         let flags = LoginFlags::from_bits(buf[1])
             .context(format!("failed to set all bits {}", buf[1]))?;
         let version_max = buf[2];
@@ -89,6 +93,28 @@ impl LoginRequest {
     }
 }
 
+impl BasicHeaderSegment for LoginRequest {
+    fn get_opcode(&self) -> BhsOpcode {
+        self.opcode.clone()
+    }
+
+    fn ahs_length_bytes(&self) -> usize {
+        (self.total_ahs_length as usize) * 4
+    }
+
+    fn data_length_bytes(&self) -> usize {
+        let data_size = u32::from_be_bytes([
+            0,
+            self.data_segment_length[0],
+            self.data_segment_length[1],
+            self.data_segment_length[2],
+        ]) as usize;
+
+        let pad = (4 - (data_size % 4)) % 4;
+        data_size + pad
+    }
+}
+
 /// Builder Login Request
 #[derive(Debug)]
 pub struct LoginRequestBuilder {
@@ -99,7 +125,10 @@ pub struct LoginRequestBuilder {
 impl LoginRequestBuilder {
     pub fn new(isid: [u8; 6], tsih: u16) -> Self {
         let header = LoginRequest {
-            opcode: 0x03 + (1 << 7),
+            opcode: BhsOpcode {
+                flags: IfFlags::I,
+                opcode: Opcode::LoginReq,
+            },
             flags: LoginFlags::empty(),
             version_max: 0x00,
             version_min: 0x00,
@@ -160,7 +189,7 @@ impl LoginRequestBuilder {
     }
 
     /// Sets the initiator task tag, a unique identifier for this command.
-    pub fn task_tag(mut self, tag: u32) -> Self {
+    pub fn initiator_task_tag(mut self, tag: u32) -> Self {
         self.header.initiator_task_tag = tag;
         self
     }
@@ -182,7 +211,9 @@ impl LoginRequestBuilder {
         self.header.exp_stat_sn = sn;
         self
     }
+}
 
+impl Builder for LoginRequestBuilder {
     /// Appends raw bytes to the Data Segment and updates its length field.
     fn append_data(mut self, more: Vec<u8>) -> Self {
         self.data.extend_from_slice(&more);
@@ -193,18 +224,8 @@ impl LoginRequestBuilder {
         self
     }
 
-    /// Adds a null-terminated ASCII key=value string to the Data Segment.
-    pub fn with_login_parameters(self, kv: &str) -> Self {
-        self.append_data(kv.as_bytes().to_vec())
-    }
-
-    /// Adds arbitrary binary data to the Data Segment.
-    pub fn with_data(self, data: Vec<u8>) -> Self {
-        self.append_data(data)
-    }
-
     /// Build finnal PDU (BHS + DataSegment)
-    fn build(mut self) -> ([u8; 48], Vec<u8>) {
+    fn build(mut self) -> ([u8; LoginRequest::HEADER_LEN], Vec<u8>) {
         let pad = (4 - (self.data.len() % 4)) % 4;
         self.data.extend(std::iter::repeat_n(0, pad));
 
@@ -214,13 +235,6 @@ impl LoginRequestBuilder {
 
 impl ToBytes<48> for LoginRequestBuilder {
     fn to_bytes(self) -> ([u8; 48], Vec<u8>) {
-        /*println!(
-            "LoginRequest parse_bhs {} {:?} {} {}",
-            self.header.opcode,
-            self.header.flags,
-            self.header.version_min,
-            self.header.version_max
-        );*/
         self.build()
     }
 }

@@ -14,9 +14,6 @@ pub trait FromBytes: Sized {
     /// The fixed length of the PDU header in bytes.
     const HEADER_LEN: usize;
 
-    /// The associated response type returned by `from_bytes`.
-    type Response;
-
     /// Given only the header bytes, inspect them to determine
     /// the total length of the entire PDU (header + payload + optional digest).
     ///
@@ -28,5 +25,5 @@ pub trait FromBytes: Sized {
     ///
     /// The parsed `Response` (often a tuple of header struct, payload bytes,
     /// and digest), or an error if parsing fails.
-    fn from_bytes(buf: &[u8]) -> Result<Self::Response>;
+    fn from_bytes(buf: &[u8]) -> Result<(Self, Vec<u8>, Option<u32>)>;
 }

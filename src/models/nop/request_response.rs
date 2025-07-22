@@ -1,16 +1,18 @@
 use anyhow::{Context, Result, anyhow};
-use crc::{CRC_32_ISCSI, Crc};
 
 use crate::{
     client::pdu_connection::{FromBytes, ToBytes},
-    models::nop::common::NopFlags,
+    models::{
+        common::{BasicHeaderSegment, Builder},
+        opcode::{BhsOpcode, IfFlags, Opcode},
+    },
 };
 
 /// BHS for NopOutRequest PDU
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct NopInOut {
-    pub opcode: NopFlags, // always 0x00(Out) && 0x20(In) by RFC
+    pub opcode: BhsOpcode, // always 0x00(Out) && 0x20(In) by RFC
     reserved1: [u8; 3],
     pub total_ahs_length: u8,
     pub data_segment_length: [u8; 3],
@@ -30,11 +32,9 @@ impl NopInOut {
     /// Serialize BHS in 48 bytes
     pub fn to_bhs_bytes(&self) -> [u8; Self::HEADER_LEN] {
         let mut buf = [0u8; Self::HEADER_LEN];
-        buf[0] = self.opcode.bits();
-        // buf[1..4] -- reserved
-        // we copy cause in doc 7 bit always 1
+        buf[0] = self.opcode.clone().into();
+        // finnal bit
         buf[1..4].copy_from_slice(&self.reserved1);
-
         buf[4] = self.total_ahs_length;
         buf[5..8].copy_from_slice(&self.data_segment_length);
         buf[8..16].copy_from_slice(&self.lun);
@@ -51,12 +51,11 @@ impl NopInOut {
         if buf.len() < Self::HEADER_LEN {
             return Err(anyhow!("buffer too small"));
         }
-        let opcode = NopFlags::from_bits(buf[0])
-            .ok_or_else(|| anyhow!("invalid LoginFlags: {}", buf[0]))?;
+        let opcode = BhsOpcode::try_from(buf[0])?;
         // buf[1..4] -- reserved
         let reserved1 = {
             let mut tmp = [0u8; 3];
-            tmp[0] |= 1 << 7; // cause in doc 7 bit always 1
+            tmp[0] = IfFlags::I.bits();
             tmp
         };
         let total_ahs_length = buf[4];
@@ -98,7 +97,7 @@ impl NopInOut {
     }
 
     /// Parsing PDU with DataSegment and Digest
-    pub fn parse(buf: &[u8]) -> Result<(Self, Vec<u8>, Option<usize>)> {
+    pub fn parse(buf: &[u8]) -> Result<(Self, Vec<u8>, Option<u32>)> {
         if buf.len() < Self::HEADER_LEN {
             return Err(anyhow!("Buffer too small for LoginResponse BHS"));
         }
@@ -118,7 +117,7 @@ impl NopInOut {
         offset += data_len;
 
         let hd = if buf.len() >= offset + 4 {
-            Some(usize::from_be_bytes(
+            Some(u32::from_be_bytes(
                 buf[offset..offset + 4]
                     .try_into()
                     .context("Failed to get offset from buf")?,
@@ -147,10 +146,13 @@ impl NopOutRequestBuilder {
         exp_stat_sn: u32,
     ) -> Self {
         let header = NopInOut {
-            opcode: NopFlags::empty(),
+            opcode: BhsOpcode {
+                flags: IfFlags::empty(),
+                opcode: Opcode::NopOut,
+            },
             reserved1: {
                 let mut tmp = [0; 3];
-                tmp[0] |= 1 << 7;
+                tmp[0] = IfFlags::I.bits();
                 tmp
             },
             total_ahs_length: 0,
@@ -173,7 +175,7 @@ impl NopOutRequestBuilder {
 
     /// Set Ping bit (Ping = bit6)
     pub fn ping(mut self) -> Self {
-        self.header.opcode.insert(NopFlags::PING);
+        self.header.opcode.flags.insert(IfFlags::F);
         self
     }
 
@@ -212,7 +214,9 @@ impl NopOutRequestBuilder {
         self.header.exp_stat_sn = sn;
         self
     }
+}
 
+impl Builder for NopOutRequestBuilder {
     /// Appends raw bytes to the Data Segment and updates its length field.
     fn append_data(mut self, more: Vec<u8>) -> Self {
         self.data.extend_from_slice(&more);
@@ -223,36 +227,12 @@ impl NopOutRequestBuilder {
         self
     }
 
-    /// Adds a null-terminated ASCII key=value string to the Data Segment.
-    pub fn with_login_parameters(self, kv: &str) -> Self {
-        self.append_data(kv.as_bytes().to_vec())
-    }
-
-    /// Adds arbitrary binary data to the Data Segment.
-    pub fn with_data(self, data: Vec<u8>) -> Self {
-        self.append_data(data)
-    }
-
     /// Build finnal PDU (BHS + DataSegment)
-    fn build(mut self) -> ([u8; 48], Vec<u8>) {
+    fn build(mut self) -> ([u8; NopInOut::HEADER_LEN], Vec<u8>) {
         let pad = (4 - (self.data.len() % 4)) % 4;
         self.data.extend(std::iter::repeat_n(0, pad));
 
-        let crc_obj = Crc::<u32>::new(&CRC_32_ISCSI);
-
-        if self.want_data_digest {
-            let crc = crc_obj.checksum(&self.data);
-            self.data.extend_from_slice(&crc.to_be_bytes());
-        }
-
-        let mut bhs = self.header.to_bhs_bytes();
-        if self.want_header_digest {
-            let crc = crc_obj.checksum(&bhs);
-            // записываем в поле header_digest (байты 44–47)
-            bhs[44..48].copy_from_slice(&crc.to_be_bytes());
-        }
-
-        (bhs, self.data)
+        (self.header.to_bhs_bytes(), self.data)
     }
 }
 
@@ -262,9 +242,29 @@ impl ToBytes<48> for NopOutRequestBuilder {
     }
 }
 
-impl FromBytes for NopInOut {
-    type Response = (Self, Vec<u8>, Option<usize>);
+impl BasicHeaderSegment for NopInOut {
+    fn get_opcode(&self) -> BhsOpcode {
+        self.opcode.clone()
+    }
 
+    fn ahs_length_bytes(&self) -> usize {
+        (self.total_ahs_length as usize) * 4
+    }
+
+    fn data_length_bytes(&self) -> usize {
+        let data_size = u32::from_be_bytes([
+            0,
+            self.data_segment_length[0],
+            self.data_segment_length[1],
+            self.data_segment_length[2],
+        ]) as usize;
+
+        let pad = (4 - (data_size % 4)) % 4;
+        data_size + pad
+    }
+}
+
+impl FromBytes for NopInOut {
     const HEADER_LEN: usize = NopInOut::HEADER_LEN;
 
     fn peek_total_len(header: &[u8]) -> Result<usize> {
@@ -287,7 +287,7 @@ impl FromBytes for NopInOut {
         Ok(Self::HEADER_LEN + ahs_len + data_len)
     }
 
-    fn from_bytes(buf: &[u8]) -> Result<Self::Response> {
+    fn from_bytes(buf: &[u8]) -> Result<(Self, Vec<u8>, Option<u32>)> {
         let (hdr, data, digest) = NopInOut::parse(buf)?;
         Ok((hdr, data, digest))
     }

@@ -4,9 +4,9 @@ use anyhow::Result;
 use hex::FromHex;
 use iscsi_client_rs::{
     client::pdu_connection::ToBytes,
-    models::nop::{
-        common::NopFlags,
-        request_response::{NopInOut, NopOutRequestBuilder},
+    models::{
+        nop::request_response::{NopInOut, NopOutRequestBuilder},
+        opcode::{BhsOpcode, IfFlags, Opcode},
     },
 };
 
@@ -57,8 +57,11 @@ fn test_nop_in_parse() -> Result<()> {
     assert!(digest.is_none());
 
     assert_eq!(
-        parsed.opcode.bits(),
-        NopFlags::NOP_IN.bits(),
+        parsed.opcode,
+        BhsOpcode {
+            flags: IfFlags::empty(),
+            opcode: Opcode::NopIn,
+        },
         "expected NOP-IN opcode 0x20"
     );
     assert_eq!(parsed.cmd_sn, 3699214689);
