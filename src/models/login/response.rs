@@ -2,9 +2,13 @@ use anyhow::{Context, Result, anyhow};
 
 use crate::{
     client::pdu_connection::FromBytes,
-    models::login::{
-        common::LoginFlags,
-        status::{StatusClass, StatusDetail},
+    models::{
+        common::BasicHeaderSegment,
+        login::{
+            common::LoginFlags,
+            status::{StatusClass, StatusDetail},
+        },
+        opcode::BhsOpcode,
     },
 };
 
@@ -12,7 +16,7 @@ use crate::{
 #[repr(C)]
 #[derive(Debug, PartialEq)]
 pub struct LoginResponse {
-    pub opcode: u8, // 0x23 always according rfc
+    pub opcode: BhsOpcode, // 0x23 always according rfc
     pub flags: LoginFlags,
     pub version_max: u8,
     pub version_active: u8,
@@ -38,7 +42,7 @@ impl LoginResponse {
     pub const HEADER_LEN: usize = 48;
 
     /// Parsing only BHS LoginResponse (48 bytes)
-    pub fn parse_bhs(buf: &[u8; 48]) -> Result<Self> {
+    pub fn parse_bhs(buf: &[u8; Self::HEADER_LEN]) -> Result<Self> {
         let raw_flags = buf[1];
         let flags = LoginFlags::from_bits(raw_flags)
             .ok_or_else(|| anyhow!("invalid LoginFlags: {}", raw_flags))?;
@@ -56,7 +60,7 @@ impl LoginResponse {
             })?;
 
         Ok(LoginResponse {
-            opcode: buf[0],
+            opcode: buf[0].try_into()?,
             flags,
             version_max: buf[2],
             version_active: buf[3],
@@ -87,23 +91,6 @@ impl LoginResponse {
                 .try_into()
                 .context("failed to get reserved data")?,
         })
-    }
-
-    pub fn ahs_length_bytes(&self) -> usize {
-        (self.total_ahs_length as usize) * 4
-    }
-
-    pub fn data_length_bytes(&self) -> usize {
-        let data_size = u32::from_be_bytes([
-            0,
-            self.data_segment_length[0],
-            self.data_segment_length[1],
-            self.data_segment_length[2],
-        ]) as usize;
-
-        let pad = (4 - (data_size % 4)) % 4;
-        // WTF? SHOULD BE 0....
-        if data_size == 0 { 4 } else { data_size + pad }
     }
 
     /// Parsing PDU with DataSegment and Digest
@@ -141,9 +128,29 @@ impl LoginResponse {
     }
 }
 
-impl FromBytes for LoginResponse {
-    type Response = (Self, Vec<u8>, Option<u32>);
+impl BasicHeaderSegment for LoginResponse {
+    fn get_opcode(&self) -> BhsOpcode {
+        self.opcode.clone()
+    }
 
+    fn ahs_length_bytes(&self) -> usize {
+        (self.total_ahs_length as usize) * 4
+    }
+
+    fn data_length_bytes(&self) -> usize {
+        let data_size = u32::from_be_bytes([
+            0,
+            self.data_segment_length[0],
+            self.data_segment_length[1],
+            self.data_segment_length[2],
+        ]) as usize;
+
+        let pad = (4 - (data_size % 4)) % 4;
+        data_size + pad
+    }
+}
+
+impl FromBytes for LoginResponse {
     const HEADER_LEN: usize = LoginResponse::HEADER_LEN;
 
     fn peek_total_len(header: &[u8]) -> Result<usize> {
@@ -161,11 +168,7 @@ impl FromBytes for LoginResponse {
         Ok(Self::HEADER_LEN + ahs_len + data_len)
     }
 
-    fn from_bytes(buf: &[u8]) -> Result<Self::Response> {
-        /*println!(
-            "LoginResponse parse_bhs {} {} {} {}",
-            buf[0], buf[1], buf[2], buf[3]
-        );*/
+    fn from_bytes(buf: &[u8]) -> Result<(Self, Vec<u8>, Option<u32>)> {
         let (hdr, data, digest) = LoginResponse::parse(buf)?;
         Ok((hdr, data, digest))
     }

@@ -1,10 +1,11 @@
-use anyhow::Result;
+use anyhow::{Result, bail};
 
 use crate::{
     cfg::config::{Config, ToLoginKeys},
-    client::client::Connection,
-    models::login::{
-        common::Stage, request::LoginRequestBuilder, response::LoginResponse,
+    client::client::{Connection, PduResponse},
+    models::{
+        common::Builder,
+        login::{common::Stage, request::LoginRequestBuilder, response::LoginResponse},
     },
 };
 
@@ -19,8 +20,6 @@ pub async fn login_plain(conn: &Connection, cfg: &Config) -> Result<LoginRespons
         .connection_id(1)
         .versions(cfg.negotiation.version_min, cfg.negotiation.version_max);
 
-    //println!("Req1: {req1:?}");
-
     for key in cfg
         .initiator
         .to_login_keys()
@@ -30,29 +29,16 @@ pub async fn login_plain(conn: &Connection, cfg: &Config) -> Result<LoginRespons
         .chain(cfg.auth.to_login_keys())
         .chain(cfg.performance.to_login_keys())
     {
-        req1 = req1.with_data(key.into_bytes());
+        req1 = req1.append_data(key.into_bytes());
     }
-    req1 = req1.with_data(cfg.extra_text.clone().into_bytes());
+    req1 = req1.append_data(cfg.extra_text.clone().into_bytes());
 
-    let (hdr1, _data1, _dig1): (LoginResponse, _, _) =
-        conn.call::<_, LoginResponse>(req1).await?;
+    let (hdr, _data, _dig) = match conn.call::<_, LoginResponse>(req1).await? {
+        PduResponse::Normal((hdr, data, _dig)) => (hdr, data, _dig),
+        PduResponse::Reject((hdr, data, _dig)) => {
+            bail!("Error_resp: {:?}\n Data: {:?}", hdr, data)
+        },
+    };
 
-    //println!("Res1: {hdr1:?}");
-
-    // 2) Full-Feature transition: CSG=Operational(1) → NSG=FullFeature(3)
-    /*let req2 = LoginRequestBuilder::new(cfg.initiator.isid, hdr1.tsih)
-        .transit()
-        .csg(Stage::Operational)
-        .nsg(Stage::FullFeature)
-        .versions(hdr1.version_max, hdr1.version_active)
-        .connection_id(1)
-        .task_tag(hdr1.initiator_task_tag)
-        .cmd_sn(hdr1.exp_cmd_sn)
-        .exp_stat_sn(hdr1.max_cmd_sn);
-
-    let (hdr2, _data2, _dig2): (LoginResponse, _, _) =
-        conn.call::<_, LoginResponse>(req2).await?;
-
-    Ok(hdr2)*/
-    Ok(hdr1)
+    Ok(hdr)
 }

@@ -4,9 +4,10 @@ use md5::Md5;
 
 use crate::{
     cfg::config::{Auth, Config, ToLoginKeys},
-    client::client::Connection,
-    models::login::{
-        common::Stage, request::LoginRequestBuilder, response::LoginResponse,
+    client::client::{Connection, PduResponse},
+    models::{
+        common::Builder,
+        login::{common::Stage, request::LoginRequestBuilder, response::LoginResponse},
     },
 };
 
@@ -26,11 +27,11 @@ async fn chap_step1(
         .transit()
         .csg(Stage::Security)
         .nsg(Stage::Operational)
-        .task_tag(task_tag)
+        .initiator_task_tag(task_tag)
         .connection_id(1)
         .cmd_sn(cmd_sn)
         .exp_stat_sn(exp_stat_sn)
-        .with_data(b"AuthMethod=CHAP,None\x00".to_vec());
+        .append_data(b"AuthMethod=CHAP,None\x00".to_vec());
 
     for key in cfg
         .initiator
@@ -39,10 +40,14 @@ async fn chap_step1(
         .chain(cfg.target.to_login_keys())
         .chain(cfg.negotiation.to_login_keys())
     {
-        req = req.with_data(key.into_bytes());
+        req = req.append_data(key.into_bytes());
     }
-    let (hdr, data, _dig) = conn.call::<_, LoginResponse>(req).await?;
-    //println!("data: {:?}", String::from_utf8(data.to_vec())?);
+    let (hdr, data, _dig) = match conn.call::<_, LoginResponse>(req).await? {
+        PduResponse::Normal((hdr, data, _dig)) => (hdr, data, _dig),
+        PduResponse::Reject((hdr, data, _dig)) => {
+            bail!("Error_resp: {:?}\n Data: {:?}", hdr, data)
+        },
+    };
     Ok((hdr, data))
 }
 
@@ -77,13 +82,17 @@ async fn chap_step2(
         .csg(Stage::Security)
         .nsg(Stage::Operational)
         .cont()
-        .task_tag(task_tag)
+        .initiator_task_tag(task_tag)
         .connection_id(1)
         .cmd_sn(cmd_sn)
         .exp_stat_sn(exp_stat_sn)
-        .with_data(b"CHAP_A=5\x00".to_vec());
-    let (_hdr, data, _dig) = conn.call::<_, LoginResponse>(req).await?;
-    //println!("hrd: {hdr:?}, data: {data:?}");
+        .append_data(b"CHAP_A=5\x00".to_vec());
+    let (_hdr, data, _dig) = match conn.call::<_, LoginResponse>(req).await? {
+        PduResponse::Normal((hdr, data, _dig)) => (hdr, data, _dig),
+        PduResponse::Reject((hdr, data, _dig)) => {
+            bail!("Error_resp: {:?}\n Data: {:?}", hdr, data)
+        },
+    };
 
     let (chap_i, chap_n) = parse_chap_challenge(&data)?;
 
@@ -101,17 +110,22 @@ async fn chap_step2(
         .csg(Stage::Security)
         .nsg(Stage::Operational)
         .cont()
-        .task_tag(task_tag)
+        .initiator_task_tag(task_tag)
         .connection_id(1)
         .cmd_sn(cmd_sn)
         .exp_stat_sn(exp_stat_sn)
-        .with_data(format!("CHAP_N={username}\x00").as_bytes().to_vec())
-        .with_data(
+        .append_data(format!("CHAP_N={username}\x00").as_bytes().to_vec())
+        .append_data(
             format!("CHAP_R={}\x00", hex::encode(chap_r))
                 .as_bytes()
                 .to_vec(),
         );
-    let (hdr, _data, _dig) = conn.call::<_, LoginResponse>(req).await?;
+    let (hdr, _data, _dig) = match conn.call::<_, LoginResponse>(req).await? {
+        PduResponse::Normal((hdr, data, _dig)) => (hdr, data, _dig),
+        PduResponse::Reject((hdr, data, _dig)) => {
+            bail!("Error_resp: {:?}\n Data: {:?}", hdr, data)
+        },
+    };
     Ok(hdr)
 }
 
@@ -126,12 +140,17 @@ async fn chap_step3(
         .csg(Stage::Operational)
         .nsg(Stage::FullFeature)
         .versions(hdr2.version_max, hdr2.version_active)
-        .task_tag(hdr2.initiator_task_tag)
+        .initiator_task_tag(hdr2.initiator_task_tag)
         .connection_id(1)
         .cmd_sn(hdr2.exp_cmd_sn)
         .exp_stat_sn(hdr2.max_cmd_sn);
-    let (hdr3, _data3, _dig3) = conn.call::<_, LoginResponse>(req).await?;
-    Ok(hdr3)
+    let (hdr, _data, _dig) = match conn.call::<_, LoginResponse>(req).await? {
+        PduResponse::Normal((hdr, data, _dig)) => (hdr, data, _dig),
+        PduResponse::Reject((hdr, data, _dig)) => {
+            bail!("Error_resp: {:?}\n Data: {:?}", hdr, data)
+        },
+    };
+    Ok(hdr)
 }
 
 /// High‐level CHAP login flow
