@@ -16,24 +16,22 @@ use crate::{
 #[repr(C)]
 #[derive(Debug, PartialEq)]
 pub struct LoginResponse {
-    pub opcode: BhsOpcode, // 0x23 always according rfc
-    pub flags: LoginFlags,
-    pub version_max: u8,
-    pub version_active: u8,
-    pub total_ahs_length: u8,
-    pub data_segment_length: [u8; 3],
-    pub isid: [u8; 6], // Initiator Session ID
-    pub tsih: u16,     // Target Session ID Handle
-    pub initiator_task_tag: u32,
-    // 4 bytes RESERVED
-    reserved1: [u8; 4],
-    pub stat_sn: u32,
-    pub exp_cmd_sn: u32,
-    pub max_cmd_sn: u32,
-    pub status_class: StatusClass,
-    pub status_detail: StatusDetail,
-    // (38..48) bytes RESERVED
-    reserved2: [u8; 10],
+    pub opcode: BhsOpcode,            // 0
+    pub flags: LoginFlags,            // 1
+    pub version_max: u8,              // 2
+    pub version_active: u8,           // 3
+    pub total_ahs_length: u8,         // 4
+    pub data_segment_length: [u8; 3], // 5..8
+    pub isid: [u8; 6],                // 8..14
+    pub tsih: u16,                    // 14..16
+    pub initiator_task_tag: u32,      // 16..20
+    reserved1: [u8; 4],               // 20..24
+    pub stat_sn: u32,                 // 24..28
+    pub exp_cmd_sn: u32,              // 28..32
+    pub max_cmd_sn: u32,              // 32..36
+    pub status_class: StatusClass,    // 36
+    pub status_detail: StatusDetail,  // 37
+    reserved2: [u8; 10],              // 38..48
 }
 
 impl LoginResponse {

@@ -7,7 +7,11 @@ use crate::{
     client::client::{Connection, PduResponse},
     models::{
         common::Builder,
-        login::{common::Stage, request::LoginRequestBuilder, response::LoginResponse},
+        login::{
+            common::Stage,
+            request::{LoginRequest, LoginRequestBuilder},
+            response::LoginResponse,
+        },
     },
 };
 
@@ -42,7 +46,10 @@ async fn chap_step1(
     {
         req = req.append_data(key.into_bytes());
     }
-    let (hdr, data, _dig) = match conn.call::<_, LoginResponse>(req).await? {
+    let (hdr, data, _dig) = match conn
+        .call::<{ LoginRequest::HEADER_LEN }, LoginResponse>(req)
+        .await?
+    {
         PduResponse::Normal((hdr, data, _dig)) => (hdr, data, _dig),
         PduResponse::Reject((hdr, data, _dig)) => {
             bail!("Error_resp: {:?}\n Data: {:?}", hdr, data)
@@ -87,7 +94,10 @@ async fn chap_step2(
         .cmd_sn(cmd_sn)
         .exp_stat_sn(exp_stat_sn)
         .append_data(b"CHAP_A=5\x00".to_vec());
-    let (_hdr, data, _dig) = match conn.call::<_, LoginResponse>(req).await? {
+    let (_hdr, data, _dig) = match conn
+        .call::<{ LoginRequest::HEADER_LEN }, LoginResponse>(req)
+        .await?
+    {
         PduResponse::Normal((hdr, data, _dig)) => (hdr, data, _dig),
         PduResponse::Reject((hdr, data, _dig)) => {
             bail!("Error_resp: {:?}\n Data: {:?}", hdr, data)
@@ -120,7 +130,10 @@ async fn chap_step2(
                 .as_bytes()
                 .to_vec(),
         );
-    let (hdr, _data, _dig) = match conn.call::<_, LoginResponse>(req).await? {
+    let (hdr, _data, _dig) = match conn
+        .call::<{ LoginRequest::HEADER_LEN }, LoginResponse>(req)
+        .await?
+    {
         PduResponse::Normal((hdr, data, _dig)) => (hdr, data, _dig),
         PduResponse::Reject((hdr, data, _dig)) => {
             bail!("Error_resp: {:?}\n Data: {:?}", hdr, data)
@@ -144,7 +157,10 @@ async fn chap_step3(
         .connection_id(1)
         .cmd_sn(hdr2.exp_cmd_sn)
         .exp_stat_sn(hdr2.max_cmd_sn);
-    let (hdr, _data, _dig) = match conn.call::<_, LoginResponse>(req).await? {
+    let (hdr, _data, _dig) = match conn
+        .call::<{ LoginRequest::HEADER_LEN }, LoginResponse>(req)
+        .await?
+    {
         PduResponse::Normal((hdr, data, _dig)) => (hdr, data, _dig),
         PduResponse::Reject((hdr, data, _dig)) => {
             bail!("Error_resp: {:?}\n Data: {:?}", hdr, data)

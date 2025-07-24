@@ -5,7 +5,11 @@ use crate::{
     client::client::{Connection, PduResponse},
     models::{
         common::Builder,
-        login::{common::Stage, request::LoginRequestBuilder, response::LoginResponse},
+        login::{
+            common::Stage,
+            request::{LoginRequest, LoginRequestBuilder},
+            response::LoginResponse,
+        },
     },
 };
 
@@ -33,7 +37,10 @@ pub async fn login_plain(conn: &Connection, cfg: &Config) -> Result<LoginRespons
     }
     req1 = req1.append_data(cfg.extra_text.clone().into_bytes());
 
-    let (hdr, _data, _dig) = match conn.call::<_, LoginResponse>(req1).await? {
+    let (hdr, _data, _dig) = match conn
+        .call::<{ LoginRequest::HEADER_LEN }, LoginResponse>(req1)
+        .await?
+    {
         PduResponse::Normal((hdr, data, _dig)) => (hdr, data, _dig),
         PduResponse::Reject((hdr, data, _dig)) => {
             bail!("Error_resp: {:?}\n Data: {:?}", hdr, data)

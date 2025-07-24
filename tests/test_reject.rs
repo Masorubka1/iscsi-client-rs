@@ -6,7 +6,7 @@ use iscsi_client_rs::{
     client::pdu_connection::FromBytes,
     models::{
         opcode::{BhsOpcode, IfFlags, Opcode},
-        reject::reject::RejectPdu,
+        reject::response::RejectPdu,
     },
 };
 

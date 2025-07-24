@@ -5,7 +5,7 @@ use iscsi_client_rs::{
     cfg::{cli::resolve_config_path, config::Config},
     client::client::Connection,
     handlers::{login_simple::login_plain, nop_handler::send_nop},
-    models::nop::request_response::NopInOut,
+    models::nop::response::NopInResponse,
 };
 use tokio::{main, time};
 
@@ -33,7 +33,7 @@ async fn main() -> Result<()> {
                     &hb_conn,
                     [0u8; 8], // LUN
                     itag,     // InitiatorTaskTag
-                    NopInOut::DEFAULT_TAG,
+                    NopInResponse::DEFAULT_TAG,
                     cmd_sn,      // our CmdSN
                     exp_stat_sn, // expected StatSN
                     true,        // set I bit
@@ -43,8 +43,8 @@ async fn main() -> Result<()> {
             match result {
                 Ok((hdr, data, _dig)) => {
                     println!("[heartbeat] got NOP-In: {hdr:?}\n\n {data:?}");
-                    cmd_sn = hdr.exp_stat_sn;
-                    exp_stat_sn = hdr.cmd_sn.wrapping_add(1);
+                    cmd_sn = hdr.stat_sn;
+                    exp_stat_sn = hdr.exp_cmd_sn.wrapping_add(1);
                 },
                 Err(e) => {
                     eprintln!("[heartbeat] NOP failed: {e}");

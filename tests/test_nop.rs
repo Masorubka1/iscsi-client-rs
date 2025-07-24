@@ -5,7 +5,10 @@ use hex::FromHex;
 use iscsi_client_rs::{
     client::pdu_connection::ToBytes,
     models::{
-        nop::request_response::{NopInOut, NopOutRequestBuilder},
+        nop::{
+            request::{NopOutRequest, NopOutRequestBuilder},
+            response::NopInResponse,
+        },
         opcode::{BhsOpcode, IfFlags, Opcode},
     },
 };
@@ -23,7 +26,7 @@ fn test_nop_out_minimal() -> Result<()> {
     assert_eq!(bytes.len(), 48);
 
     let lun = [0u8; 8];
-    let itt = NopInOut::DEFAULT_TAG;
+    let itt = NopInResponse::DEFAULT_TAG;
     let ttt = 189;
     let cmd_sn = 191;
     let exp_sn = 3699214689;
@@ -33,7 +36,7 @@ fn test_nop_out_minimal() -> Result<()> {
         .exp_stat_sn(exp_sn)
         .ping();
 
-    let expected = NopInOut::from_bhs_bytes(&bytes)?;
+    let expected = NopOutRequest::from_bhs_bytes(&bytes)?;
 
     assert_eq!(&builder.header, &expected, "PDU bytes do not match fixture");
 
@@ -52,7 +55,7 @@ fn test_nop_in_parse() -> Result<()> {
     let bytes = load_fixture("tests/fixtures/nop_in_response.hex")?;
     assert!(bytes.len() >= 48);
 
-    let (parsed, data, digest) = NopInOut::parse(&bytes)?;
+    let (parsed, data, digest) = NopInResponse::parse(&bytes)?;
     assert!(data.is_empty());
     assert!(digest.is_none());
 
@@ -64,8 +67,8 @@ fn test_nop_in_parse() -> Result<()> {
         },
         "expected NOP-IN opcode 0x20"
     );
-    assert_eq!(parsed.cmd_sn, 3699214689);
-    assert_eq!(parsed.exp_stat_sn, 191);
+    assert_eq!(parsed.stat_sn, 3699214689);
+    assert_eq!(parsed.exp_cmd_sn, 191);
 
     Ok(())
 }

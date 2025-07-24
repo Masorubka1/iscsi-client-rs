@@ -8,7 +8,7 @@ use crate::{
     },
 };
 
-/// BHS for a Reject PDU (always 48 bytes)
+/// BHS for a Reject PDU (always 52 bytes)
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RejectPdu {
