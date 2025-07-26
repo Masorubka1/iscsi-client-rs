@@ -1,6 +1,6 @@
 use anyhow::Result;
 
-use crate::models::common::Builder;
+use crate::{cfg::config::Config, models::common::Builder};
 
 /// Trait for serializing a Protocol Data Unit (PDU) into bytes.
 pub trait ToBytes: Sized {
@@ -12,7 +12,7 @@ pub trait ToBytes: Sized {
     /// - A fixed-size array of `HEADER_LEN` bytes representing the PDU header.
     /// - A `Vec<u8>` containing the variable-length data segment.
     /// - A `Option<Vec<u8>>` containing the data-digest data segment.
-    fn to_bytes(self) -> (Self::Header, Vec<u8>);
+    fn to_bytes(self, cfg: &Config) -> Result<(Self::Header, Vec<u8>)>;
 }
 
 /// Trait for deserializing a full PDU from raw bytes.
@@ -41,7 +41,7 @@ where B: Builder
 {
     type Header = B::Header;
 
-    fn to_bytes(self) -> (Self::Header, Vec<u8>) {
-        self.build()
+    fn to_bytes(self, cfg: &Config) -> Result<(Self::Header, Vec<u8>)> {
+        self.build(cfg)
     }
 }

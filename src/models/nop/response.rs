@@ -27,7 +27,6 @@ pub struct NopInResponse {
 }
 
 impl NopInResponse {
-    pub const DEFAULT_TAG: u32 = 0xffffffff_u32;
     pub const HEADER_LEN: usize = 48;
 
     /// Serialize BHS in 48 bytes
@@ -90,7 +89,11 @@ impl NopInResponse {
     /// Parsing PDU with DataSegment and Digest
     pub fn parse(buf: &[u8]) -> Result<(Self, Vec<u8>, Option<u32>)> {
         if buf.len() < Self::HEADER_LEN {
-            bail!("Buffer too small for LoginResponse BHS");
+            bail!(
+                "Buffer {} too small for NopInResponse BHS {}",
+                buf.len(),
+                Self::HEADER_LEN
+            );
         }
 
         let mut bhs = [0u8; Self::HEADER_LEN];
@@ -102,7 +105,11 @@ impl NopInResponse {
         let mut offset = Self::HEADER_LEN + ahs_len;
 
         if buf.len() < offset + data_len {
-            bail!("Buffer too small for DataSegment");
+            bail!(
+                "NopInResponse Buffer {} too small for DataSegment {}",
+                buf.len(),
+                offset + data_len
+            );
         }
         let data = buf[offset..offset + data_len].to_vec();
         offset += data_len;
@@ -141,18 +148,32 @@ impl BasicHeaderSegment for NopInResponse {
         let pad = (4 - (data_size % 4)) % 4;
         data_size + pad
     }
+
+    fn to_bytes(&self) -> Vec<u8> {
+        self.to_bhs_bytes().to_vec()
+    }
+
+    fn from_bytes(buf: &[u8]) -> Result<Self> {
+        let mut new_buf = [0u8; NopInResponse::HEADER_LEN];
+        new_buf.clone_from_slice(buf);
+        NopInResponse::from_bhs_bytes(&new_buf)
+    }
 }
 
 impl FromBytes for NopInResponse {
     const HEADER_LEN: usize = NopInResponse::HEADER_LEN;
 
-    fn peek_total_len(header: &[u8]) -> Result<usize> {
-        if header.len() < Self::HEADER_LEN {
-            bail!("to small header");
+    fn peek_total_len(buf: &[u8]) -> Result<usize> {
+        if buf.len() < Self::HEADER_LEN {
+            bail!(
+                "Buffer {} too small for NopInResponse BHS {}",
+                buf.len(),
+                Self::HEADER_LEN
+            );
         }
 
-        let mut b = [0u8; 48];
-        b.copy_from_slice(&header[..48]);
+        let mut b = [0u8; Self::HEADER_LEN];
+        b.copy_from_slice(&buf[..Self::HEADER_LEN]);
         let hdr = NopInResponse::from_bhs_bytes(&b)?;
 
         let ahs_len = hdr.total_ahs_length as usize;

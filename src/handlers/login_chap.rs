@@ -3,7 +3,7 @@ use hmac::{Hmac, Mac};
 use md5::Md5;
 
 use crate::{
-    cfg::config::{Auth, Config, ToLoginKeys},
+    cfg::config::{AuthConfig, Config, ToLoginKeys},
     client::client::{Connection, PduResponse},
     models::{
         common::Builder,
@@ -22,12 +22,13 @@ type HmacMd5 = Hmac<Md5>;
 async fn chap_step1(
     conn: &Connection,
     cfg: &Config,
+    isid: [u8; 6],
     tsih: u16,
     task_tag: u32,
     cmd_sn: u32,
     exp_stat_sn: u32,
 ) -> Result<(LoginResponse, Vec<u8>)> {
-    let mut req = LoginRequestBuilder::new(cfg.initiator.isid, tsih)
+    let mut req = LoginRequestBuilder::new(isid, tsih)
         .transit()
         .csg(Stage::Security)
         .nsg(Stage::Operational)
@@ -38,14 +39,14 @@ async fn chap_step1(
         .append_data(b"AuthMethod=CHAP,None\x00".to_vec());
 
     for key in cfg
-        .initiator
+        .login
         .to_login_keys()
         .into_iter()
-        .chain(cfg.target.to_login_keys())
-        .chain(cfg.negotiation.to_login_keys())
+        .chain(cfg.extra_data.to_login_keys())
     {
         req = req.append_data(key.into_bytes());
     }
+
     let (hdr, data, _dig) = match conn
         .call::<{ LoginRequest::HEADER_LEN }, LoginResponse>(req)
         .await?
@@ -80,12 +81,13 @@ fn parse_chap_challenge(challenge_data: &[u8]) -> Result<(u8, Vec<u8>)> {
 async fn chap_step2(
     conn: &Connection,
     cfg: &Config,
+    isid: [u8; 6],
     tsih: u16,
     task_tag: u32,
     cmd_sn: u32,
     exp_stat_sn: u32,
 ) -> Result<LoginResponse> {
-    let req = LoginRequestBuilder::new(cfg.initiator.isid, tsih)
+    let req = LoginRequestBuilder::new(isid, tsih)
         .csg(Stage::Security)
         .nsg(Stage::Operational)
         .cont()
@@ -106,9 +108,9 @@ async fn chap_step2(
 
     let (chap_i, chap_n) = parse_chap_challenge(&data)?;
 
-    let (secret_key, username) = match &cfg.auth {
-        Auth::Chap { secret, username } => (secret.as_bytes(), username),
-        Auth::None => bail!("CHAP authentication required but none configured"),
+    let (secret_key, username) = match &cfg.login.auth {
+        AuthConfig::Chap(chap) => (chap.secret.as_bytes(), chap.username.clone()),
+        AuthConfig::None => bail!("CHAP authentication required but none configured"),
     };
 
     let mut mac = HmacMd5::new_from_slice(secret_key)?;
@@ -116,7 +118,7 @@ async fn chap_step2(
     mac.update(&chap_n);
     let chap_r = mac.finalize().into_bytes();
 
-    let req = LoginRequestBuilder::new(cfg.initiator.isid, tsih)
+    let req = LoginRequestBuilder::new(isid, tsih)
         .csg(Stage::Security)
         .nsg(Stage::Operational)
         .cont()
@@ -145,10 +147,10 @@ async fn chap_step2(
 /// Step 3: complete login → FullFeature
 async fn chap_step3(
     conn: &Connection,
-    cfg: &Config,
+    isid: [u8; 6],
     hdr2: &LoginResponse,
 ) -> Result<LoginResponse> {
-    let req = LoginRequestBuilder::new(cfg.initiator.isid, hdr2.tsih)
+    let req = LoginRequestBuilder::new(isid, hdr2.tsih)
         .transit()
         .csg(Stage::Operational)
         .nsg(Stage::FullFeature)
@@ -170,12 +172,17 @@ async fn chap_step3(
 }
 
 /// High‐level CHAP login flow
-pub async fn login_chap(conn: &Connection, cfg: &Config) -> Result<LoginResponse> {
-    let (hdr1, _raw1) = chap_step1(conn, cfg, 0, 0, 0, 0).await?;
+pub async fn login_chap(
+    conn: &Connection,
+    cfg: &Config,
+    isid: [u8; 6],
+) -> Result<LoginResponse> {
+    let (hdr1, _raw1) = chap_step1(conn, cfg, isid, 0, 0, 0, 0).await?;
 
     let hdr2 = chap_step2(
         conn,
         cfg,
+        isid,
         hdr1.tsih,
         hdr1.initiator_task_tag,
         hdr1.max_cmd_sn,
@@ -183,6 +190,6 @@ pub async fn login_chap(conn: &Connection, cfg: &Config) -> Result<LoginResponse
     )
     .await?;
 
-    let hdr3 = chap_step3(conn, cfg, &hdr2).await?;
+    let hdr3 = chap_step3(conn, isid, &hdr2).await?;
     Ok(hdr3)
 }

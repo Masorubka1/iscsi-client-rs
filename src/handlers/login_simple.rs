@@ -15,27 +15,30 @@ use crate::{
 
 /// Performs a plain-text login to the target by sending the initiator name and
 /// requesting no authentication.
-pub async fn login_plain(conn: &Connection, cfg: &Config) -> Result<LoginResponse> {
+pub async fn login_plain(
+    conn: &Connection,
+    cfg: &Config,
+    isid: [u8; 6],
+) -> Result<LoginResponse> {
     // 1) Full-Feature transition: CSG=Operational(1) → NSG=FullFeature(3)
-    let mut req1 = LoginRequestBuilder::new(cfg.initiator.isid, 0)
+    let mut req1 = LoginRequestBuilder::new(isid, 0)
         .transit()
         .csg(Stage::Operational)
         .nsg(Stage::FullFeature)
         .connection_id(1)
-        .versions(cfg.negotiation.version_min, cfg.negotiation.version_max);
+        .versions(
+            cfg.login.negotiation.version_min,
+            cfg.login.negotiation.version_max,
+        );
 
     for key in cfg
-        .initiator
+        .login
         .to_login_keys()
         .into_iter()
-        .chain(cfg.target.to_login_keys())
-        .chain(cfg.negotiation.to_login_keys())
-        .chain(cfg.auth.to_login_keys())
-        .chain(cfg.performance.to_login_keys())
+        .chain(cfg.extra_data.to_login_keys())
     {
         req1 = req1.append_data(key.into_bytes());
     }
-    req1 = req1.append_data(cfg.extra_text.clone().into_bytes());
 
     let (hdr, _data, _dig) = match conn
         .call::<{ LoginRequest::HEADER_LEN }, LoginResponse>(req1)

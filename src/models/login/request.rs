@@ -1,9 +1,12 @@
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, bail};
 
-use crate::models::{
-    common::{BasicHeaderSegment, Builder},
-    login::common::{LoginFlags, Stage},
-    opcode::{BhsOpcode, IfFlags, Opcode},
+use crate::{
+    cfg::config::Config,
+    models::{
+        common::{BasicHeaderSegment, Builder},
+        login::common::{LoginFlags, Stage},
+        opcode::{BhsOpcode, IfFlags, Opcode},
+    },
 };
 
 /// BHS form LoginRequest PDU
@@ -107,6 +110,14 @@ impl BasicHeaderSegment for LoginRequest {
 
         let pad = (4 - (data_size % 4)) % 4;
         data_size + pad
+    }
+
+    fn to_bytes(&self) -> Vec<u8> {
+        self.to_bhs_bytes().to_vec()
+    }
+
+    fn from_bytes(buf: &[u8]) -> Result<Self> {
+        Self::from_bhs_bytes(buf)
     }
 }
 
@@ -222,10 +233,19 @@ impl Builder for LoginRequestBuilder {
     }
 
     /// Build finnal PDU (BHS + DataSegment)
-    fn build(mut self) -> (Self::Header, Vec<u8>) {
+    fn build(mut self, cfg: &Config) -> Result<(Self::Header, Vec<u8>)> {
         let pad = (4 - (self.data.len() % 4)) % 4;
         self.data.extend(std::iter::repeat_n(0, pad));
 
-        (self.header.to_bhs_bytes(), self.data)
+        if (cfg.login.negotiation.max_recv_data_segment_length as usize) < self.data.len()
+        {
+            bail!(
+                "LoginRequest data size: {} reached out of limit {}",
+                self.data.len(),
+                cfg.login.negotiation.max_recv_data_segment_length
+            );
+        }
+
+        Ok((self.header.to_bhs_bytes(), self.data))
     }
 }

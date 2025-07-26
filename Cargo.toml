@@ -13,7 +13,6 @@ keywords = ["iscsi", "storage", "async", "tokio"]
 tokio = { version = "1", features = ["full"] }
 bytes = "1"
 uuid = { version = "1", features = ["v4"] }
-nom = "7"
 tracing = "0.1"
 serde = { version = "1.0.219", features = ["derive", "serde_derive"] }
 crc32c = "0.6.8"
@@ -26,6 +25,7 @@ md-5 = "0.10.0"
 hmac = "0.12.1"
 serde_yaml = "0.9.34"
 crc = "3.3.0"
+rand = "0.9.2"
 
 [workspace]
 members = ["."]

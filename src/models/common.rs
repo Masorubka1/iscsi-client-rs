@@ -1,4 +1,6 @@
-use crate::models::opcode::BhsOpcode;
+use anyhow::Result;
+
+use crate::{cfg::config::Config, models::opcode::BhsOpcode};
 
 /// Common functionality for any iSCSI PDU “Basic Header Segment” (BHS).
 ///
@@ -17,6 +19,29 @@ pub trait BasicHeaderSegment: Sized {
 
     /// Number of actual payload bytes in the DataSegment.
     fn data_length_bytes(&self) -> usize;
+
+    /// Serialize the full PDU (header + data segment + padding) to raw bytes.
+    fn to_bytes(&self) -> Vec<u8>;
+
+    /// Parse a PDU from raw bytes (header + data segment + padding).
+    fn from_bytes(bytes: &[u8]) -> Result<Self>;
+
+    /// Encode the full PDU into a continuous hex string (no spaces).
+    fn to_hex(&self) -> String {
+        // takes the raw bytes and hex-encodes them
+        hex::encode(self.to_bytes())
+    }
+
+    /// Decode a hex string (ignoring any whitespace) and parse into the PDU.
+    fn from_hex(hex_str: &str) -> Result<Self> {
+        // strip out whitespace
+        let cleaned: String = hex_str.chars().filter(|c| !c.is_whitespace()).collect();
+        // decode hex into bytes
+        let bytes = hex::decode(&cleaned)
+            .map_err(|e| anyhow::anyhow!("hex decode error: {}", e))?;
+        // parse those bytes
+        Self::from_bytes(&bytes)
+    }
 }
 
 pub trait Builder: Sized {
@@ -28,5 +53,5 @@ pub trait Builder: Sized {
 
     /// Consume this header-plus-data builder and produce a
     /// `(header_bytes, data_bytes)` pair ready for writing.
-    fn build(self) -> (Self::Header, Vec<u8>);
+    fn build(self, cfg: &Config) -> Result<(Self::Header, Vec<u8>)>;
 }

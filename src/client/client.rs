@@ -8,6 +8,7 @@ use tokio::{
 };
 
 use crate::{
+    cfg::config::Config,
     client::pdu_connection::{FromBytes, ToBytes},
     models::{
         opcode::{BhsOpcode, Opcode},
@@ -22,6 +23,7 @@ use crate::{
 #[derive(Debug)]
 pub struct Connection {
     socket: Mutex<TcpStream>,
+    cfg: Config,
 }
 
 pub enum PduResponse<R> {
@@ -33,10 +35,12 @@ pub enum PduResponse<R> {
 
 impl Connection {
     /// Establishes a new TCP connection to the given address.
-    pub async fn connect(addr: &str) -> Result<Self> {
-        println!("addr: {addr}");
+    pub async fn connect(cfg: Config) -> Result<Self> {
         Ok(Self {
-            socket: Mutex::new(TcpStream::connect(addr).await?),
+            socket: Mutex::new(
+                TcpStream::connect(cfg.login.security.target_address.clone()).await?,
+            ),
+            cfg,
         })
     }
 
@@ -78,7 +82,8 @@ impl Connection {
         req: impl ToBytes<Header = [u8; REQUEST_HEADER_LEN]>,
     ) -> Result<()> {
         let mut socket = self.socket.lock().await;
-        let (out_header, out_data): ([u8; REQUEST_HEADER_LEN], _) = req.to_bytes();
+        let (out_header, out_data): ([u8; REQUEST_HEADER_LEN], _) =
+            req.to_bytes(&self.cfg)?;
         socket.write_all(&out_header).await?;
         if !out_data.is_empty() {
             socket.write_all(&out_data).await?;

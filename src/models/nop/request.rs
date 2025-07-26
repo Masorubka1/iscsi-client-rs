@@ -1,8 +1,11 @@
 use anyhow::{Context, Result, bail};
 
-use crate::models::{
-    common::{BasicHeaderSegment, Builder},
-    opcode::{BhsOpcode, IfFlags, Opcode},
+use crate::{
+    cfg::config::Config,
+    models::{
+        common::{BasicHeaderSegment, Builder},
+        opcode::{BhsOpcode, IfFlags, Opcode},
+    },
 };
 
 /// BHS for NopOutRequest PDU
@@ -24,7 +27,7 @@ pub struct NopOutRequest {
 
 impl NopOutRequest {
     pub const DEFAULT_TAG: u32 = 0xffffffff_u32;
-    pub const HEADER_LEN: usize = 52;
+    pub const HEADER_LEN: usize = 48;
 
     /// Serialize BHS in 48 bytes
     pub fn to_bhs_bytes(&self) -> [u8; Self::HEADER_LEN] {
@@ -39,8 +42,9 @@ impl NopOutRequest {
         buf[20..24].copy_from_slice(&self.target_task_tag.to_be_bytes());
         buf[24..28].copy_from_slice(&self.cmd_sn.to_be_bytes());
         buf[28..32].copy_from_slice(&self.exp_stat_sn.to_be_bytes());
-        // buf[32..44] -- reserved
-        buf[44..48].copy_from_slice(&self.header_digest.to_be_bytes());
+        // buf[32..48] -- reserved
+        // TODO: fix header_diggest
+        //buf[48..52].copy_from_slice(&self.header_digest.to_be_bytes());
         buf
     }
 
@@ -63,8 +67,9 @@ impl NopOutRequest {
         let target_task_tag = u32::from_be_bytes(buf[20..24].try_into()?);
         let cmd_sn = u32::from_be_bytes(buf[24..28].try_into()?);
         let exp_stat_sn = u32::from_be_bytes(buf[28..32].try_into()?);
-        // buf[32..44] -- reserved
-        let header_digest = u32::from_be_bytes(buf[44..48].try_into()?);
+        // buf[32..48] -- reserved
+        // TODO: fix header_diggest
+        // let header_digest = u32::from_be_bytes(buf[48..52].try_into()?);
         Ok(NopOutRequest {
             opcode,
             reserved1,
@@ -76,7 +81,7 @@ impl NopOutRequest {
             cmd_sn,
             exp_stat_sn,
             reserved2: [0u8; 16],
-            header_digest,
+            header_digest: 0,
         })
     }
 
@@ -95,7 +100,11 @@ impl NopOutRequest {
         let mut offset = Self::HEADER_LEN + ahs_len;
 
         if buf.len() < offset + data_len {
-            bail!("Buffer too small for DataSegment");
+            bail!(
+                "Buffer {} too small for DataSegment {}",
+                buf.len(),
+                offset + data_len
+            );
         }
         let data = buf[offset..offset + data_len].to_vec();
         offset += data_len;
@@ -133,6 +142,14 @@ impl BasicHeaderSegment for NopOutRequest {
 
         let pad = (4 - (data_size % 4)) % 4;
         data_size + pad
+    }
+
+    fn to_bytes(&self) -> Vec<u8> {
+        self.to_bhs_bytes().to_vec()
+    }
+
+    fn from_bytes(buf: &[u8]) -> Result<Self> {
+        Self::from_bhs_bytes(buf)
     }
 }
 
@@ -236,10 +253,22 @@ impl Builder for NopOutRequestBuilder {
     }
 
     /// Build finnal PDU (BHS + DataSegment)
-    fn build(mut self) -> ([u8; NopOutRequest::HEADER_LEN], Vec<u8>) {
+    fn build(
+        mut self,
+        cfg: &Config,
+    ) -> Result<([u8; NopOutRequest::HEADER_LEN], Vec<u8>)> {
         let pad = (4 - (self.data.len() % 4)) % 4;
         self.data.extend(std::iter::repeat_n(0, pad));
 
-        (self.header.to_bhs_bytes(), self.data)
+        if (cfg.login.negotiation.max_recv_data_segment_length as usize) < self.data.len()
+        {
+            bail!(
+                "NopOutRequest data size: {} reached out of limit {}",
+                self.data.len(),
+                cfg.login.negotiation.max_recv_data_segment_length
+            );
+        }
+
+        Ok((self.header.to_bhs_bytes(), self.data))
     }
 }

@@ -1,4 +1,4 @@
-use anyhow::{Result, anyhow};
+use anyhow::{Context, Result, bail};
 
 use crate::{
     client::pdu_connection::FromBytes,
@@ -90,6 +90,47 @@ impl RejectPdu {
         buf[48..52].copy_from_slice(&self.header_diggest.to_be_bytes());
         buf
     }
+
+    /// Parsing PDU with DataSegment and Digest
+    pub fn parse(buf: &[u8]) -> Result<(Self, Vec<u8>, Option<u32>)> {
+        if buf.len() < Self::HEADER_LEN {
+            bail!(
+                "Buffer {} too small for NopInResponse BHS {}",
+                buf.len(),
+                Self::HEADER_LEN
+            );
+        }
+
+        let mut bhs = [0u8; Self::HEADER_LEN];
+        bhs.copy_from_slice(&buf[..Self::HEADER_LEN]);
+        let header = Self::from_bhs_bytes(&bhs)?;
+
+        let ahs_len = header.ahs_length_bytes();
+        let data_len = header.data_length_bytes();
+        let mut offset = Self::HEADER_LEN + ahs_len;
+
+        if buf.len() < offset + data_len {
+            bail!(
+                "RejectPdu Buffer {} too small for DataSegment {}",
+                buf.len(),
+                offset + data_len
+            );
+        }
+        let data = buf[offset..offset + data_len].to_vec();
+        offset += data_len;
+
+        let hd = if buf.len() >= offset + 4 {
+            Some(u32::from_be_bytes(
+                buf[offset..offset + 4]
+                    .try_into()
+                    .context("Failed to get offset from buf")?,
+            ))
+        } else {
+            None
+        };
+
+        Ok((header, data, hd))
+    }
 }
 
 impl BasicHeaderSegment for RejectPdu {
@@ -112,18 +153,32 @@ impl BasicHeaderSegment for RejectPdu {
         let pad = (4 - (data_size % 4)) % 4;
         data_size + pad
     }
+
+    fn to_bytes(&self) -> Vec<u8> {
+        self.to_bhs_bytes().to_vec()
+    }
+
+    fn from_bytes(buf: &[u8]) -> Result<Self> {
+        let mut new_buf = [0u8; RejectPdu::HEADER_LEN];
+        new_buf.clone_from_slice(buf);
+        RejectPdu::from_bhs_bytes(&new_buf)
+    }
 }
 
 impl FromBytes for RejectPdu {
     const HEADER_LEN: usize = Self::HEADER_LEN;
 
-    fn peek_total_len(header: &[u8]) -> Result<usize> {
-        if header.len() < Self::HEADER_LEN {
-            return Err(anyhow!("to small header"));
+    fn peek_total_len(buf: &[u8]) -> Result<usize> {
+        if buf.len() < Self::HEADER_LEN {
+            bail!(
+                "Buffer {} too small for RejectPdu BHS {}",
+                buf.len(),
+                Self::HEADER_LEN
+            );
         }
 
         let mut b = [0u8; Self::HEADER_LEN];
-        b.copy_from_slice(&header[..Self::HEADER_LEN]);
+        b.copy_from_slice(&buf[..Self::HEADER_LEN]);
         let hdr = RejectPdu::from_bhs_bytes(&b)?;
 
         let ahs_len = hdr.ahs_length_bytes();
