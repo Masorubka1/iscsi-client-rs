@@ -1,7 +1,7 @@
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, bail};
 
 use crate::{
-    client::pdu_connection::{FromBytes, ToBytes},
+    cfg::config::Config,
     models::{
         common::{BasicHeaderSegment, Builder},
         opcode::{BhsOpcode, IfFlags, Opcode},
@@ -11,21 +11,21 @@ use crate::{
 /// BHS for NopOutRequest PDU
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq)]
-pub struct NopInOut {
-    pub opcode: BhsOpcode, // always 0x00(Out) && 0x20(In) by RFC
-    reserved1: [u8; 3],
-    pub total_ahs_length: u8,
-    pub data_segment_length: [u8; 3],
-    pub lun: [u8; 8],
-    pub initiator_task_tag: u32, // tag or 0xffffffff
-    pub target_task_tag: u32,    // tag or 0xffffffff
-    pub cmd_sn: u32,
-    pub exp_stat_sn: u32,
-    reserved2: [u8; 16],
-    pub header_digest: u32,
+pub struct TextRequest {
+    pub opcode: BhsOpcode,            // 0
+    reserved1: [u8; 3],               // 1..4
+    pub total_ahs_length: u8,         // 4
+    pub data_segment_length: [u8; 3], // 5..8
+    pub lun: [u8; 8],                 // 8..16
+    pub initiator_task_tag: u32,      // 16..20
+    pub target_task_tag: u32,         // 20..24
+    pub cmd_sn: u32,                  // 24..28
+    pub exp_stat_sn: u32,             // 28..32
+    reserved2: [u8; 16],              // 32..48
+    pub header_digest: u32,           // 48..52
 }
 
-impl NopInOut {
+impl TextRequest {
     pub const DEFAULT_TAG: u32 = 0xffffffff_u32;
     pub const HEADER_LEN: usize = 48;
 
@@ -33,7 +33,7 @@ impl NopInOut {
     pub fn to_bhs_bytes(&self) -> [u8; Self::HEADER_LEN] {
         let mut buf = [0u8; Self::HEADER_LEN];
         buf[0] = self.opcode.clone().into();
-        // finnal bit
+        // final bit && continue bit
         buf[1..4].copy_from_slice(&self.reserved1);
         buf[4] = self.total_ahs_length;
         buf[5..8].copy_from_slice(&self.data_segment_length);
@@ -42,17 +42,18 @@ impl NopInOut {
         buf[20..24].copy_from_slice(&self.target_task_tag.to_be_bytes());
         buf[24..28].copy_from_slice(&self.cmd_sn.to_be_bytes());
         buf[28..32].copy_from_slice(&self.exp_stat_sn.to_be_bytes());
-        // buf[32..44] -- reserved
-        buf[44..48].copy_from_slice(&self.header_digest.to_be_bytes());
+        // buf[32..48] -- reserved
+        //buf[48..52].copy_from_slice(&self.header_digest.to_be_bytes());
         buf
     }
 
     pub fn from_bhs_bytes(buf: &[u8]) -> Result<Self, anyhow::Error> {
         if buf.len() < Self::HEADER_LEN {
-            return Err(anyhow!("buffer too small"));
+            bail!("buffer too small");
         }
         let opcode = BhsOpcode::try_from(buf[0])?;
         // buf[1..4] -- reserved
+        // TODO: add support flag continious
         let reserved1 = {
             let mut tmp = [0u8; 3];
             tmp[0] = IfFlags::I.bits();
@@ -68,7 +69,7 @@ impl NopInOut {
         let exp_stat_sn = u32::from_be_bytes(buf[28..32].try_into()?);
         // buf[32..44] -- reserved
         let header_digest = u32::from_be_bytes(buf[44..48].try_into()?);
-        Ok(NopInOut {
+        Ok(TextRequest {
             opcode,
             reserved1,
             total_ahs_length,
@@ -83,23 +84,14 @@ impl NopInOut {
         })
     }
 
-    pub fn ahs_length_bytes(&self) -> usize {
-        (self.total_ahs_length as usize) * 4
-    }
-
-    pub fn data_length_bytes(&self) -> usize {
-        u32::from_be_bytes([
-            0,
-            self.data_segment_length[0],
-            self.data_segment_length[1],
-            self.data_segment_length[2],
-        ]) as usize
-    }
-
     /// Parsing PDU with DataSegment and Digest
     pub fn parse(buf: &[u8]) -> Result<(Self, Vec<u8>, Option<u32>)> {
         if buf.len() < Self::HEADER_LEN {
-            return Err(anyhow!("Buffer too small for LoginResponse BHS"));
+            bail!(
+                "Buffer {} too small for TextRequest BHS {}",
+                buf.len(),
+                Self::HEADER_LEN
+            );
         }
 
         let mut bhs = [0u8; Self::HEADER_LEN];
@@ -111,7 +103,11 @@ impl NopInOut {
         let mut offset = Self::HEADER_LEN + ahs_len;
 
         if buf.len() < offset + data_len {
-            return Err(anyhow!("Buffer too small for DataSegment"));
+            bail!(
+                "TextRequest Buffer {} too small for DataSegment {}",
+                buf.len(),
+                offset + data_len
+            );
         }
         let data = buf[offset..offset + data_len].to_vec();
         offset += data_len;
@@ -130,25 +126,56 @@ impl NopInOut {
     }
 }
 
+impl BasicHeaderSegment for TextRequest {
+    fn get_opcode(&self) -> BhsOpcode {
+        self.opcode.clone()
+    }
+
+    fn ahs_length_bytes(&self) -> usize {
+        (self.total_ahs_length as usize) * 4
+    }
+
+    fn data_length_bytes(&self) -> usize {
+        let data_size = u32::from_be_bytes([
+            0,
+            self.data_segment_length[0],
+            self.data_segment_length[1],
+            self.data_segment_length[2],
+        ]) as usize;
+
+        let pad = (4 - (data_size % 4)) % 4;
+        data_size + pad
+    }
+
+    fn to_bytes(&self) -> Vec<u8> {
+        self.to_bhs_bytes().to_vec()
+    }
+
+    fn from_bytes(buf: &[u8]) -> Result<Self> {
+        Self::from_bhs_bytes(buf)
+    }
+}
+
 /// Builder Login Request
-pub struct NopOutRequestBuilder {
-    pub header: NopInOut,
+#[derive(Debug)]
+pub struct TextRequestBuilder {
+    pub header: TextRequest,
     pub data: Vec<u8>,
     want_header_digest: bool,
     want_data_digest: bool,
 }
 
-impl NopOutRequestBuilder {
+impl TextRequestBuilder {
     pub fn new(
         lun: [u8; 8],
         initiator_task_tag: u32,
         target_task_tag: u32,
         exp_stat_sn: u32,
     ) -> Self {
-        let header = NopInOut {
+        let header = TextRequest {
             opcode: BhsOpcode {
                 flags: IfFlags::empty(),
-                opcode: Opcode::NopOut,
+                opcode: Opcode::TextReq,
             },
             reserved1: {
                 let mut tmp = [0; 3];
@@ -160,12 +187,12 @@ impl NopOutRequestBuilder {
             lun,
             initiator_task_tag,
             target_task_tag,
-            cmd_sn: 0,
+            cmd_sn: 1,
             exp_stat_sn,
             reserved2: [0; 16],
             header_digest: 0,
         };
-        NopOutRequestBuilder {
+        TextRequestBuilder {
             header,
             data: Vec::new(),
             want_data_digest: false,
@@ -176,6 +203,18 @@ impl NopOutRequestBuilder {
     /// Set Ping bit (Ping = bit6)
     pub fn ping(mut self) -> Self {
         self.header.opcode.flags.insert(IfFlags::F);
+        self
+    }
+
+    /// Set Final bit
+    pub fn final_bit(mut self) -> Self {
+        self.header.data_segment_length[0] |= IfFlags::I.bits();
+        self
+    }
+
+    /// Set Continue bit
+    pub fn continiue_bit(mut self) -> Self {
+        self.header.data_segment_length[0] |= IfFlags::F.bits();
         self
     }
 
@@ -216,7 +255,9 @@ impl NopOutRequestBuilder {
     }
 }
 
-impl Builder for NopOutRequestBuilder {
+impl Builder for TextRequestBuilder {
+    type Header = [u8; TextRequest::HEADER_LEN];
+
     /// Appends raw bytes to the Data Segment and updates its length field.
     fn append_data(mut self, more: Vec<u8>) -> Self {
         self.data.extend_from_slice(&more);
@@ -228,67 +269,19 @@ impl Builder for NopOutRequestBuilder {
     }
 
     /// Build finnal PDU (BHS + DataSegment)
-    fn build(mut self) -> ([u8; NopInOut::HEADER_LEN], Vec<u8>) {
+    fn build(mut self, cfg: &Config) -> Result<(Self::Header, Vec<u8>)> {
         let pad = (4 - (self.data.len() % 4)) % 4;
         self.data.extend(std::iter::repeat_n(0, pad));
 
-        (self.header.to_bhs_bytes(), self.data)
-    }
-}
-
-impl ToBytes<48> for NopOutRequestBuilder {
-    fn to_bytes(self) -> ([u8; 48], Vec<u8>) {
-        self.build()
-    }
-}
-
-impl BasicHeaderSegment for NopInOut {
-    fn get_opcode(&self) -> BhsOpcode {
-        self.opcode.clone()
-    }
-
-    fn ahs_length_bytes(&self) -> usize {
-        (self.total_ahs_length as usize) * 4
-    }
-
-    fn data_length_bytes(&self) -> usize {
-        let data_size = u32::from_be_bytes([
-            0,
-            self.data_segment_length[0],
-            self.data_segment_length[1],
-            self.data_segment_length[2],
-        ]) as usize;
-
-        let pad = (4 - (data_size % 4)) % 4;
-        data_size + pad
-    }
-}
-
-impl FromBytes for NopInOut {
-    const HEADER_LEN: usize = NopInOut::HEADER_LEN;
-
-    fn peek_total_len(header: &[u8]) -> Result<usize> {
-        if header.len() < Self::HEADER_LEN {
-            return Err(anyhow!("to small header"));
+        if (cfg.login.negotiation.max_recv_data_segment_length as usize) < self.data.len()
+        {
+            bail!(
+                "TextRequest data size: {} reached out of limit {}",
+                self.data.len(),
+                cfg.login.negotiation.max_recv_data_segment_length
+            );
         }
 
-        let mut b = [0u8; 48];
-        b.copy_from_slice(&header[..48]);
-        let hdr = NopInOut::from_bhs_bytes(&b)?;
-
-        let ahs_len = hdr.total_ahs_length as usize;
-        let data_len = u32::from_be_bytes([
-            0,
-            hdr.data_segment_length[0],
-            hdr.data_segment_length[1],
-            hdr.data_segment_length[2],
-        ]) as usize;
-
-        Ok(Self::HEADER_LEN + ahs_len + data_len)
-    }
-
-    fn from_bytes(buf: &[u8]) -> Result<(Self, Vec<u8>, Option<u32>)> {
-        let (hdr, data, digest) = NopInOut::parse(buf)?;
-        Ok((hdr, data, digest))
+        Ok((self.header.to_bhs_bytes(), self.data))
     }
 }

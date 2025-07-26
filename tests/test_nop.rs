@@ -3,9 +3,13 @@ use std::fs;
 use anyhow::Result;
 use hex::FromHex;
 use iscsi_client_rs::{
+    cfg::{cli::resolve_config_path, config::Config},
     client::pdu_connection::ToBytes,
     models::{
-        nop::request_response::{NopInOut, NopOutRequestBuilder},
+        nop::{
+            request::{NopOutRequest, NopOutRequestBuilder},
+            response::NopInResponse,
+        },
         opcode::{BhsOpcode, IfFlags, Opcode},
     },
 };
@@ -19,11 +23,14 @@ fn load_fixture(path: &str) -> Result<Vec<u8>> {
 
 #[test]
 fn test_nop_out_minimal() -> Result<()> {
+    let cfg =
+        resolve_config_path("tests/config.yaml").and_then(Config::load_from_file)?;
+
     let bytes = load_fixture("tests/fixtures/nop_out_request.hex")?;
-    assert_eq!(bytes.len(), 48);
+    assert_eq!(bytes.len(), NopOutRequest::HEADER_LEN);
 
     let lun = [0u8; 8];
-    let itt = NopInOut::DEFAULT_TAG;
+    let itt = NopOutRequest::DEFAULT_TAG;
     let ttt = 189;
     let cmd_sn = 191;
     let exp_sn = 3699214689;
@@ -33,26 +40,30 @@ fn test_nop_out_minimal() -> Result<()> {
         .exp_stat_sn(exp_sn)
         .ping();
 
-    let expected = NopInOut::from_bhs_bytes(&bytes)?;
+    let expected = NopOutRequest::from_bhs_bytes(&bytes)?;
 
     assert_eq!(&builder.header, &expected, "PDU bytes do not match fixture");
 
-    let (hdr, data) = builder.to_bytes();
+    let (hdr, data) = builder.to_bytes(&cfg).expect("failed to serialize");
     assert!(data.is_empty());
 
     //println!("Header: {}", hdr.encode_hex::<String>());
     //println!("Body:   {}", data.encode_hex::<String>());
 
-    assert_eq!(&hdr[..], &bytes[..48], "NOP-OUT ping header mismatch");
+    assert_eq!(
+        &hdr[..],
+        &bytes[..NopOutRequest::HEADER_LEN],
+        "NOP-OUT ping header mismatch"
+    );
     Ok(())
 }
 
 #[test]
 fn test_nop_in_parse() -> Result<()> {
     let bytes = load_fixture("tests/fixtures/nop_in_response.hex")?;
-    assert!(bytes.len() >= 48);
+    assert!(bytes.len() >= NopInResponse::HEADER_LEN);
 
-    let (parsed, data, digest) = NopInOut::parse(&bytes)?;
+    let (parsed, data, digest) = NopInResponse::parse(&bytes)?;
     assert!(data.is_empty());
     assert!(digest.is_none());
 
@@ -64,8 +75,8 @@ fn test_nop_in_parse() -> Result<()> {
         },
         "expected NOP-IN opcode 0x20"
     );
-    assert_eq!(parsed.cmd_sn, 3699214689);
-    assert_eq!(parsed.exp_stat_sn, 191);
+    assert_eq!(parsed.stat_sn, 3699214689);
+    assert_eq!(parsed.exp_cmd_sn, 191);
 
     Ok(())
 }

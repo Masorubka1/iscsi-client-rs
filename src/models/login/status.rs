@@ -26,8 +26,19 @@ impl From<u8> for StatusClass {
         }
     }
 }
+impl From<StatusClass> for u8 {
+    fn from(class: StatusClass) -> Self {
+        match class {
+            StatusClass::Success => 0x00,
+            StatusClass::Redirection => 0x01,
+            StatusClass::InitiatorError => 0x02,
+            StatusClass::TargetError => 0x03,
+            StatusClass::Unknown(v) => v,
+        }
+    }
+}
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum StatusDetail {
     Success(SuccessDetail),
     Redirection(RedirectionDetail),
@@ -36,7 +47,7 @@ pub enum StatusDetail {
 }
 
 #[repr(u8)]
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum SuccessDetail {
     CmdCompletedNormally = 0x00,
 }
@@ -53,7 +64,7 @@ impl TryFrom<u8> for SuccessDetail {
 }
 
 #[repr(u8)]
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum RedirectionDetail {
     TargetRedirected = 0x01,
 }
@@ -176,5 +187,49 @@ impl TryFrom<(StatusClass, u8)> for StatusDetail {
             },
             _ => bail!("invalid class"),
         })
+    }
+}
+
+impl From<InitiatorErrorDetail> for u8 {
+    fn from(detail: InitiatorErrorDetail) -> Self {
+        match detail {
+            InitiatorErrorDetail::InitiatorError => 0x00,
+            InitiatorErrorDetail::AuthFailed => 0x01,
+            InitiatorErrorDetail::AuthzFailed => 0x02,
+            InitiatorErrorDetail::NotFound => 0x03,
+            InitiatorErrorDetail::TargetRemoved => 0x04,
+            InitiatorErrorDetail::UnsupportedVersion => 0x05,
+            InitiatorErrorDetail::TooManyConnections => 0x06,
+            InitiatorErrorDetail::MissingParameter => 0x07,
+            InitiatorErrorDetail::CantIncludeInSession => 0x08,
+            InitiatorErrorDetail::SessionTypeNotSupported => 0x09,
+            InitiatorErrorDetail::SessionDoesNotExist => 0x0A,
+            InitiatorErrorDetail::InvalidDuringLogin => 0x0B,
+            InitiatorErrorDetail::Reserved(v) => v,
+        }
+    }
+}
+
+impl From<TargetErrorDetail> for u8 {
+    fn from(detail: TargetErrorDetail) -> Self {
+        match detail {
+            TargetErrorDetail::TargetBusy => 0x00,
+            TargetErrorDetail::TargetProtectedAreaBusy => 0x01,
+            TargetErrorDetail::TargetResourceUnavailable => 0x02,
+            TargetErrorDetail::TargetInternalError => 0x03,
+            TargetErrorDetail::VendorSpecific(v) => v,
+            TargetErrorDetail::Reserved(v) => v,
+        }
+    }
+}
+
+impl From<StatusDetail> for u8 {
+    fn from(detail: StatusDetail) -> Self {
+        match detail {
+            StatusDetail::Success(inner) => inner as u8,
+            StatusDetail::Redirection(inner) => inner as u8,
+            StatusDetail::InitiatorErr(inner) => inner.into(),
+            StatusDetail::TargetErr(inner) => inner.into(),
+        }
     }
 }

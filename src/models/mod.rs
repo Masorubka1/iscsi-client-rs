@@ -3,3 +3,4 @@ pub mod login;
 pub mod nop;
 pub mod opcode;
 pub mod reject;
+pub mod text;

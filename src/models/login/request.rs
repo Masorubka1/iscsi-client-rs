@@ -1,7 +1,7 @@
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, bail};
 
 use crate::{
-    client::pdu_connection::ToBytes,
+    cfg::config::Config,
     models::{
         common::{BasicHeaderSegment, Builder},
         login::common::{LoginFlags, Stage},
@@ -13,22 +13,20 @@ use crate::{
 #[repr(C)]
 #[derive(Debug, PartialEq)]
 pub struct LoginRequest {
-    pub opcode: BhsOpcode,
-    pub flags: LoginFlags,
-    pub version_max: u8,
-    pub version_min: u8,
-    pub total_ahs_length: u8,
-    pub data_segment_length: [u8; 3],
-    pub isid: [u8; 6],
-    pub tsih: u16,
-    pub initiator_task_tag: u32,
-    pub cid: u16,
-    // 2 bytes RESERVED
-    reserved1: [u8; 2],
-    pub cmd_sn: u32,
-    pub exp_stat_sn: u32,
-    // rest (bytes 32..48) RESERVED
-    reserved2: [u8; 16],
+    pub opcode: BhsOpcode,            // 0
+    pub flags: LoginFlags,            // 1
+    pub version_max: u8,              // 2
+    pub version_min: u8,              // 3
+    pub total_ahs_length: u8,         // 4
+    pub data_segment_length: [u8; 3], // 5..8
+    pub isid: [u8; 6],                // 8..14
+    pub tsih: u16,                    // 14..16
+    pub initiator_task_tag: u32,      // 16..20
+    pub cid: u16,                     // 20..22
+    reserved1: [u8; 2],               // 22..24
+    pub cmd_sn: u32,                  // 24..28
+    pub exp_stat_sn: u32,             // 28..32
+    reserved2: [u8; 16],              // 32..48
 }
 
 impl LoginRequest {
@@ -112,6 +110,14 @@ impl BasicHeaderSegment for LoginRequest {
 
         let pad = (4 - (data_size % 4)) % 4;
         data_size + pad
+    }
+
+    fn to_bytes(&self) -> Vec<u8> {
+        self.to_bhs_bytes().to_vec()
+    }
+
+    fn from_bytes(buf: &[u8]) -> Result<Self> {
+        Self::from_bhs_bytes(buf)
     }
 }
 
@@ -214,6 +220,8 @@ impl LoginRequestBuilder {
 }
 
 impl Builder for LoginRequestBuilder {
+    type Header = [u8; LoginRequest::HEADER_LEN];
+
     /// Appends raw bytes to the Data Segment and updates its length field.
     fn append_data(mut self, more: Vec<u8>) -> Self {
         self.data.extend_from_slice(&more);
@@ -225,16 +233,19 @@ impl Builder for LoginRequestBuilder {
     }
 
     /// Build finnal PDU (BHS + DataSegment)
-    fn build(mut self) -> ([u8; LoginRequest::HEADER_LEN], Vec<u8>) {
+    fn build(mut self, cfg: &Config) -> Result<(Self::Header, Vec<u8>)> {
         let pad = (4 - (self.data.len() % 4)) % 4;
         self.data.extend(std::iter::repeat_n(0, pad));
 
-        (self.header.to_bhs_bytes(), self.data)
-    }
-}
+        if (cfg.login.negotiation.max_recv_data_segment_length as usize) < self.data.len()
+        {
+            bail!(
+                "LoginRequest data size: {} reached out of limit {}",
+                self.data.len(),
+                cfg.login.negotiation.max_recv_data_segment_length
+            );
+        }
 
-impl ToBytes<48> for LoginRequestBuilder {
-    fn to_bytes(self) -> ([u8; 48], Vec<u8>) {
-        self.build()
+        Ok((self.header.to_bhs_bytes(), self.data))
     }
 }

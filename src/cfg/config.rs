@@ -1,140 +1,216 @@
-use std::{fs, path::Path};
+use std::{collections::HashMap, fs, path::Path};
 
-use anyhow::Result;
-use serde::{Deserialize, Deserializer, de};
+use anyhow::{Context, Result};
+use serde::Deserialize;
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct Config {
-    pub target: Target,
-    pub initiator: Initiator,
-    pub auth: Auth,
-    pub negotiation: Negotiation,
-    pub performance: Performance,
-    pub extra_text: String,
+    pub login: LoginConfig,
+    pub extra_data: ExtraDataConfig,
 }
 
-#[derive(Deserialize, Debug)]
-pub struct Target {
-    pub iqn: String,
-    pub address: String,
+#[derive(Deserialize, Debug, Clone)]
+pub struct LoginConfig {
+    pub security: SecurityConfig,
+    pub negotiation: NegotiationConfig,
+    pub auth: AuthConfig,
 }
 
-#[derive(Deserialize, Debug)]
-pub struct Initiator {
-    pub iqn: String,
-    pub alias: String,
-    /// six-byte ISID encoded as hex, e.g. "00023d000009"
-    #[serde(deserialize_with = "deserialize_isid")]
-    pub isid: [u8; 6],
-}
-
-fn deserialize_isid<'de, D>(deserializer: D) -> Result<[u8; 6], D::Error>
-where D: Deserializer<'de> {
-    let s = String::deserialize(deserializer)?;
-    let bytes = hex::decode(&s)
-        .map_err(|e| de::Error::custom(format!("invalid ISID hex `{s}`: {e}")))?;
-    if bytes.len() != 6 {
-        return Err(de::Error::invalid_length(bytes.len(), &"exactly 6 bytes"));
-    }
-    let mut arr = [0u8; 6];
-    arr.copy_from_slice(&bytes);
-    Ok(arr)
-}
-
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 #[serde(rename_all = "lowercase", tag = "method")]
-pub enum Auth {
+pub enum AuthConfig {
     /// no authentication
     None,
     /// CHAP: must provide a user and password
-    Chap { username: String, secret: String },
+    Chap(ChapConfig),
 }
 
-#[derive(Deserialize, Debug)]
-pub struct Negotiation {
-    pub version_max: u8,
-    pub version_min: u8,
-    pub header_digest: String,
-    pub data_digest: String,
-    pub session_type: String,
+#[derive(Deserialize, Debug, Clone)]
+pub struct ChapConfig {
+    pub username: String,
+    pub secret: String,
 }
 
-#[derive(Deserialize, Debug)]
-pub struct Performance {
+#[derive(Deserialize, Debug, Clone)]
+pub struct SecurityConfig {
+    #[serde(rename = "session_type")]
+    pub session_type: String, // SessionType
+    #[serde(rename = "portal_group_tag")]
+    pub portal_group_tag: u16, // TargetPortalGroupTag
+
+    #[serde(rename = "initiator_name")]
+    pub initiator_name: String, // InitiatorName
+    #[serde(rename = "initiator_alias")]
+    pub initiator_alias: String, // InitiatorAlias
+
+    #[serde(rename = "target_name")]
+    pub target_name: String, // TargetName
+    // #[serde(rename = "target_alias")]
+    // pub target_alias: String, // TargetAlias
+    #[serde(rename = "target_address")]
+    pub target_address: String, // TargetAddress
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct NegotiationConfig {
+    #[serde(rename = "version_max")]
+    pub version_max: u8, // VersionMax
+    #[serde(rename = "version_min")]
+    pub version_min: u8, // VersionMin
+    #[serde(rename = "header_digest")]
+    pub header_digest: String, // HeaderDigest
+    #[serde(rename = "data_digest")]
+    pub data_digest: String, // DataDigest
+
+    #[serde(rename = "max_recv_data_segment_length")]
     pub max_recv_data_segment_length: u32,
+    #[serde(rename = "max_burst_length")]
     pub max_burst_length: u32,
+    #[serde(rename = "first_burst_length")]
     pub first_burst_length: u32,
+
+    #[serde(rename = "default_time2wait")]
+    pub default_time2wait: u8,
+    #[serde(rename = "default_time2retain")]
+    pub default_time2retain: u8,
+    #[serde(rename = "max_outstanding_r2t")]
+    pub max_outstanding_r2t: u8,
+
+    #[serde(rename = "data_pdu_in_order")]
+    pub data_pdu_in_order: String,
+    #[serde(rename = "data_sequence_in_order")]
+    pub data_sequence_in_order: String,
+    #[serde(rename = "error_recovery_level")]
+    pub error_recovery_level: u8,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct ExtraDataConfig {
+    pub markers: MarkerConfig,
+    pub r2t: R2TConfig,
+    pub connections: ConnectionConfig,
+    #[serde(flatten)]
+    pub custom: HashMap<String, String>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct MarkerConfig {
+    #[serde(rename = "IFMarker")]
+    pub if_marker: String,
+    #[serde(rename = "OFMarker")]
+    pub of_marker: String,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct R2TConfig {
+    #[serde(rename = "initial_r2t")]
+    pub initial_r2t: String,
+    #[serde(rename = "immediate_data")]
+    pub immediate_data: String,
+    #[serde(rename = "max_outstanding_r2t")]
+    pub max_outstanding_r2t: u8,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct ConnectionConfig {
+    #[serde(rename = "max_connections")]
+    pub max_connections: u8,
 }
 
 impl Config {
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
         let s = fs::read_to_string(path)?;
-        let cfg: Config = serde_yaml::from_str(&s)?;
+        let cfg: Config =
+            serde_yaml::from_str(&s).context("failed to parse config YAML")?;
         Ok(cfg)
     }
 }
 
-/// A small helper to serialize config structs into
-/// iSCSI login key=value\x00 strings.
+/// Trait to turn login and extra_data into key=value\x00 sequences
 pub trait ToLoginKeys {
-    /// Returns a sequence of null-terminated "Key=Value\x00" strings.
     fn to_login_keys(&self) -> Vec<String>;
 }
 
-impl ToLoginKeys for Initiator {
+impl ToLoginKeys for LoginConfig {
     fn to_login_keys(&self) -> Vec<String> {
-        vec![
-            format!("InitiatorName={}\x00", self.iqn),
-            format!("InitiatorAlias={}\x00", self.alias),
-        ]
-    }
-}
+        let mut keys = Vec::new();
+        // Security
+        let sec = &self.security;
+        keys.push(format!("SessionType={}\x00", sec.session_type));
+        keys.push(format!("TargetPortalGroupTag={}\x00", sec.portal_group_tag));
+        keys.push(format!("InitiatorName={}\x00", sec.initiator_name));
+        keys.push(format!("InitiatorAlias={}\x00", sec.initiator_alias));
+        keys.push(format!("TargetName={}\x00", sec.target_name));
+        //keys.push(format!("TargetAlias={}\x00", sec.target_alias));
+        keys.push(format!("TargetAddress={}\x00", sec.target_address));
+        // Negotiation
+        let neg = &self.negotiation;
+        keys.push(format!("VersionMax={}\x00", neg.version_max));
+        keys.push(format!("VersionMin={}\x00", neg.version_min));
+        keys.push(format!("HeaderDigest={}\x00", neg.header_digest));
+        keys.push(format!("DataDigest={}\x00", neg.data_digest));
+        keys.push(format!(
+            "MaxRecvDataSegmentLength={}\x00",
+            neg.max_recv_data_segment_length
+        ));
+        keys.push(format!("MaxBurstLength={}\x00", neg.max_burst_length));
+        keys.push(format!("FirstBurstLength={}\x00", neg.first_burst_length));
+        keys.push(format!("DefaultTime2Wait={}\x00", neg.default_time2wait));
+        keys.push(format!(
+            "DefaultTime2Retain={}\x00",
+            neg.default_time2retain
+        ));
+        keys.push(format!("MaxOutstandingR2T={}\x00", neg.max_outstanding_r2t));
+        keys.push(format!("DataPDUInOrder={}\x00", neg.data_pdu_in_order));
+        keys.push(format!(
+            "DataSequenceInOrder={}\x00",
+            neg.data_sequence_in_order
+        ));
+        keys.push(format!(
+            "ErrorRecoveryLevel={}\x00",
+            neg.error_recovery_level
+        ));
 
-impl ToLoginKeys for Target {
-    fn to_login_keys(&self) -> Vec<String> {
-        vec![
-            format!("TargetName={}\x00", self.iqn),
-            format!("TargetAddress={}\x00", self.address),
-        ]
-    }
-}
-
-impl ToLoginKeys for Negotiation {
-    fn to_login_keys(&self) -> Vec<String> {
-        vec![
-            format!("SessionType={}\x00", self.session_type),
-            format!("VersionMax={}\x00", self.version_max),
-            format!("VersionMin={}\x00", self.version_min),
-            format!("HeaderDigest={}\x00", self.header_digest),
-            format!("DataDigest={}\x00", self.data_digest),
-        ]
-    }
-}
-
-impl ToLoginKeys for Auth {
-    fn to_login_keys(&self) -> Vec<String> {
-        match self {
-            Auth::None => vec!["AuthMethod=None\x00".into()],
-            Auth::Chap {
-                username,
-                secret: _,
-            } => vec![
-                "AuthMethod=CHAP\x00".into(),
-                format!("UserName={}\x00", username),
-            ],
+        // Auth
+        let auth = &self.auth;
+        match auth {
+            AuthConfig::None => keys.push("AuthMethod=None\x00".to_string()),
+            AuthConfig::Chap(_) => keys.push("AuthMethod=CHAP, None\x00".to_string()),
         }
+
+        keys.sort();
+        keys
     }
 }
 
-impl ToLoginKeys for Performance {
+impl ToLoginKeys for ExtraDataConfig {
     fn to_login_keys(&self) -> Vec<String> {
-        vec![
-            format!(
-                "MaxRecvDataSegmentLength={}\x00",
-                self.max_recv_data_segment_length
-            ),
-            format!("MaxBurstLength={}\x00", self.max_burst_length),
-            format!("FirstBurstLength={}\x00", self.first_burst_length),
-        ]
+        let mut keys = Vec::new();
+        // markers
+        keys.push(format!("IFMarker={}\x00", self.markers.if_marker));
+        keys.push(format!("OFMarker={}\x00", self.markers.of_marker));
+        // r2t
+        keys.push(format!("InitialR2T={}\x00", self.r2t.initial_r2t));
+        keys.push(format!("ImmediateData={}\x00", self.r2t.immediate_data));
+        keys.push(format!(
+            "MaxOutstandingR2T={}\x00",
+            self.r2t.max_outstanding_r2t
+        ));
+        // connections
+        keys.push(format!(
+            "MaxConnections={}\x00",
+            self.connections.max_connections
+        ));
+        keys.sort();
+        keys
+    }
+}
+
+impl ToLoginKeys for Config {
+    fn to_login_keys(&self) -> Vec<String> {
+        let mut keys = self.login.to_login_keys();
+        keys.extend(self.extra_data.to_login_keys());
+        keys.sort();
+        keys
     }
 }
