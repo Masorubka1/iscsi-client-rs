@@ -10,9 +10,7 @@ use anyhow::{Context, Result};
 use iscsi_client_rs::{
     cfg::{cli::resolve_config_path, config::Config},
     client::client::Connection,
-    handlers::{
-        login_simple::login_plain, nop_handler::send_nop,
-    },
+    handlers::{login_simple::login_plain, nop_handler::send_nop},
     models::nop::request::NopOutRequest,
     utils::generate_isid,
 };

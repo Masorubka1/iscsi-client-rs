@@ -82,9 +82,10 @@ fn test_text_response() -> Result<()> {
     assert_eq!(data_size, data.len());
     assert_eq!(parsed.stat_sn, 1939077135);
     assert_eq!(parsed.exp_cmd_sn, 2);
+    let expected = "TargetName=iqn.2025-07.com.example:target0\0TargetAddress=127.0.0.1:\
+                    3260,1\0\0\0";
     assert_eq!(
-        "TargetName=iqn.2025-07.com.example:target0\0TargetAddress=127.0.0.1:3260,1\0\0\0"
-        .to_string(),
+        expected.to_string(),
         String::from_utf8(data).context("Failed to serialize")?
     );
 
