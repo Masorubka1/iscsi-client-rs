@@ -31,7 +31,7 @@ pub struct LoginResponse {
     pub max_cmd_sn: u32,              // 32..36
     pub status_class: StatusClass,    // 36
     pub status_detail: StatusDetail,  // 37
-    reserved2: [u8; 10],              // 38..48
+    reserved2: [u8; 14],              // 38..48
 }
 
 impl LoginResponse {
@@ -85,16 +85,14 @@ impl LoginResponse {
             ),
             status_class,
             status_detail,
-            reserved2: buf[38..48]
-                .try_into()
-                .context("failed to get reserved data")?,
+            reserved2: [0u8; 14],
         })
     }
 
     /// Serialize only the BHS (48 bytes) of this LoginResponse
     pub fn to_bhs_bytes(&self) -> [u8; Self::HEADER_LEN] {
         let mut buf = [0u8; Self::HEADER_LEN];
-        buf[0] = self.opcode.clone().into();
+        buf[0] = (&self.opcode).into();
         buf[1] = self.flags.bits();
         buf[2] = self.version_max;
         buf[3] = self.version_active;
@@ -111,7 +109,6 @@ impl LoginResponse {
         buf[36] = self.status_class.into();
         buf[37] = self.status_detail.clone().into();
         // reserved2 (38..48)
-        buf[38..48].copy_from_slice(&self.reserved2);
         buf
     }
 
@@ -159,8 +156,8 @@ impl LoginResponse {
 }
 
 impl BasicHeaderSegment for LoginResponse {
-    fn get_opcode(&self) -> BhsOpcode {
-        self.opcode.clone()
+    fn get_opcode(&self) -> &BhsOpcode {
+        &self.opcode
     }
 
     fn ahs_length_bytes(&self) -> usize {

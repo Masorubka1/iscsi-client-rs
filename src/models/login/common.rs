@@ -1,7 +1,7 @@
 use std::fmt;
 
 bitflags::bitflags! {
-    #[derive(Clone, PartialEq)]
+    #[derive(Default, Clone, PartialEq)]
     pub struct LoginFlags: u8 {
         /// Transit bit (next stage)
         const TRANSIT = 0x80;
@@ -11,6 +11,15 @@ bitflags::bitflags! {
         const CSG_MASK = 0b0000_1100;
         /// Next Stage bits (bits 0-1)
         const NSG_MASK = 0b0000_0011;
+    }
+}
+
+impl TryFrom<u8> for LoginFlags {
+    type Error = anyhow::Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        LoginFlags::from_bits(value)
+            .ok_or_else(|| anyhow::anyhow!("invalid LoginFlags: {:#08b}", value))
     }
 }
 
@@ -43,9 +52,10 @@ impl fmt::Debug for LoginFlags {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
 #[repr(u8)]
 pub enum Stage {
+    #[default]
     Security = 0,
     Operational = 1,
     FullFeature = 3,

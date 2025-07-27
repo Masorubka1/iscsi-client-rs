@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Result, anyhow, bail};
 
 use crate::{
     cfg::config::Config,
@@ -11,7 +11,7 @@ use crate::{
 
 /// BHS form LoginRequest PDU
 #[repr(C)]
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Default, PartialEq)]
 pub struct LoginRequest {
     pub opcode: BhsOpcode,            // 0
     pub flags: LoginFlags,            // 1
@@ -35,7 +35,7 @@ impl LoginRequest {
     /// Serialize BHS in 48 bytes
     pub fn to_bhs_bytes(&self) -> [u8; Self::HEADER_LEN] {
         let mut buf = [0u8; Self::HEADER_LEN];
-        buf[0] = self.opcode.clone().into();
+        buf[0] = (&self.opcode).into();
         buf[1] = self.flags.bits();
         buf[2] = self.version_max;
         buf[3] = self.version_min;
@@ -57,8 +57,7 @@ impl LoginRequest {
             return Err(anyhow!("buffer too small"));
         }
         let opcode = buf[0].try_into()?;
-        let flags = LoginFlags::from_bits(buf[1])
-            .context(format!("failed to set all bits {}", buf[1]))?;
+        let flags = LoginFlags::try_from(buf[1])?;
         let version_max = buf[2];
         let version_min = buf[3];
         let total_ahs_length = buf[4];
@@ -92,8 +91,8 @@ impl LoginRequest {
 }
 
 impl BasicHeaderSegment for LoginRequest {
-    fn get_opcode(&self) -> BhsOpcode {
-        self.opcode.clone()
+    fn get_opcode(&self) -> &BhsOpcode {
+        &self.opcode
     }
 
     fn ahs_length_bytes(&self) -> usize {
@@ -130,27 +129,16 @@ pub struct LoginRequestBuilder {
 
 impl LoginRequestBuilder {
     pub fn new(isid: [u8; 6], tsih: u16) -> Self {
-        let header = LoginRequest {
-            opcode: BhsOpcode {
-                flags: IfFlags::I,
-                opcode: Opcode::LoginReq,
-            },
-            flags: LoginFlags::empty(),
-            version_max: 0x00,
-            version_min: 0x00,
-            total_ahs_length: 0,
-            data_segment_length: [0; 3],
-            isid,
-            tsih,
-            initiator_task_tag: 0,
-            cid: 0,
-            cmd_sn: 0,
-            exp_stat_sn: 0,
-            reserved1: [0; 2],
-            reserved2: [0; 16],
-        };
         LoginRequestBuilder {
-            header,
+            header: LoginRequest {
+                opcode: BhsOpcode {
+                    flags: IfFlags::I,
+                    opcode: Opcode::LoginReq,
+                },
+                isid,
+                tsih,
+                ..Default::default()
+            },
             data: Vec::new(),
         }
     }
@@ -215,6 +203,11 @@ impl LoginRequestBuilder {
     /// Sets the expected status sequence number (ExpStatSN) from the target.
     pub fn exp_stat_sn(mut self, sn: u32) -> Self {
         self.header.exp_stat_sn = sn;
+        self
+    }
+
+    pub fn isid(mut self, isid: &[u8; 8]) -> Self {
+        self.header.isid.clone_from_slice(isid);
         self
     }
 }

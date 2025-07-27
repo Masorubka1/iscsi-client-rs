@@ -10,7 +10,7 @@ use crate::{
 
 /// BHS for NopOutRequest PDU
 #[repr(C)]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Default, PartialEq)]
 pub struct TextRequest {
     pub opcode: BhsOpcode,            // 0
     reserved1: [u8; 3],               // 1..4
@@ -32,7 +32,7 @@ impl TextRequest {
     /// Serialize BHS in 48 bytes
     pub fn to_bhs_bytes(&self) -> [u8; Self::HEADER_LEN] {
         let mut buf = [0u8; Self::HEADER_LEN];
-        buf[0] = self.opcode.clone().into();
+        buf[0] = (&self.opcode).into();
         // final bit && continue bit
         buf[1..4].copy_from_slice(&self.reserved1);
         buf[4] = self.total_ahs_length;
@@ -54,11 +54,8 @@ impl TextRequest {
         let opcode = BhsOpcode::try_from(buf[0])?;
         // buf[1..4] -- reserved
         // TODO: add support flag continious
-        let reserved1 = {
-            let mut tmp = [0u8; 3];
-            tmp[0] = IfFlags::I.bits();
-            tmp
-        };
+        let mut reserved1 = [0u8; 3];
+        reserved1.clone_from_slice(&buf[1..4]);
         let total_ahs_length = buf[4];
         let data_segment_length = [buf[5], buf[6], buf[7]];
         let mut lun = [0u8; 8];
@@ -127,8 +124,8 @@ impl TextRequest {
 }
 
 impl BasicHeaderSegment for TextRequest {
-    fn get_opcode(&self) -> BhsOpcode {
-        self.opcode.clone()
+    fn get_opcode(&self) -> &BhsOpcode {
+        &self.opcode
     }
 
     fn ahs_length_bytes(&self) -> usize {
@@ -157,46 +154,33 @@ impl BasicHeaderSegment for TextRequest {
 }
 
 /// Builder Login Request
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct TextRequestBuilder {
     pub header: TextRequest,
     pub data: Vec<u8>,
-    want_header_digest: bool,
-    want_data_digest: bool,
+    enable_header_digest: bool,
+    enable_data_digest: bool,
 }
 
 impl TextRequestBuilder {
-    pub fn new(
-        lun: [u8; 8],
-        initiator_task_tag: u32,
-        target_task_tag: u32,
-        exp_stat_sn: u32,
-    ) -> Self {
-        let header = TextRequest {
-            opcode: BhsOpcode {
-                flags: IfFlags::empty(),
-                opcode: Opcode::TextReq,
-            },
-            reserved1: {
-                let mut tmp = [0; 3];
-                tmp[0] = IfFlags::I.bits();
-                tmp
-            },
-            total_ahs_length: 0,
-            data_segment_length: [0; 3],
-            lun,
-            initiator_task_tag,
-            target_task_tag,
-            cmd_sn: 1,
-            exp_stat_sn,
-            reserved2: [0; 16],
-            header_digest: 0,
-        };
+    pub fn new() -> Self {
         TextRequestBuilder {
-            header,
+            header: TextRequest {
+                opcode: BhsOpcode {
+                    flags: IfFlags::empty(),
+                    opcode: Opcode::TextReq,
+                },
+                reserved1: {
+                    let mut tmp = [0; 3];
+                    tmp[0] = IfFlags::I.bits();
+                    tmp
+                },
+                cmd_sn: 1,
+                ..Default::default()
+            },
             data: Vec::new(),
-            want_data_digest: false,
-            want_header_digest: false,
+            enable_data_digest: false,
+            enable_header_digest: false,
         }
     }
 
@@ -220,13 +204,13 @@ impl TextRequestBuilder {
 
     /// Enable HeaderDigest in NOP-Out.
     pub fn with_header_digest(mut self) -> Self {
-        self.want_header_digest = true;
+        self.enable_header_digest = true;
         self
     }
 
     /// Enable DataDigest in NOP-Out.
     pub fn with_data_digest(mut self) -> Self {
-        self.want_data_digest = true;
+        self.enable_data_digest = true;
         self
     }
 
@@ -251,6 +235,12 @@ impl TextRequestBuilder {
     /// Sets the expected status sequence number (ExpStatSN) from the target.
     pub fn exp_stat_sn(mut self, sn: u32) -> Self {
         self.header.exp_stat_sn = sn;
+        self
+    }
+
+    /// Set the 8-byte Logical Unit Number (LUN) in the BHS header.
+    pub fn lun(mut self, lun: &[u8; 8]) -> Self {
+        self.header.lun.clone_from_slice(lun);
         self
     }
 }

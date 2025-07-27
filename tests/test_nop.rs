@@ -35,7 +35,10 @@ fn test_nop_out_minimal() -> Result<()> {
     let cmd_sn = 191;
     let exp_sn = 3699214689;
 
-    let builder = NopOutRequestBuilder::new(lun, itt, ttt, exp_sn)
+    let builder = NopOutRequestBuilder::new()
+        .lun(&lun)
+        .initiator_task_tag(itt)
+        .target_task_tag(ttt)
         .cmd_sn(cmd_sn)
         .exp_stat_sn(exp_sn)
         .ping();

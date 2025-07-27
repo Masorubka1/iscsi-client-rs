@@ -37,7 +37,10 @@ fn test_text_request() -> Result<()> {
     let cmd_sn = 1;
     let exp_sn = 1939077135;
 
-    let mut builder = TextRequestBuilder::new(lun, itt, ttt, exp_sn)
+    let mut builder = TextRequestBuilder::new()
+        .lun(&lun)
+        .initiator_task_tag(itt)
+        .target_task_tag(ttt)
         .cmd_sn(cmd_sn)
         .exp_stat_sn(exp_sn);
 

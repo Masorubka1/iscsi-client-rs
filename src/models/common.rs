@@ -12,7 +12,7 @@ use crate::{cfg::config::Config, models::opcode::BhsOpcode};
 /// 3. and finally building the full wire format.
 pub trait BasicHeaderSegment: Sized {
     /// first u8 of BHS
-    fn get_opcode(&self) -> BhsOpcode;
+    fn get_opcode(&self) -> &BhsOpcode;
 
     /// Number of extra AHS bytes (always a multiple of 4).
     fn ahs_length_bytes(&self) -> usize;
