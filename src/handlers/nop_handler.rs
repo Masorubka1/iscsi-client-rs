@@ -1,5 +1,6 @@
-use anyhow::{Result, bail};
 use std::sync::atomic::{AtomicU32, Ordering};
+
+use anyhow::{Result, bail};
 use tracing::info;
 
 use crate::{

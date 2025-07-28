@@ -30,7 +30,9 @@ pub struct RejectPdu {
 }
 
 impl RejectPdu {
-    pub const HEADER_LEN: usize = 44; // WTF???
+    pub const HEADER_LEN: usize = 44;
+
+    // WTF???
 
     pub fn from_bhs_bytes(buf: &[u8; Self::HEADER_LEN]) -> Result<Self> {
         let opcode = BhsOpcode::try_from(buf[0])?;

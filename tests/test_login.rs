@@ -20,46 +20,21 @@ use iscsi_client_rs::{
 
 const ISID: [u8; 6] = [0, 2, 61, 0, 0, 9];
 
+fn load_fixture(path: &str) -> Result<Vec<u8>> {
+    let s = fs::read_to_string(path)?;
+    let cleaned = s.trim().replace(|c: char| c.is_whitespace(), "");
+    Ok(Vec::from_hex(&cleaned)?)
+}
+
 #[test]
 fn test_login_request() -> Result<()> {
     let cfg = resolve_config_path("tests/config.yaml")
         .and_then(Config::load_from_file)
         .context("failed to resolve or load config")?;
 
-    let hex_str = fs::read_to_string("tests/fixtures/login_request.hex")?
-        .trim()
-        .replace(|c: char| c.is_whitespace(), "");
-
-    let bytes: Vec<u8> = Vec::from_hex(&hex_str).expect("Failed to decode hex fixture");
-    assert_eq!(bytes.len(), 524, "fixture should decode to 48 bytes");
+    let bytes = load_fixture("tests/fixtures/login_request.hex")?;
+    assert_eq!(bytes.len(), 364, "fixture should decode to 524 bytes");
     let expected = LoginRequest::from_bhs_bytes(&bytes)?;
-
-    let mut builder = LoginRequestBuilder::new(ISID, 0)
-        .transit()
-        .csg(Stage::Operational)
-        .nsg(Stage::FullFeature)
-        .connection_id(1)
-        .versions(
-            cfg.login.negotiation.version_min,
-            cfg.login.negotiation.version_max,
-        );
-
-    for key in cfg.login.to_login_keys().into_iter() {
-        builder = builder.append_data(key.into_bytes());
-    }
-
-    assert_eq!(builder.header, expected, "PDU bytes do not match fixture");
-    Ok(())
-}
-
-#[test]
-fn test_login_body_only() -> Result<()> {
-    let cfg =
-        resolve_config_path("tests/config.yaml").and_then(Config::load_from_file)?;
-    let hex_str = fs::read_to_string("tests/fixtures/login_request.hex")?
-        .trim()
-        .replace(char::is_whitespace, "");
-    let bytes: Vec<u8> = Vec::from_hex(&hex_str)?;
     let expected_body = &bytes[LoginRequest::HEADER_LEN..];
 
     let mut builder = LoginRequestBuilder::new(ISID, 0)
@@ -75,7 +50,13 @@ fn test_login_body_only() -> Result<()> {
         builder = builder.append_data(key.into_bytes());
     }
 
+    assert_eq!(builder.header, expected, "PDU bytes do not match fixture");
+
     let (_hdr, body) = builder.to_bytes(&cfg).expect("failed to serialize");
+
+    //println!("Header: {}", hdr.encode_hex::<String>());
+    //println!("Body:   {}", body.encode_hex::<String>());
+
     assert_eq!(&body[..], expected_body);
     Ok(())
 }

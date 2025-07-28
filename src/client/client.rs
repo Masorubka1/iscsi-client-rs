@@ -1,5 +1,4 @@
 use anyhow::{Result, anyhow};
-use md5::digest::consts::False;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,

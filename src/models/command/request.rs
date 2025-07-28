@@ -3,7 +3,7 @@ use anyhow::{Context, Result, bail};
 use crate::{
     cfg::config::Config,
     models::{
-        command::common::ScsiCommandRequestFlags,
+        command::common::{ScsiCommandRequestFlags, TaskAttribute},
         common::{BasicHeaderSegment, Builder},
         opcode::{BhsOpcode, IfFlags, Opcode},
     },
@@ -200,6 +200,16 @@ impl ScsiCommandRequestBuilder {
     /// Set Read bit
     pub fn write(mut self) -> Self {
         self.header.flags.insert(ScsiCommandRequestFlags::WRITE);
+        self
+    }
+
+    /// Set TaskTag bits
+    pub fn task_attribute(mut self, task: TaskAttribute) -> Self {
+        let raw_attr: u8 = task.into();
+        let old = self.header.flags.bits();
+        let cleared = old & !ScsiCommandRequestFlags::ATTR_MASK.bits();
+        let new_bits = cleared | (raw_attr & ScsiCommandRequestFlags::ATTR_MASK.bits());
+        self.header.flags = ScsiCommandRequestFlags::from_bits_truncate(new_bits);
         self
     }
 

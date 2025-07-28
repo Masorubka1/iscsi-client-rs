@@ -26,7 +26,6 @@ pub async fn login_plain(
         .transit()
         .csg(Stage::Operational)
         .nsg(Stage::FullFeature)
-        .connection_id(1)
         .versions(
             cfg.login.negotiation.version_min,
             cfg.login.negotiation.version_max,

@@ -1,9 +1,9 @@
-use anyhow::{Result, bail};
 use std::sync::atomic::{AtomicU32, Ordering};
+
+use anyhow::{Result, bail};
 use tracing::info;
 
 use crate::{
-    cfg::config::Config,
     client::client::{Connection, PduResponse},
     models::{
         common::Builder,
@@ -24,12 +24,10 @@ pub async fn send_text(
     cmd_sn: &AtomicU32,
     exp_stat_sn: &AtomicU32,
 ) -> Result<(TextResponse, String, Option<u32>)> {
-    // grab our sequence numbers
     let sn = cmd_sn.fetch_add(1, Ordering::SeqCst);
     let esn = exp_stat_sn.load(Ordering::SeqCst);
     let itt = initiator_task_tag.fetch_add(1, Ordering::SeqCst);
 
-    // build the Text Request PDU
     let builder = TextRequestBuilder::new()
         .final_bit()
         .lun(&lun)
@@ -45,7 +43,6 @@ pub async fn send_text(
         hex::encode(&builder.data)
     );
 
-    // send and wait for response
     let response = conn
         .call::<{ TextRequest::HEADER_LEN }, TextResponse>(builder)
         .await?;

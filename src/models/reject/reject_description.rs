@@ -9,19 +9,23 @@ pub enum RejectReason {
     DataDigestError = 0x02,
     /// 0x03 — SNACK Reject; original PDU may be resent
     SnackReject = 0x03,
-    /// 0x04 — Protocol Error (e.g. SNACK Request for an already-acked status); cannot be resent
+    /// 0x04 — Protocol Error (e.g. SNACK Request for an already-acked status);
+    /// cannot be resent
     ProtocolError = 0x04,
     /// 0x05 — Command not supported; cannot be resent
     CommandNotSupported = 0x05,
-    /// 0x06 — Immediate command reject (too many immediate commands); original PDU may be resent
+    /// 0x06 — Immediate command reject (too many immediate commands); original
+    /// PDU may be resent
     ImmediateCmdReject = 0x06,
     /// 0x07 — Task in progress; cannot be resent
     TaskInProgress = 0x07,
     /// 0x08 — Invalid data ack; cannot be resent
     InvalidDataAck = 0x08,
-    /// 0x09 — Invalid PDU field (e.g. bad ITT, invalid SNACK numbers); cannot be resent
+    /// 0x09 — Invalid PDU field (e.g. bad ITT, invalid SNACK numbers); cannot
+    /// be resent
     InvalidPduField = 0x09,
-    /// 0x0A — Long op reject (out of resources generating TargetTransferTag); original PDU may be resent
+    /// 0x0A — Long op reject (out of resources generating TargetTransferTag);
+    /// original PDU may be resent
     LongOpReject = 0x0A,
     /// 0x0B — Deprecated (“Negotiation Reset”); MUST NOT be used
     DeprecatedNegotiReset = 0x0B,
@@ -33,6 +37,7 @@ pub enum RejectReason {
 
 impl TryFrom<u8> for RejectReason {
     type Error = anyhow::Error;
+
     fn try_from(b: u8) -> Result<Self, Self::Error> {
         Ok(match b {
             0x01 => RejectReason::Reserved,

@@ -7,6 +7,7 @@ use crate::{
     client::client::{Connection, PduResponse},
     models::{
         command::{
+            common::TaskAttribute,
             request::{ScsiCommandRequest, ScsiCommandRequestBuilder},
             response::ScsiCommandResponse,
         },
@@ -108,21 +109,21 @@ pub async fn send_scsi_write(
     write_data: Vec<u8>,
 ) -> Result<(ScsiCommandResponse, String)> {
     // pull our sequence numbers
-    let sn = cmd_sn.fetch_add(1, Ordering::SeqCst);
-    let esn = exp_stat_sn.load(Ordering::SeqCst);
+    let cmd_sn1 = cmd_sn.fetch_add(1, Ordering::SeqCst);
+    let exp_stat_sn1 = exp_stat_sn.load(Ordering::SeqCst);
     let itt = initiator_task_tag.fetch_add(1, Ordering::SeqCst);
 
-    // build the WRITE PDU (sets WRITE bit and data length under the hood)
     let builder = ScsiCommandRequestBuilder::new()
         .lun(&lun)
         .initiator_task_tag(itt)
-        .cmd_sn(sn)
-        .exp_stat_sn(esn)
+        .cmd_sn(cmd_sn1)
+        .exp_stat_sn(exp_stat_sn1)
+        .expected_data_transfer_length(write_data.len() as u32)
         .scsi_descriptor_block(cdb)
         .write()
         .finall()
-        .expected_data_transfer_length(write_data.len() as u32)
-        .append_data(write_data);
+        .task_attribute(TaskAttribute::Simple)
+        .append_data(write_data.clone());
 
     info!("{:?}, {}", builder.header, hex::encode(&builder.data));
 

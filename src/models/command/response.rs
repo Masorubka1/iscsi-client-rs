@@ -134,6 +134,7 @@ impl ScsiCommandResponse {
         offset += data_len;
 
         let hd = if buf.len() >= offset + 4 {
+            println!("{}, {}", buf.len(), offset + 4);
             Some(u32::from_be_bytes(
                 buf[offset..offset + 4]
                     .try_into()

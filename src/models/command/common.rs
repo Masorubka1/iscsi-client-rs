@@ -48,6 +48,19 @@ impl From<u8> for TaskAttribute {
     }
 }
 
+impl From<TaskAttribute> for u8 {
+    fn from(value: TaskAttribute) -> Self {
+        match value {
+            TaskAttribute::Untagged => 0,
+            TaskAttribute::Simple => 1,
+            TaskAttribute::Ordered => 2,
+            TaskAttribute::HeadOfQueue => 3,
+            TaskAttribute::ACA => 4,
+            TaskAttribute::Reserved(v) => v & ScsiCommandRequestFlags::ATTR_MASK.bits(),
+        }
+    }
+}
+
 impl fmt::Debug for TaskAttribute {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
