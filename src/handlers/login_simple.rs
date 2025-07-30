@@ -1,4 +1,5 @@
 use anyhow::{Result, bail};
+use tracing::info;
 
 use crate::{
     cfg::config::{Config, ToLoginKeys},
@@ -19,13 +20,12 @@ pub async fn login_plain(
     conn: &Connection,
     cfg: &Config,
     isid: [u8; 6],
-) -> Result<LoginResponse> {
+) -> Result<(LoginResponse, String)> {
     // 1) Full-Feature transition: CSG=Operational(1) → NSG=FullFeature(3)
-    let mut req1 = LoginRequestBuilder::new(isid, 0)
+    let mut builder = LoginRequestBuilder::new(isid, 0)
         .transit()
         .csg(Stage::Operational)
         .nsg(Stage::FullFeature)
-        .connection_id(1)
         .versions(
             cfg.login.negotiation.version_min,
             cfg.login.negotiation.version_max,
@@ -37,11 +37,13 @@ pub async fn login_plain(
         .into_iter()
         .chain(cfg.extra_data.to_login_keys())
     {
-        req1 = req1.append_data(key.into_bytes());
+        builder = builder.append_data(key.into_bytes());
     }
 
-    let (hdr, _data, _dig) = match conn
-        .call::<{ LoginRequest::HEADER_LEN }, LoginResponse>(req1)
+    info!("{:?}, {:?}", builder.header, hex::encode(&builder.data));
+
+    let (hdr, data, _dig) = match conn
+        .call::<{ LoginRequest::HEADER_LEN }, LoginResponse>(builder)
         .await?
     {
         PduResponse::Normal((hdr, data, _dig)) => (hdr, data, _dig),
@@ -50,5 +52,5 @@ pub async fn login_plain(
         },
     };
 
-    Ok(hdr)
+    Ok((hdr, String::from_utf8(data)?))
 }

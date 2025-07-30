@@ -10,7 +10,7 @@ use crate::{
 
 /// BHS for NopOutRequest PDU
 #[repr(C)]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Default, PartialEq)]
 pub struct NopInResponse {
     pub opcode: BhsOpcode,            // 0
     reserved1: [u8; 3],               // 1..4
@@ -32,7 +32,7 @@ impl NopInResponse {
     /// Serialize BHS in 48 bytes
     pub fn to_bhs_bytes(&self) -> [u8; Self::HEADER_LEN] {
         let mut buf = [0u8; Self::HEADER_LEN];
-        buf[0] = self.opcode.clone().into();
+        buf[0] = (&self.opcode).into();
         // finnal bit
         buf[1..4].copy_from_slice(&self.reserved1);
         buf[4] = self.total_ahs_length;
@@ -129,8 +129,8 @@ impl NopInResponse {
 }
 
 impl BasicHeaderSegment for NopInResponse {
-    fn get_opcode(&self) -> BhsOpcode {
-        self.opcode.clone()
+    fn get_opcode(&self) -> &BhsOpcode {
+        &self.opcode
     }
 
     fn ahs_length_bytes(&self) -> usize {

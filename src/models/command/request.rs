@@ -3,48 +3,50 @@ use anyhow::{Context, Result, bail};
 use crate::{
     cfg::config::Config,
     models::{
+        command::common::{ScsiCommandRequestFlags, TaskAttribute},
         common::{BasicHeaderSegment, Builder},
         opcode::{BhsOpcode, IfFlags, Opcode},
     },
 };
 
-/// BHS for NopOutRequest PDU
+/// BHS for ScsiCommandRequest PDU
 #[repr(C)]
 #[derive(Debug, Default, PartialEq)]
-pub struct NopOutRequest {
-    pub opcode: BhsOpcode,            // 0
-    reserved1: [u8; 3],               // 1..4
-    pub total_ahs_length: u8,         // 4
-    pub data_segment_length: [u8; 3], // 5..8
-    pub lun: [u8; 8],                 // 8..16
-    pub initiator_task_tag: u32,      // 16..20
-    pub target_task_tag: u32,         // 20..24
-    pub cmd_sn: u32,                  // 24..28
-    pub exp_stat_sn: u32,             // 28..32
-    reserved2: [u8; 16],              // 32..48
-    pub header_digest: u32,           // 48..52
+pub struct ScsiCommandRequest {
+    pub opcode: BhsOpcode,                  // 0
+    pub flags: ScsiCommandRequestFlags,     // 1
+    reserved1: [u8; 2],                     // 2..4
+    pub total_ahs_length: u8,               // 4
+    pub data_segment_length: [u8; 3],       // 5..8
+    pub lun: [u8; 8],                       // 8..16
+    pub initiator_task_tag: u32,            // 16..20
+    pub expected_data_transfer_length: u32, // 20..24
+    pub cmd_sn: u32,                        // 24..28
+    pub exp_stat_sn: u32,                   // 28..32
+    pub scsi_descriptor_block: [u8; 12],    // 32..44
+    // TODO: fix ash length
+    pub additional_header_segment: [u8; 4], // 44..44 + total_ahs
+    pub header_digest: u32,                 // 44 + total_ahs..48 + total_ahs
 }
 
-impl NopOutRequest {
+impl ScsiCommandRequest {
     pub const DEFAULT_TAG: u32 = 0xffffffff_u32;
-    pub const HEADER_LEN: usize = 48;
+    pub const HEADER_LEN: usize = 44;
 
     /// Serialize BHS in 48 bytes
     pub fn to_bhs_bytes(&self) -> [u8; Self::HEADER_LEN] {
         let mut buf = [0u8; Self::HEADER_LEN];
         buf[0] = (&self.opcode).into();
-        // finnal bit
-        buf[1..4].copy_from_slice(&self.reserved1);
+        buf[1] = self.flags.bits();
+        buf[2..4].copy_from_slice(&self.reserved1);
         buf[4] = self.total_ahs_length;
         buf[5..8].copy_from_slice(&self.data_segment_length);
         buf[8..16].copy_from_slice(&self.lun);
         buf[16..20].copy_from_slice(&self.initiator_task_tag.to_be_bytes());
-        buf[20..24].copy_from_slice(&self.target_task_tag.to_be_bytes());
+        buf[20..24].copy_from_slice(&self.expected_data_transfer_length.to_be_bytes());
         buf[24..28].copy_from_slice(&self.cmd_sn.to_be_bytes());
         buf[28..32].copy_from_slice(&self.exp_stat_sn.to_be_bytes());
-        // buf[32..48] -- reserved
-        // TODO: fix header_diggest
-        //buf[48..52].copy_from_slice(&self.header_digest.to_be_bytes());
+        buf[32..44].copy_from_slice(&self.scsi_descriptor_block);
         buf
     }
 
@@ -53,34 +55,33 @@ impl NopOutRequest {
             bail!("buffer too small");
         }
         let opcode = BhsOpcode::try_from(buf[0])?;
-        // buf[1..4] -- reserved
-        let reserved1 = {
-            let mut tmp = [0u8; 3];
-            tmp[0] = IfFlags::I.bits();
-            tmp
-        };
+        let flags = ScsiCommandRequestFlags::try_from(buf[1])?;
         let total_ahs_length = buf[4];
         let data_segment_length = [buf[5], buf[6], buf[7]];
         let mut lun = [0u8; 8];
         lun.clone_from_slice(&buf[8..16]);
         let initiator_task_tag = u32::from_be_bytes(buf[16..20].try_into()?);
-        let target_task_tag = u32::from_be_bytes(buf[20..24].try_into()?);
+        let expected_data_transfer_length = u32::from_be_bytes(buf[20..24].try_into()?);
         let cmd_sn = u32::from_be_bytes(buf[24..28].try_into()?);
         let exp_stat_sn = u32::from_be_bytes(buf[28..32].try_into()?);
-        // buf[32..48] -- reserved
+        let mut scsi_descriptor_block = [0u8; 12];
+        scsi_descriptor_block.clone_from_slice(&buf[32..44]);
         // TODO: fix header_diggest
+        // TODO: fix additional_header_segment copy
         // let header_digest = u32::from_be_bytes(buf[48..52].try_into()?);
-        Ok(NopOutRequest {
+        Ok(ScsiCommandRequest {
             opcode,
-            reserved1,
+            flags,
+            reserved1: [0u8; 2],
             total_ahs_length,
             lun,
             data_segment_length,
             initiator_task_tag,
-            target_task_tag,
+            expected_data_transfer_length,
             cmd_sn,
             exp_stat_sn,
-            reserved2: [0u8; 16],
+            scsi_descriptor_block,
+            additional_header_segment: [0u8; 4],
             header_digest: 0,
         })
     }
@@ -123,7 +124,7 @@ impl NopOutRequest {
     }
 }
 
-impl BasicHeaderSegment for NopOutRequest {
+impl BasicHeaderSegment for ScsiCommandRequest {
     fn get_opcode(&self) -> &BhsOpcode {
         &self.opcode
     }
@@ -154,32 +155,27 @@ impl BasicHeaderSegment for NopOutRequest {
 }
 
 /// Builder Login Request
-#[derive(Debug, Default)]
-pub struct NopOutRequestBuilder {
-    pub header: NopOutRequest,
+#[derive(Debug, Default, PartialEq)]
+pub struct ScsiCommandRequestBuilder {
+    pub header: ScsiCommandRequest,
     pub data: Vec<u8>,
-    want_header_digest: bool,
-    want_data_digest: bool,
+    enable_header_digest: bool,
+    enable_data_digest: bool,
 }
 
-impl NopOutRequestBuilder {
+impl ScsiCommandRequestBuilder {
     pub fn new() -> Self {
-        NopOutRequestBuilder {
-            header: NopOutRequest {
+        ScsiCommandRequestBuilder {
+            header: ScsiCommandRequest {
                 opcode: BhsOpcode {
                     flags: IfFlags::empty(),
-                    opcode: Opcode::NopOut,
-                },
-                reserved1: {
-                    let mut tmp = [0; 3];
-                    tmp[0] = IfFlags::I.bits();
-                    tmp
+                    opcode: Opcode::ScsiCommandReq,
                 },
                 ..Default::default()
             },
             data: Vec::new(),
-            want_data_digest: false,
-            want_header_digest: false,
+            enable_data_digest: false,
+            enable_header_digest: false,
         }
     }
 
@@ -189,15 +185,43 @@ impl NopOutRequestBuilder {
         self
     }
 
+    /// Set Finall bit
+    pub fn finall(mut self) -> Self {
+        self.header.flags.insert(ScsiCommandRequestFlags::FINAL);
+        self
+    }
+
+    /// Set Read bit
+    pub fn read(mut self) -> Self {
+        self.header.flags.insert(ScsiCommandRequestFlags::READ);
+        self
+    }
+
+    /// Set Read bit
+    pub fn write(mut self) -> Self {
+        self.header.flags.insert(ScsiCommandRequestFlags::WRITE);
+        self
+    }
+
+    /// Set TaskTag bits
+    pub fn task_attribute(mut self, task: TaskAttribute) -> Self {
+        let raw_attr: u8 = task.into();
+        let old = self.header.flags.bits();
+        let cleared = old & !ScsiCommandRequestFlags::ATTR_MASK.bits();
+        let new_bits = cleared | (raw_attr & ScsiCommandRequestFlags::ATTR_MASK.bits());
+        self.header.flags = ScsiCommandRequestFlags::from_bits_truncate(new_bits);
+        self
+    }
+
     /// Enable HeaderDigest in NOP-Out.
     pub fn with_header_digest(mut self) -> Self {
-        self.want_header_digest = true;
+        self.enable_header_digest = true;
         self
     }
 
     /// Enable DataDigest in NOP-Out.
     pub fn with_data_digest(mut self) -> Self {
-        self.want_data_digest = true;
+        self.enable_data_digest = true;
         self
     }
 
@@ -207,9 +231,9 @@ impl NopOutRequestBuilder {
         self
     }
 
-    /// Sets the target task tag, a unique identifier for this command.
-    pub fn target_task_tag(mut self, tag: u32) -> Self {
-        self.header.target_task_tag = tag;
+    /// Sets the expected_data_length, a length off all parts of data.
+    pub fn expected_data_transfer_length(mut self, expected_data_length: u32) -> Self {
+        self.header.expected_data_transfer_length = expected_data_length;
         self
     }
 
@@ -230,10 +254,18 @@ impl NopOutRequestBuilder {
         self.header.lun.clone_from_slice(lun);
         self
     }
+
+    /// Set the 12-byte SCSI Command Descriptor Block (CDB) in the BHS header.
+    pub fn scsi_descriptor_block(mut self, scsi_descriptor_block: &[u8; 12]) -> Self {
+        self.header
+            .scsi_descriptor_block
+            .clone_from_slice(scsi_descriptor_block);
+        self
+    }
 }
 
-impl Builder for NopOutRequestBuilder {
-    type Header = [u8; NopOutRequest::HEADER_LEN];
+impl Builder for ScsiCommandRequestBuilder {
+    type Header = [u8; ScsiCommandRequest::HEADER_LEN];
 
     /// Appends raw bytes to the Data Segment and updates its length field.
     fn append_data(mut self, more: Vec<u8>) -> Self {
@@ -249,14 +281,14 @@ impl Builder for NopOutRequestBuilder {
     fn build(
         mut self,
         cfg: &Config,
-    ) -> Result<([u8; NopOutRequest::HEADER_LEN], Vec<u8>)> {
+    ) -> Result<([u8; ScsiCommandRequest::HEADER_LEN], Vec<u8>)> {
         let pad = (4 - (self.data.len() % 4)) % 4;
         self.data.extend(std::iter::repeat_n(0, pad));
 
         if (cfg.login.negotiation.max_recv_data_segment_length as usize) < self.data.len()
         {
             bail!(
-                "NopOutRequest data size: {} reached out of limit {}",
+                "ScsiCommandRequest data size: {} reached out of limit {}",
                 self.data.len(),
                 cfg.login.negotiation.max_recv_data_segment_length
             );

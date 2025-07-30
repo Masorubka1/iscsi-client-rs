@@ -1,0 +1,9 @@
+logger:
+  level: "debug" # Уровень логирования: trace, debug, info, warn, error
+  output: "stdout" # Куда выводить логи: stdout, stderr, file
+  is_show_line: false # Показывать ли номер строки в логах: true, false
+  is_show_module_path: false # Показывать ли путь до файла: true, false
+  is_show_target: false # Показывать ли название функции в которой произошёл event: true, false
+  file:
+    path: "logs/app.log" # Путь к файлу логов
+    rotation_frequency: hourly # Частота ротации: minutely, hourly, daily, never. Дефолт - never

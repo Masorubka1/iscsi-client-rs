@@ -1,5 +1,3 @@
-use std::cmp::{max, min};
-
 use anyhow::{Result, anyhow};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -36,10 +34,11 @@ pub enum PduResponse<R> {
 impl Connection {
     /// Establishes a new TCP connection to the given address.
     pub async fn connect(cfg: Config) -> Result<Self> {
+        let stream =
+            TcpStream::connect(cfg.login.security.target_address.clone()).await?;
+        stream.set_linger(None)?;
         Ok(Self {
-            socket: Mutex::new(
-                TcpStream::connect(cfg.login.security.target_address.clone()).await?,
-            ),
+            socket: Mutex::new(stream),
             cfg,
         })
     }
@@ -59,10 +58,13 @@ impl Connection {
             .await
             .map_err(|e| anyhow!(e.to_string()));
 
-        let (header_len, mut data, is_reject) = self.is_reject(Res::HEADER_LEN).await?;
+        let (mut data, is_reject) = self.is_reject(Res::HEADER_LEN).await?;
 
-        let response_len = Res::peek_total_len(&data[..header_len])?;
-        let mut rest = vec![0u8; response_len - header_len];
+        let response_len = match is_reject {
+            false => Res::peek_total_len(&data[..REQUEST_HEADER_LEN])?,
+            true => RejectPdu::peek_total_len(&data[..REQUEST_HEADER_LEN])?,
+        };
+        let mut rest = vec![0u8; response_len - REQUEST_HEADER_LEN];
         {
             let mut sock = self.socket.lock().await;
             sock.read_exact(&mut rest).await?;
@@ -96,35 +98,17 @@ impl Connection {
     ///  - the length we actually read,
     ///  - the buffer containing those header bytes,
     ///  - a bool flag indicating “is a Reject?”
-    async fn is_reject(
-        &self,
-        expected_header_len: usize,
-    ) -> Result<(usize, Vec<u8>, bool)> {
-        let max_possible_header_len = max(RejectPdu::HEADER_LEN, expected_header_len);
-        let min_possible_header_len = min(RejectPdu::HEADER_LEN, expected_header_len);
-
-        let mut header_buf = vec![0u8; max_possible_header_len];
+    async fn is_reject(&self, expected_header_len: usize) -> Result<(Vec<u8>, bool)> {
+        let mut header_buf = vec![0u8; expected_header_len];
         {
             let mut sock = self.socket.lock().await;
-            sock.read_exact(&mut header_buf[..min_possible_header_len])
+            sock.read_exact(&mut header_buf[..expected_header_len])
                 .await?;
         }
 
         let bhs = BhsOpcode::try_from(header_buf[0])
             .map_err(|e| anyhow!("invalid opcode in response: {}", e))?;
 
-        let is_reject = bhs.opcode == Opcode::Reject;
-
-        let header_len = is_reject as usize * RejectPdu::HEADER_LEN
-            + !is_reject as usize * expected_header_len;
-
-        if is_reject && min_possible_header_len < RejectPdu::HEADER_LEN {
-            let mut sock = self.socket.lock().await;
-            sock.read_exact(
-                &mut header_buf[min_possible_header_len..RejectPdu::HEADER_LEN],
-            )
-            .await?;
-        }
-        Ok((header_len, header_buf, is_reject))
+        Ok((header_buf, bhs.opcode == Opcode::Reject))
     }
 }

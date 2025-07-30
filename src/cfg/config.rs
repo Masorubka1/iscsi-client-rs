@@ -45,8 +45,8 @@ pub struct SecurityConfig {
 
     #[serde(rename = "target_name")]
     pub target_name: String, // TargetName
-    // #[serde(rename = "target_alias")]
-    // pub target_alias: String, // TargetAlias
+    //#[serde(rename = "target_alias")]
+    //pub target_alias: String, // TargetAlias
     #[serde(rename = "target_address")]
     pub target_address: String, // TargetAddress
 }
@@ -68,13 +68,6 @@ pub struct NegotiationConfig {
     pub max_burst_length: u32,
     #[serde(rename = "first_burst_length")]
     pub first_burst_length: u32,
-
-    #[serde(rename = "default_time2wait")]
-    pub default_time2wait: u8,
-    #[serde(rename = "default_time2retain")]
-    pub default_time2retain: u8,
-    #[serde(rename = "max_outstanding_r2t")]
-    pub max_outstanding_r2t: u8,
 
     #[serde(rename = "data_pdu_in_order")]
     pub data_pdu_in_order: String,
@@ -109,6 +102,10 @@ pub struct R2TConfig {
     pub immediate_data: String,
     #[serde(rename = "max_outstanding_r2t")]
     pub max_outstanding_r2t: u8,
+    #[serde(rename = "default_time2wait")]
+    pub default_time2wait: u8,
+    #[serde(rename = "default_time2retain")]
+    pub default_time2retain: u8,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -137,16 +134,16 @@ impl ToLoginKeys for LoginConfig {
         // Security
         let sec = &self.security;
         keys.push(format!("SessionType={}\x00", sec.session_type));
-        keys.push(format!("TargetPortalGroupTag={}\x00", sec.portal_group_tag));
+        //keys.push(format!("TargetPortalGroupTag={}\x00", sec.portal_group_tag));
         keys.push(format!("InitiatorName={}\x00", sec.initiator_name));
         keys.push(format!("InitiatorAlias={}\x00", sec.initiator_alias));
         keys.push(format!("TargetName={}\x00", sec.target_name));
         //keys.push(format!("TargetAlias={}\x00", sec.target_alias));
-        keys.push(format!("TargetAddress={}\x00", sec.target_address));
+        //keys.push(format!("TargetAddress={}\x00", sec.target_address));
         // Negotiation
         let neg = &self.negotiation;
-        keys.push(format!("VersionMax={}\x00", neg.version_max));
-        keys.push(format!("VersionMin={}\x00", neg.version_min));
+        //keys.push(format!("VersionMax={}\x00", neg.version_max));
+        //keys.push(format!("VersionMin={}\x00", neg.version_min));
         keys.push(format!("HeaderDigest={}\x00", neg.header_digest));
         keys.push(format!("DataDigest={}\x00", neg.data_digest));
         keys.push(format!(
@@ -155,12 +152,6 @@ impl ToLoginKeys for LoginConfig {
         ));
         keys.push(format!("MaxBurstLength={}\x00", neg.max_burst_length));
         keys.push(format!("FirstBurstLength={}\x00", neg.first_burst_length));
-        keys.push(format!("DefaultTime2Wait={}\x00", neg.default_time2wait));
-        keys.push(format!(
-            "DefaultTime2Retain={}\x00",
-            neg.default_time2retain
-        ));
-        keys.push(format!("MaxOutstandingR2T={}\x00", neg.max_outstanding_r2t));
         keys.push(format!("DataPDUInOrder={}\x00", neg.data_pdu_in_order));
         keys.push(format!(
             "DataSequenceInOrder={}\x00",
@@ -174,7 +165,7 @@ impl ToLoginKeys for LoginConfig {
         // Auth
         let auth = &self.auth;
         match auth {
-            AuthConfig::None => keys.push("AuthMethod=None\x00".to_string()),
+            AuthConfig::None => {},
             AuthConfig::Chap(_) => keys.push("AuthMethod=CHAP, None\x00".to_string()),
         }
 
@@ -195,6 +186,14 @@ impl ToLoginKeys for ExtraDataConfig {
         keys.push(format!(
             "MaxOutstandingR2T={}\x00",
             self.r2t.max_outstanding_r2t
+        ));
+        keys.push(format!(
+            "DefaultTime2Wait={}\x00",
+            self.r2t.default_time2wait
+        ));
+        keys.push(format!(
+            "DefaultTime2Retain={}\x00",
+            self.r2t.default_time2retain
         ));
         // connections
         keys.push(format!(

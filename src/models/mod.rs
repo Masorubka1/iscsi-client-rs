@@ -1,3 +1,4 @@
+pub mod command;
 pub mod common;
 pub mod login;
 pub mod nop;

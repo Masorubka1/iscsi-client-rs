@@ -1,4 +1,4 @@
-use std::convert::TryFrom;
+use std::{convert::TryFrom, ptr};
 
 use thiserror::Error;
 
@@ -9,7 +9,7 @@ const FLAGS_MASK: u8 = 0xC0;
 
 bitflags::bitflags! {
     /// I and F bits from the first byte of every BHS
-    #[derive(Debug, Clone, PartialEq, Eq)]
+    #[derive(Debug, Default, Clone, PartialEq, Eq)]
     pub struct IfFlags: u8 {
         /// NOP-Out “I” (Immediate/ping) bit
         const I      = 0b1000_0000;
@@ -20,10 +20,11 @@ bitflags::bitflags! {
 
 /// All defined iSCSI opcodes (RFC 3720 § 9.1).
 #[repr(u8)]
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub enum Opcode {
+    #[default]
     NopOut = 0x00,
-    ScsiCommand = 0x01,
+    ScsiCommandReq = 0x01,
     ScsiTaskMgmtReq = 0x02,
     LoginReq = 0x03,
     TextReq = 0x04,
@@ -37,7 +38,7 @@ pub enum Opcode {
     LogoutResp = 0x26,
     // 0x27–0x3E reserved
     Reject = 0x3F,
-    ScsiResponse = 0x21,
+    ScsiCommandResp = 0x21,
     NopIn = 0x20,
     // add other data-digest / header-digest opcodes as needed
 }
@@ -46,7 +47,8 @@ pub enum Opcode {
 #[error("invalid opcode: 0x{0:02x}")]
 pub struct UnknownOpcode(pub u8);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Default)]
+#[repr(C)]
 pub struct BhsOpcode {
     pub flags: IfFlags,
     pub opcode: Opcode,
@@ -61,14 +63,14 @@ impl TryFrom<u8> for BhsOpcode {
         let code = byte & OPCODE_MASK;
         let opcode = match code {
             0x00 => Opcode::NopOut,
-            0x01 => Opcode::ScsiCommand,
+            0x01 => Opcode::ScsiCommandReq,
             0x02 => Opcode::ScsiTaskMgmtReq,
             0x03 => Opcode::LoginReq,
             0x04 => Opcode::TextReq,
             0x05 => Opcode::ScsiDataOut,
             0x06 => Opcode::LogoutReq,
             0x20 => Opcode::NopIn,
-            0x21 => Opcode::ScsiResponse,
+            0x21 => Opcode::ScsiCommandResp,
             0x22 => Opcode::ScsiTaskMgmtResp,
             0x23 => Opcode::LoginResp,
             0x24 => Opcode::TextResp,
@@ -81,8 +83,15 @@ impl TryFrom<u8> for BhsOpcode {
     }
 }
 
-impl From<BhsOpcode> for u8 {
-    fn from(b: BhsOpcode) -> u8 {
-        b.flags.bits() | (b.opcode as u8)
+impl From<&BhsOpcode> for u8 {
+    fn from(b: &BhsOpcode) -> u8 {
+        let f = b.flags.bits();
+
+        let op_byte = unsafe {
+            // &b.opcode is a *const Opcode, but repr(u8) means its first byte is the
+            // discriminant. Cast that pointer to *const u8 and read it.
+            ptr::read_unaligned(&b.opcode as *const Opcode as *const u8)
+        };
+        f | op_byte
     }
 }
