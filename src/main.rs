@@ -10,7 +10,7 @@ use iscsi_client_rs::{
     handlers::{
         login_simple::login_plain,
         nop_handler::send_nop,
-        simple_scsi_command::{build_write12, send_scsi_write},
+        simple_scsi_command::{build_write10, send_scsi_write},
     },
     models::nop::request::NopOutRequest,
     utils::generate_isid,
@@ -56,7 +56,7 @@ async fn main() -> Result<()> {
     time::sleep(Duration::from_millis(100)).await;
 
     // —————— NOP #2 ——————
-    match send_nop(&conn, [0u8; 8], &itt_counter, ttt, &cmd_sn, &exp_stat_sn).await {
+    /*match send_nop(&conn, [0u8; 8], &itt_counter, ttt, &cmd_sn, &exp_stat_sn).await {
         Ok((hdr, data, _)) => {
             info!("[NOP2] hdr={hdr:?} data={data:?}");
         },
@@ -64,7 +64,7 @@ async fn main() -> Result<()> {
             eprintln!("[NOP2] rejected or failed: {e}");
             return Err(e);
         },
-    }
+    }*/
 
     // —————— TEXT ——————
     /*match send_text(&conn, [0u8; 8], &itt_counter, ttt, &cmd_sn, &exp_stat_sn).await {
@@ -80,7 +80,7 @@ async fn main() -> Result<()> {
     // —————— WRITE ——————
     {
         let mut cdb = [0u8; 12];
-        build_write12(&mut cdb, 0x1234, 1, 0, 0);
+        build_write10(&mut cdb, 0x1234, 0, 0, 1);
         let write_buf = vec![0x01; 512];
 
         match send_scsi_write(
@@ -99,7 +99,7 @@ async fn main() -> Result<()> {
             },
             Err(e) => {
                 eprintln!("[WRITE] rejected or failed: {e}");
-                return Err(e);
+                //return Err(e);
             },
         }
     }

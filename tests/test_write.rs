@@ -5,7 +5,7 @@ use hex::FromHex;
 use iscsi_client_rs::{
     cfg::{cli::resolve_config_path, config::Config},
     client::pdu_connection::ToBytes,
-    handlers::simple_scsi_command::build_write12,
+    handlers::simple_scsi_command::build_write10,
     models::{
         command::{
             common::{ResponseCode, TaskAttribute},
@@ -33,12 +33,12 @@ fn test_write10_pdu_build() -> Result<()> {
     let header_len = ScsiCommandRequest::HEADER_LEN;
 
     let lun = [0u8; 8];
-    let itt = 1090519040;
-    let cmd_sn = 103;
-    let exp_stat_sn = 1914934025;
+    let itt = 1728053248;
+    let cmd_sn = 96;
+    let exp_stat_sn = 476962680;
 
     let mut cdb = [0u8; 12];
-    build_write12(&mut cdb, 0x1234, 1, 0, 0);
+    build_write10(&mut cdb, 0x1234, 0, 0, 1);
     let write_buf = vec![0x01; 512];
 
     let builder = ScsiCommandRequestBuilder::new()
@@ -81,6 +81,7 @@ fn test_write10_response_parse() -> Result<()> {
 
     assert_eq!(hdr.stat_sn, 1914934025, "Unexpected StatSN");
     assert_eq!(hdr.exp_cmd_sn, 104, "Unexpected ExpCmdSN");
+    assert_eq!(hdr.exp_data_sn, 0, "Unexpected ExpDataSN");
     assert_eq!(
         hdr.response,
         ResponseCode::CommandCompleted,

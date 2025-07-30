@@ -21,8 +21,8 @@ pub async fn send_nop(
     cmd_sn: &AtomicU32,
     exp_stat_sn: &AtomicU32,
 ) -> Result<(NopInResponse, String, Option<u32>)> {
-    let sn = cmd_sn.fetch_add(1, Ordering::SeqCst);
-    let esn = exp_stat_sn.load(Ordering::SeqCst);
+    let sn = cmd_sn.load(Ordering::SeqCst);
+    let esn = exp_stat_sn.fetch_add(1, Ordering::SeqCst);
     let itt = initiator_task_tag.fetch_add(1, Ordering::SeqCst);
 
     let builder = NopOutRequestBuilder::new()

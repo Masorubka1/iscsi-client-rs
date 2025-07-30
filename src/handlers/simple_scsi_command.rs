@@ -76,19 +76,19 @@ pub async fn send_scsi_read(
     }
 }
 
-/// Build a 12-byte SCSI WRITE(12) CDB.
+/// Build a 10-byte SCSI WRITE(10) CDB.
 ///
 /// - `lba`     : logical block address to start writing to
-/// - `blocks`  : number of contiguous blocks to write
-/// - `flags`   : bit-fields for WRPROTECT/DPO/FUA (usually 0)
-/// - `control` : control byte (usually 0)
-pub fn build_write12(cdb: &mut [u8; 12], lba: u32, blocks: u32, flags: u8, control: u8) {
-    cdb[0] = 0xAA; // WRITE(12) opcode
-    cdb[1] = flags; // WRPROTECT/DPO/FUA bits
+/// - `blocks`  : number of contiguous blocks to write (u16)
+/// - `flags`   : WRPROTECT/DPO/FUA bits (6:4 Protection, 3: DPO, 1: FUA)
+/// - `control` : control byte
+pub fn build_write10(cdb: &mut [u8; 12], lba: u32, blocks: u16, flags: u8, control: u8) {
+    cdb[0] = 0xAA; // WRITE(10) opcode
+    cdb[1] = flags; // WRPROTECT/DPO/FUA
     cdb[2..6].copy_from_slice(&lba.to_be_bytes());
-    cdb[6..10].copy_from_slice(&blocks.to_be_bytes());
-    cdb[10] = 0; // group number
-    cdb[11] = control; // control byte
+    cdb[6..8].copy_from_slice(&blocks.to_be_bytes());
+    cdb[8] = 0; // group number (обычно 0)
+    cdb[9] = control; // control
 }
 
 /// Send a SCSI WRITE (Data-Out) command with payload and await the Response
