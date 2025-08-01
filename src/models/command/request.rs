@@ -25,8 +25,10 @@ pub struct ScsiCommandRequest {
     pub exp_stat_sn: u32,                   // 28..32
     pub scsi_descriptor_block: [u8; 12],    // 32..44
     // TODO: fix ash length
-    pub additional_header_segment: [u8; 4], // 44..44 + total_ahs
-    pub header_digest: u32,                 // 44 + total_ahs..48 + total_ahs
+    pub header_digest: Option<u32>, // 44 + total_ahs..48 + total_ahs
+
+    pub data: Vec<u8>,
+    pub data_digest: Option<u32>,
 }
 
 impl ScsiCommandRequest {
@@ -81,23 +83,25 @@ impl ScsiCommandRequest {
             cmd_sn,
             exp_stat_sn,
             scsi_descriptor_block,
-            additional_header_segment: [0u8; 4],
-            header_digest: 0,
+            //additional_header_segment: [0u8; 4],
+            header_digest: None,
+            data: vec![],
+            data_digest: None,
         })
     }
 
     /// Parsing PDU with DataSegment and Digest
-    pub fn parse(buf: &[u8]) -> Result<(Self, Vec<u8>, Option<u32>)> {
+    pub fn parse(buf: &[u8]) -> Result<Self> {
         if buf.len() < Self::HEADER_LEN {
             bail!("Buffer too small for LoginResponse BHS");
         }
 
         let mut bhs = [0u8; Self::HEADER_LEN];
         bhs.copy_from_slice(&buf[..Self::HEADER_LEN]);
-        let header = Self::from_bhs_bytes(&bhs)?;
+        let mut request = Self::from_bhs_bytes(&bhs)?;
 
-        let ahs_len = header.ahs_length_bytes();
-        let data_len = header.data_length_bytes();
+        let ahs_len = request.ahs_length_bytes();
+        let data_len = request.data_length_bytes();
         let mut offset = Self::HEADER_LEN + ahs_len;
 
         if buf.len() < offset + data_len {
@@ -107,10 +111,10 @@ impl ScsiCommandRequest {
                 offset + data_len
             );
         }
-        let data = buf[offset..offset + data_len].to_vec();
+        request.data = buf[offset..offset + data_len].to_vec();
         offset += data_len;
 
-        let hd = if buf.len() >= offset + 4 {
+        request.header_digest = if buf.len() >= offset + 4 {
             Some(u32::from_be_bytes(
                 buf[offset..offset + 4]
                     .try_into()
@@ -120,13 +124,24 @@ impl ScsiCommandRequest {
             None
         };
 
-        Ok((header, data, hd))
+        Ok(request)
+    }
+
+    pub fn encode(&mut self) -> Result<(Vec<u8>, Vec<u8>)> {
+        let pad = (4 - (self.data.len() % 4)) % 4;
+        self.data.extend(std::iter::repeat_n(0, pad));
+
+        Ok((self.to_bhs_bytes().to_vec(), self.data.clone()))
     }
 }
 
 impl BasicHeaderSegment for ScsiCommandRequest {
     fn get_opcode(&self) -> &BhsOpcode {
         &self.opcode
+    }
+
+    fn get_initiator_task_tag(&self) -> u32 {
+        self.initiator_task_tag
     }
 
     fn ahs_length_bytes(&self) -> usize {
@@ -144,21 +159,12 @@ impl BasicHeaderSegment for ScsiCommandRequest {
         let pad = (4 - (data_size % 4)) % 4;
         data_size + pad
     }
-
-    fn to_bytes(&self) -> Vec<u8> {
-        self.to_bhs_bytes().to_vec()
-    }
-
-    fn from_bytes(buf: &[u8]) -> Result<Self> {
-        Self::from_bhs_bytes(buf)
-    }
 }
 
 /// Builder Login Request
 #[derive(Debug, Default, PartialEq)]
 pub struct ScsiCommandRequestBuilder {
     pub header: ScsiCommandRequest,
-    pub data: Vec<u8>,
     enable_header_digest: bool,
     enable_data_digest: bool,
 }
@@ -173,7 +179,6 @@ impl ScsiCommandRequestBuilder {
                 },
                 ..Default::default()
             },
-            data: Vec::new(),
             enable_data_digest: false,
             enable_header_digest: false,
         }
@@ -265,35 +270,31 @@ impl ScsiCommandRequestBuilder {
 }
 
 impl Builder for ScsiCommandRequestBuilder {
-    type Header = [u8; ScsiCommandRequest::HEADER_LEN];
+    type Header = Vec<u8>;
 
     /// Appends raw bytes to the Data Segment and updates its length field.
     fn append_data(mut self, more: Vec<u8>) -> Self {
-        self.data.extend_from_slice(&more);
-        let len = self.data.len() as u32;
+        self.header.data.extend_from_slice(&more);
+        let len = self.header.data.len() as u32;
         let be = len.to_be_bytes();
         self.header.data_segment_length = [be[1], be[2], be[3]];
 
         self
     }
 
-    /// Build finnal PDU (BHS + DataSegment)
-    fn build(
-        mut self,
-        cfg: &Config,
-    ) -> Result<([u8; ScsiCommandRequest::HEADER_LEN], Vec<u8>)> {
-        let pad = (4 - (self.data.len() % 4)) % 4;
-        self.data.extend(std::iter::repeat_n(0, pad));
+    /// Build final PDU (BHS + DataSegment)
+    fn build(mut self, cfg: &Config) -> Result<(Self::Header, Vec<u8>)> {
+        let encoded = ScsiCommandRequest::encode(&mut self.header)?;
 
-        if (cfg.login.negotiation.max_recv_data_segment_length as usize) < self.data.len()
+        if (cfg.login.negotiation.max_recv_data_segment_length as usize) < encoded.1.len()
         {
             bail!(
                 "ScsiCommandRequest data size: {} reached out of limit {}",
-                self.data.len(),
+                encoded.1.len(),
                 cfg.login.negotiation.max_recv_data_segment_length
             );
         }
 
-        Ok((self.header.to_bhs_bytes(), self.data))
+        Ok(encoded)
     }
 }

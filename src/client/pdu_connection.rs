@@ -1,6 +1,10 @@
 use anyhow::Result;
+use enum_dispatch::enum_dispatch;
 
-use crate::{cfg::config::Config, models::common::Builder};
+use crate::{
+    cfg::config::Config,
+    models::common::{BasicHeaderSegment, Builder},
+};
 
 /// Trait for serializing a Protocol Data Unit (PDU) into bytes.
 pub trait ToBytes: Sized {
@@ -33,7 +37,7 @@ pub trait FromBytes: Sized {
     ///
     /// The parsed `Response` (often a tuple of header struct, payload bytes,
     /// and digest), or an error if parsing fails.
-    fn from_bytes(buf: &[u8]) -> Result<(Self, Vec<u8>, Option<u32>)>;
+    fn from_bytes(buf: &[u8]) -> Result<Self>;
 }
 
 impl<B> ToBytes for B

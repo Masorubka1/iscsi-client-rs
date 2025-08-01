@@ -32,6 +32,10 @@ pub struct LoginResponse {
     pub status_class: StatusClass,    // 36
     pub status_detail: StatusDetail,  // 37
     reserved2: [u8; 14],              // 38..48
+    pub header_digest: Option<u32>,
+
+    pub data: Vec<u8>,
+    pub data_digest: Option<u32>,
 }
 
 impl LoginResponse {
@@ -40,7 +44,10 @@ impl LoginResponse {
     pub const HEADER_LEN: usize = 48;
 
     /// Parsing only BHS LoginResponse (48 bytes)
-    pub fn from_bhs_bytes(buf: &[u8; Self::HEADER_LEN]) -> Result<Self> {
+    pub fn from_bhs_bytes(buf: &[u8]) -> Result<Self> {
+        if buf.len() < Self::HEADER_LEN {
+            bail!("buffer too small");
+        }
         let raw_flags = buf[1];
         let flags = LoginFlags::from_bits(raw_flags)
             .ok_or_else(|| anyhow!("invalid LoginFlags: {}", raw_flags))?;
@@ -86,6 +93,9 @@ impl LoginResponse {
             status_class,
             status_detail,
             reserved2: [0u8; 14],
+            header_digest: None,
+            data: vec![],
+            data_digest: None,
         })
     }
 
@@ -113,7 +123,7 @@ impl LoginResponse {
     }
 
     /// Parsing PDU with DataSegment and Digest
-    pub fn parse(buf: &[u8]) -> Result<(Self, Vec<u8>, Option<u32>)> {
+    pub fn parse(buf: &[u8]) -> Result<Self> {
         if buf.len() < Self::HEADER_LEN {
             bail!(
                 "Buffer {} too small for LoginResponse BHS {}",
@@ -124,10 +134,10 @@ impl LoginResponse {
 
         let mut bhs = [0u8; Self::HEADER_LEN];
         bhs.copy_from_slice(&buf[..Self::HEADER_LEN]);
-        let header = Self::from_bhs_bytes(&bhs)?;
+        let mut response = Self::from_bhs_bytes(&bhs)?;
 
-        let ahs_len = header.ahs_length_bytes();
-        let data_len = header.data_length_bytes();
+        let ahs_len = response.ahs_length_bytes();
+        let data_len = response.data_length_bytes();
         let mut offset = Self::HEADER_LEN + ahs_len;
 
         if buf.len() < offset + data_len {
@@ -137,10 +147,10 @@ impl LoginResponse {
                 offset + data_len
             );
         }
-        let data = buf[offset..offset + data_len].to_vec();
+        response.data = buf[offset..offset + data_len].to_vec();
         offset += data_len;
 
-        let header_digest = if buf.len() >= offset + 4 {
+        response.header_digest = if buf.len() >= offset + 4 {
             let h = u32::from_be_bytes(
                 buf[offset..offset + 4]
                     .try_into()
@@ -151,13 +161,17 @@ impl LoginResponse {
             None
         };
 
-        Ok((header, data, header_digest))
+        Ok(response)
     }
 }
 
 impl BasicHeaderSegment for LoginResponse {
     fn get_opcode(&self) -> &BhsOpcode {
         &self.opcode
+    }
+
+    fn get_initiator_task_tag(&self) -> u32 {
+        self.initiator_task_tag
     }
 
     fn ahs_length_bytes(&self) -> usize {
@@ -174,16 +188,6 @@ impl BasicHeaderSegment for LoginResponse {
 
         let pad = (4 - (data_size % 4)) % 4;
         data_size + pad
-    }
-
-    fn to_bytes(&self) -> Vec<u8> {
-        unimplemented!()
-    }
-
-    fn from_bytes(buf: &[u8]) -> Result<Self> {
-        let mut new_buf = [0u8; LoginResponse::HEADER_LEN];
-        new_buf.clone_from_slice(buf);
-        Self::from_bhs_bytes(&new_buf)
     }
 }
 
@@ -209,8 +213,7 @@ impl FromBytes for LoginResponse {
         Ok(Self::HEADER_LEN + ahs_len + data_len)
     }
 
-    fn from_bytes(buf: &[u8]) -> Result<(Self, Vec<u8>, Option<u32>)> {
-        let (hdr, data, digest) = LoginResponse::parse(buf)?;
-        Ok((hdr, data, digest))
+    fn from_bytes(buf: &[u8]) -> Result<Self> {
+        Ok(LoginResponse::parse(buf)?)
     }
 }
