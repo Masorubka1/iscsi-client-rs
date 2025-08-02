@@ -159,6 +159,10 @@ impl BasicHeaderSegment for TextRequest {
         let pad = (4 - (data_size % 4)) % 4;
         data_size + pad
     }
+
+    fn total_length_bytes(&self) -> usize {
+        Self::HEADER_LEN + self.ahs_length_bytes() + self.data_length_bytes()
+    }
 }
 
 /// Builder Login Request

@@ -1,4 +1,5 @@
 use anyhow::{Context, Result, bail};
+use tracing::info;
 
 use crate::{
     cfg::config::Config,
@@ -23,7 +24,7 @@ pub struct ScsiCommandRequest {
     pub expected_data_transfer_length: u32, // 20..24
     pub cmd_sn: u32,                        // 24..28
     pub exp_stat_sn: u32,                   // 28..32
-    pub scsi_descriptor_block: [u8; 12],    // 32..44
+    pub scsi_descriptor_block: [u8; 16],    // 32..48
     // TODO: fix ash length
     pub header_digest: Option<u32>, // 44 + total_ahs..48 + total_ahs
 
@@ -33,7 +34,7 @@ pub struct ScsiCommandRequest {
 
 impl ScsiCommandRequest {
     pub const DEFAULT_TAG: u32 = 0xffffffff_u32;
-    pub const HEADER_LEN: usize = 44;
+    pub const HEADER_LEN: usize = 48;
 
     /// Serialize BHS in 48 bytes
     pub fn to_bhs_bytes(&self) -> [u8; Self::HEADER_LEN] {
@@ -48,7 +49,7 @@ impl ScsiCommandRequest {
         buf[20..24].copy_from_slice(&self.expected_data_transfer_length.to_be_bytes());
         buf[24..28].copy_from_slice(&self.cmd_sn.to_be_bytes());
         buf[28..32].copy_from_slice(&self.exp_stat_sn.to_be_bytes());
-        buf[32..44].copy_from_slice(&self.scsi_descriptor_block);
+        buf[32..48].copy_from_slice(&self.scsi_descriptor_block);
         buf
     }
 
@@ -66,8 +67,8 @@ impl ScsiCommandRequest {
         let expected_data_transfer_length = u32::from_be_bytes(buf[20..24].try_into()?);
         let cmd_sn = u32::from_be_bytes(buf[24..28].try_into()?);
         let exp_stat_sn = u32::from_be_bytes(buf[28..32].try_into()?);
-        let mut scsi_descriptor_block = [0u8; 12];
-        scsi_descriptor_block.clone_from_slice(&buf[32..44]);
+        let mut scsi_descriptor_block = [0u8; 16];
+        scsi_descriptor_block.clone_from_slice(&buf[32..48]);
         // TODO: fix header_diggest
         // TODO: fix additional_header_segment copy
         // let header_digest = u32::from_be_bytes(buf[48..52].try_into()?);
@@ -93,12 +94,14 @@ impl ScsiCommandRequest {
     /// Parsing PDU with DataSegment and Digest
     pub fn parse(buf: &[u8]) -> Result<Self> {
         if buf.len() < Self::HEADER_LEN {
-            bail!("Buffer too small for LoginResponse BHS");
+            bail!(
+                "Buffer {} too small for ScsiCommandRequest BHS {}",
+                buf.len(),
+                Self::HEADER_LEN
+            );
         }
 
-        let mut bhs = [0u8; Self::HEADER_LEN];
-        bhs.copy_from_slice(&buf[..Self::HEADER_LEN]);
-        let mut request = Self::from_bhs_bytes(&bhs)?;
+        let mut request = Self::from_bhs_bytes(&buf[..Self::HEADER_LEN])?;
 
         let ahs_len = request.ahs_length_bytes();
         let data_len = request.data_length_bytes();
@@ -106,7 +109,7 @@ impl ScsiCommandRequest {
 
         if buf.len() < offset + data_len {
             bail!(
-                "Buffer {} too small for DataSegment {}",
+                "ScsiCommandRequest Buffer {} too small for DataSegment {}",
                 buf.len(),
                 offset + data_len
             );
@@ -115,6 +118,7 @@ impl ScsiCommandRequest {
         offset += data_len;
 
         request.header_digest = if buf.len() >= offset + 4 {
+            info!("HEADER DIGEST");
             Some(u32::from_be_bytes(
                 buf[offset..offset + 4]
                     .try_into()
@@ -158,6 +162,10 @@ impl BasicHeaderSegment for ScsiCommandRequest {
 
         let pad = (4 - (data_size % 4)) % 4;
         data_size + pad
+    }
+
+    fn total_length_bytes(&self) -> usize {
+        Self::HEADER_LEN + self.ahs_length_bytes() + self.data_length_bytes()
     }
 }
 
@@ -260,8 +268,8 @@ impl ScsiCommandRequestBuilder {
         self
     }
 
-    /// Set the 12-byte SCSI Command Descriptor Block (CDB) in the BHS header.
-    pub fn scsi_descriptor_block(mut self, scsi_descriptor_block: &[u8; 12]) -> Self {
+    /// Set the 16-byte SCSI Command Descriptor Block (CDB) in the BHS header.
+    pub fn scsi_descriptor_block(mut self, scsi_descriptor_block: &[u8; 16]) -> Self {
         self.header
             .scsi_descriptor_block
             .clone_from_slice(scsi_descriptor_block);

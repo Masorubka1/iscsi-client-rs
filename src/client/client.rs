@@ -1,21 +1,16 @@
 use anyhow::{Result, anyhow, bail};
-use dashmap::{DashMap, DashSet};
+use dashmap::DashMap;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
     sync::{Mutex, oneshot},
 };
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 use crate::{
     cfg::config::Config,
     client::pdu_connection::{FromBytes, ToBytes},
-    models::{
-        common::BasicHeaderSegment,
-        opcode::{BhsOpcode, Opcode},
-        parse::{self, Pdu},
-        reject::response::RejectPdu,
-    },
+    models::{common::BasicHeaderSegment, parse::Pdu},
 };
 
 /// A simple iSCSI connection wrapper over a TCP stream.
@@ -47,6 +42,11 @@ impl Connection {
     async fn write(&self, req: impl ToBytes<Header = Vec<u8>>) -> Result<()> {
         let mut socket = self.socket.lock().await;
         let (out_header, out_data) = req.to_bytes(&self.cfg)?;
+        info!(
+            "Size_header: {} Size_data: {}",
+            out_header.len(),
+            out_data.len()
+        );
         socket.write_all(&out_header).await?;
         if !out_data.is_empty() {
             socket.write_all(&out_data).await?;
@@ -56,28 +56,26 @@ impl Connection {
 
     pub async fn send_request(
         &self,
-        req: impl ToBytes<Header = Vec<u8>> + BasicHeaderSegment,
+        initiator_task_tag: u32,
+        req: impl ToBytes<Header = Vec<u8>>,
     ) -> Result<()> {
-        if self.sending.contains_key(&req.get_initiator_task_tag()) {
+        if self.sending.contains_key(&initiator_task_tag) {
             bail!(
                 "Failed to send request, cause already sended other with same itt={}",
-                req.get_initiator_task_tag()
+                initiator_task_tag
             )
         }
 
         let (tx, rx) = oneshot::channel();
-        self.sending.insert(req.get_initiator_task_tag(), tx);
-        self.reciver.insert(req.get_initiator_task_tag(), rx);
+        self.sending.insert(initiator_task_tag, tx);
+        self.reciver.insert(initiator_task_tag, rx);
 
-        let _ = self.write(req).await?;
+        self.write(req).await?;
 
         Ok(())
     }
 
-    pub async fn read_response(
-        &self,
-        initiator_task_tag: u32,
-    ) -> Result<impl BasicHeaderSegment> {
+    pub async fn read_response(&self, initiator_task_tag: u32) -> Result<Pdu> {
         let rx = match self.reciver.remove(&initiator_task_tag) {
             None => bail!("no pending request with itt={initiator_task_tag}"),
             Some((_, rx)) => rx,
@@ -90,20 +88,24 @@ impl Connection {
 
     pub async fn start_reading_loop(&self) -> Result<()> {
         loop {
-            // TODO: make buff dynamic size
-            let mut header_buf = vec![0u8; 48];
+            let mut hdr = [0u8; 48];
             {
                 let mut sock = self.socket.lock().await;
-                sock.read_exact(&mut header_buf[..48]).await?;
+                sock.read_exact(&mut hdr[..48]).await?;
             }
 
-            let pdu = Pdu::from_bytes(header_buf.as_ref());
-            let pdu = if let Err(e) = pdu {
-                error!("invalid opcode in response: {}", e);
-                continue;
-            } else {
-                pdu.unwrap()
-            };
+            let pdu_hdr = Pdu::from_bhs_bytes(&hdr)?;
+            let total = pdu_hdr.total_length_bytes(); // 48 + AHS + Data + pad(+digest)
+
+            let mut buf = Vec::with_capacity(total);
+            buf.extend_from_slice(&hdr);
+            if total > 48 {
+                buf.resize(total, 0);
+                let mut sock = self.socket.lock().await;
+                sock.read_exact(&mut buf[48..]).await?;
+            }
+
+            let pdu = Pdu::from_bytes(&buf)?;
             let itt = pdu.get_initiator_task_tag();
             match self.sending.remove(&itt) {
                 Some((_, tx)) => {

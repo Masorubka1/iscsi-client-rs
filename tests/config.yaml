@@ -6,7 +6,7 @@ login:
     session_type: "Normal" # SessionType
     portal_group_tag: 1 # TargetPortalGroupTag
 
-    initiator_name: "iqn.2004-10.com.ubuntu:01:3667ac2e2d88" # InitiatorName
+    initiator_name: "iqn.2004-10.com.ubuntu:01:c676ed18968f" # InitiatorName
     initiator_alias: "ubuntu" # InitiatorAlias
 
     target_name: "iqn.2025-07.com.example:target0" # TargetName
@@ -30,7 +30,7 @@ login:
 
     data_pdu_in_order: "Yes" # DataPDUInOrder ("Yes"/"No")
     data_sequence_in_order: "Yes" # DataSequenceInOrder ("Yes"/"No")
-    error_recovery_level: 1 # ErrorRecoveryLevel (0–2)
+    error_recovery_level: 0 # ErrorRecoveryLevel (0–2)
 
 extra_data:
   markers:
@@ -40,7 +40,7 @@ extra_data:
     initial_r2t: "No" # InitialR2T=No\x00
     immediate_data: "Yes" # ImmediateData=Yes\x00
     max_outstanding_r2t: 1 # MaxOutstandingR2T=1\x00
-    default_time2wait: 0 # DefaultTime2Wait (секунды)
+    default_time2wait: 2 # DefaultTime2Wait (секунды)
     default_time2retain: 0 # DefaultTime2Retain (секунды)
   connections:
     max_connections: 1 # MaxConnections=1\x00

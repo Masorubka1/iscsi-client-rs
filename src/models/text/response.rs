@@ -5,7 +5,6 @@ use crate::{
     models::{
         common::BasicHeaderSegment,
         opcode::{BhsOpcode, IfFlags},
-        text::response,
     },
 };
 
@@ -97,15 +96,12 @@ impl TextResponse {
     pub fn parse(buf: &[u8]) -> Result<Self> {
         if buf.len() < Self::HEADER_LEN {
             bail!(
-                "Buffer {} too small for TextResponse BHS {}",
+                "Buffer {} too small for ScsiCommandResponse BHS {}",
                 buf.len(),
                 Self::HEADER_LEN
             );
         }
-
-        let mut bhs = [0u8; Self::HEADER_LEN];
-        bhs.copy_from_slice(&buf[..Self::HEADER_LEN]);
-        let mut response = Self::from_bhs_bytes(&bhs)?;
+        let mut response = Self::from_bhs_bytes(&buf[..Self::HEADER_LEN])?;
 
         let ahs_len = response.ahs_length_bytes();
         let data_len = response.data_length_bytes();
@@ -113,7 +109,7 @@ impl TextResponse {
 
         if buf.len() < offset + data_len {
             bail!(
-                "TextResponse Buffer {} too small for DataSegment {}",
+                "NopInResponse Buffer {} too small for DataSegment {}",
                 buf.len(),
                 offset + data_len
             );
@@ -122,6 +118,7 @@ impl TextResponse {
         offset += data_len;
 
         response.header_digest = if buf.len() >= offset + 4 {
+            println!("HEADER DIGEST {}, {}", buf.len(), offset + 4);
             Some(u32::from_be_bytes(
                 buf[offset..offset + 4]
                     .try_into()
@@ -159,36 +156,16 @@ impl BasicHeaderSegment for TextResponse {
         let pad = (4 - (data_size % 4)) % 4;
         data_size + pad
     }
+
+    fn total_length_bytes(&self) -> usize {
+        Self::HEADER_LEN + self.ahs_length_bytes() + self.data_length_bytes()
+    }
 }
 
 impl FromBytes for TextResponse {
     const HEADER_LEN: usize = TextResponse::HEADER_LEN;
 
-    fn peek_total_len(buf: &[u8]) -> Result<usize> {
-        if buf.len() < Self::HEADER_LEN {
-            bail!(
-                "Buffer {} too small for TextResponse BHS {}",
-                buf.len(),
-                Self::HEADER_LEN
-            );
-        }
-
-        let mut b = [0u8; Self::HEADER_LEN];
-        b.copy_from_slice(&buf[..Self::HEADER_LEN]);
-        let hdr = TextResponse::from_bhs_bytes(&b)?;
-
-        let ahs_len = hdr.total_ahs_length as usize;
-        let data_len = u32::from_be_bytes([
-            0,
-            hdr.data_segment_length[0],
-            hdr.data_segment_length[1],
-            hdr.data_segment_length[2],
-        ]) as usize;
-
-        Ok(Self::HEADER_LEN + ahs_len + data_len)
-    }
-
     fn from_bytes(buf: &[u8]) -> Result<Self> {
-        Ok(TextResponse::parse(buf)?)
+        Self::parse(buf)
     }
 }

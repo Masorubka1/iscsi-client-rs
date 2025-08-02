@@ -69,9 +69,10 @@ fn test_text_response() -> Result<()> {
     let bytes = load_fixture("tests/fixtures/text_response.hex")?;
     assert!(bytes.len() >= TextResponse::HEADER_LEN);
 
-    let (parsed, data, digest) = TextResponse::parse(&bytes)?;
-    assert!(!data.is_empty());
-    assert!(digest.is_none());
+    let parsed = TextResponse::parse(&bytes)?;
+    assert!(!parsed.data.is_empty());
+    assert!(parsed.header_digest.is_none());
+    assert!(parsed.data_digest.is_none());
 
     assert_eq!(
         parsed.opcode,
@@ -82,14 +83,14 @@ fn test_text_response() -> Result<()> {
         "expected NOP-IN opcode 0x20"
     );
     let data_size = parsed.data_length_bytes();
-    assert_eq!(data_size, data.len());
+    assert_eq!(data_size, parsed.data.len());
     assert_eq!(parsed.stat_sn, 1939077135);
     assert_eq!(parsed.exp_cmd_sn, 2);
     let expected = "TargetName=iqn.2025-07.com.example:target0\0TargetAddress=127.0.0.1:\
                     3260,1\0\0\0";
     assert_eq!(
         expected.to_string(),
-        String::from_utf8(data).context("Failed to serialize")?
+        String::from_utf8(parsed.data).context("Failed to serialize")?
     );
 
     Ok(())

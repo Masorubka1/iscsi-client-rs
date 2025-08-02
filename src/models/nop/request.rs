@@ -1,4 +1,5 @@
 use anyhow::{Context, Result, bail};
+use tracing::info;
 
 use crate::{
     cfg::config::Config,
@@ -25,7 +26,7 @@ pub struct NopOutRequest {
     pub header_digest: Option<u32>,   // 48..52
 
     pub data: Vec<u8>,
-    pub data_diggest: Option<u32>,
+    pub data_digest: Option<u32>,
 }
 
 impl NopOutRequest {
@@ -86,19 +87,21 @@ impl NopOutRequest {
             reserved2: [0u8; 16],
             header_digest: None,
             data: vec![],
-            data_diggest: None,
+            data_digest: None,
         })
     }
 
     /// Parsing PDU with DataSegment and Digest
     pub fn parse(buf: &[u8]) -> Result<Self> {
         if buf.len() < Self::HEADER_LEN {
-            bail!("Buffer too small for LoginResponse BHS");
+            bail!(
+                "Buffer {} too small for NopOutRequest BHS {}",
+                buf.len(),
+                Self::HEADER_LEN
+            );
         }
 
-        let mut bhs = [0u8; Self::HEADER_LEN];
-        bhs.copy_from_slice(&buf[..Self::HEADER_LEN]);
-        let mut request = Self::from_bhs_bytes(&bhs)?;
+        let mut request = Self::from_bhs_bytes(&buf[..Self::HEADER_LEN])?;
 
         let ahs_len = request.ahs_length_bytes();
         let data_len = request.data_length_bytes();
@@ -106,7 +109,7 @@ impl NopOutRequest {
 
         if buf.len() < offset + data_len {
             bail!(
-                "Buffer {} too small for DataSegment {}",
+                "NopOutRequest Buffer {} too small for DataSegment {}",
                 buf.len(),
                 offset + data_len
             );
@@ -115,6 +118,7 @@ impl NopOutRequest {
         offset += data_len;
 
         request.header_digest = if buf.len() >= offset + 4 {
+            info!("HEADER DIGEST");
             Some(u32::from_be_bytes(
                 buf[offset..offset + 4]
                     .try_into()
@@ -158,6 +162,10 @@ impl BasicHeaderSegment for NopOutRequest {
 
         let pad = (4 - (data_size % 4)) % 4;
         data_size + pad
+    }
+
+    fn total_length_bytes(&self) -> usize {
+        Self::HEADER_LEN + self.ahs_length_bytes() + self.data_length_bytes()
     }
 }
 

@@ -2,15 +2,12 @@ use anyhow::{Result, bail};
 use tracing::info;
 
 use crate::{
-    cfg::config::{Config, ToLoginKeys},
-    client::client::{Connection, PduResponse},
+    cfg::config::Config,
+    client::client::Connection,
     models::{
-        common::Builder,
-        login::{
-            common::Stage,
-            request::{LoginRequest, LoginRequestBuilder},
-            response::LoginResponse,
-        },
+        common::{BasicHeaderSegment, Builder},
+        login::{common::Stage, request::LoginRequestBuilder, response::LoginResponse},
+        parse::Pdu,
     },
 };
 
@@ -20,7 +17,7 @@ pub async fn login_plain(
     conn: &Connection,
     cfg: &Config,
     isid: [u8; 6],
-) -> Result<(LoginResponse, String)> {
+) -> Result<LoginResponse> {
     // 1) Full-Feature transition: CSG=Operational(1) → NSG=FullFeature(3)
     let mut builder = LoginRequestBuilder::new(isid, 0)
         .transit()
@@ -31,26 +28,78 @@ pub async fn login_plain(
             cfg.login.negotiation.version_max,
         );
 
-    for key in cfg
+    /*for key in cfg
         .login
         .to_login_keys()
         .into_iter()
         .chain(cfg.extra_data.to_login_keys())
     {
         builder = builder.append_data(key.into_bytes());
+    }*/
+
+    for key in [
+        format!("InitiatorName={}\0", cfg.login.security.initiator_name),
+        format!("InitiatorAlias={}\0", cfg.login.security.initiator_alias),
+        format!("TargetName={}\0", cfg.login.security.target_name),
+        format!("SessionType={}\0", cfg.login.security.session_type),
+        format!("HeaderDigest={}\0", cfg.login.negotiation.header_digest),
+        format!("DataDigest={}\0", cfg.login.negotiation.data_digest),
+        format!(
+            "DefaultTime2Wait={}\0",
+            cfg.extra_data.r2t.default_time2wait
+        ),
+        format!(
+            "DefaultTime2Retain={}\0",
+            cfg.extra_data.r2t.default_time2retain
+        ),
+        format!("IFMarker={}\0", cfg.extra_data.markers.if_marker),
+        format!("OFMarker={}\0", cfg.extra_data.markers.of_marker),
+        format!(
+            "ErrorRecoveryLevel={}\0",
+            cfg.login.negotiation.error_recovery_level
+        ),
+        format!("InitialR2T={}\0", cfg.extra_data.r2t.initial_r2t),
+        format!("ImmediateData={}\0", cfg.extra_data.r2t.immediate_data),
+        format!(
+            "MaxBurstLength={}\0",
+            cfg.login.negotiation.max_burst_length
+        ),
+        format!(
+            "FirstBurstLength={}\0",
+            cfg.login.negotiation.first_burst_length
+        ),
+        format!(
+            "MaxOutstandingR2T={}\0",
+            cfg.extra_data.r2t.max_outstanding_r2t
+        ),
+        format!(
+            "MaxConnections={}\0",
+            cfg.extra_data.connections.max_connections
+        ),
+        format!(
+            "DataPDUInOrder={}\0",
+            cfg.login.negotiation.data_pdu_in_order
+        ),
+        format!(
+            "DataSequenceInOrder={}\0",
+            cfg.login.negotiation.data_sequence_in_order
+        ),
+        format!(
+            "MaxRecvDataSegmentLength={}\0",
+            cfg.login.negotiation.max_recv_data_segment_length
+        ),
+    ] {
+        builder = builder.append_data(key.into_bytes());
     }
 
-    info!("{:?}, {:?}", builder.header, hex::encode(&builder.data));
+    info!("{:?}", builder.header);
 
-    let (hdr, data, _dig) = match conn
-        .call::<{ LoginRequest::HEADER_LEN }, LoginResponse>(builder)
-        .await?
-    {
-        PduResponse::Normal((hdr, data, _dig)) => (hdr, data, _dig),
-        PduResponse::Reject((hdr, data, _dig)) => {
-            bail!("Error_resp: {:?}\n Data: {:?}", hdr, data)
-        },
-    };
+    let itt = builder.header.get_initiator_task_tag();
 
-    Ok((hdr, String::from_utf8(data)?))
+    conn.send_request(itt, builder).await?;
+
+    match conn.read_response(itt).await? {
+        Pdu::LoginResponse(rsp) => Ok(rsp),
+        other => bail!("got unexpected PDU: {:?}", other.get_opcode()),
+    }
 }

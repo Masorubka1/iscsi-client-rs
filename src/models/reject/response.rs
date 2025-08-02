@@ -26,10 +26,10 @@ pub struct RejectPdu {
     pub max_cmd_sn: u32,              // 32..36
     pub data_sn_or_r2_sn: u32,        // 36..40
     pub reserved5: [u8; 4 * 2],       // 40..48
-    pub header_diggest: Option<u32>,  // 48..52
+    pub header_digest: Option<u32>,   // 48..52
 
     pub data: Vec<u8>,
-    pub data_diggest: Option<u32>,
+    pub data_digest: Option<u32>,
 }
 
 impl RejectPdu {
@@ -74,9 +74,9 @@ impl RejectPdu {
             max_cmd_sn,
             data_sn_or_r2_sn,
             reserved5: [0u8; 8],
-            header_diggest: None,
+            header_digest: None,
             data: vec![],
-            data_diggest: None,
+            data_digest: None,
         })
     }
 
@@ -105,31 +105,29 @@ impl RejectPdu {
     pub fn parse(buf: &[u8]) -> Result<Self> {
         if buf.len() < Self::HEADER_LEN {
             bail!(
-                "Buffer {} too small for RejectPdu BHS {}",
+                "Buffer {} too small for ScsiCommandResponse BHS {}",
                 buf.len(),
                 Self::HEADER_LEN
             );
         }
+        let mut response = Self::from_bhs_bytes(&buf[..Self::HEADER_LEN])?;
 
-        let mut bhs = [0u8; Self::HEADER_LEN];
-        bhs.copy_from_slice(&buf[..Self::HEADER_LEN]);
-        let mut requet = Self::from_bhs_bytes(&bhs)?;
-
-        let ahs_len = requet.ahs_length_bytes();
-        let data_len = requet.data_length_bytes();
+        let ahs_len = response.ahs_length_bytes();
+        let data_len = response.data_length_bytes();
         let mut offset = Self::HEADER_LEN + ahs_len;
 
         if buf.len() < offset + data_len {
             bail!(
-                "Buffer {} too small for RejectPdu, DataSegment {}",
+                "NopInResponse Buffer {} too small for DataSegment {}",
                 buf.len(),
                 offset + data_len
             );
         }
-        requet.data = buf[offset..offset + data_len].to_vec();
+        response.data = buf[offset..offset + data_len].to_vec();
         offset += data_len;
 
-        requet.header_diggest = if buf.len() >= offset + 4 {
+        response.header_digest = if buf.len() >= offset + 4 {
+            println!("HEADER DIGEST {}, {}", buf.len(), offset + 4);
             Some(u32::from_be_bytes(
                 buf[offset..offset + 4]
                     .try_into()
@@ -139,7 +137,7 @@ impl RejectPdu {
             None
         };
 
-        Ok(requet)
+        Ok(response)
     }
 }
 
@@ -167,31 +165,16 @@ impl BasicHeaderSegment for RejectPdu {
         let pad = (4 - (data_size % 4)) % 4;
         data_size + pad
     }
+
+    fn total_length_bytes(&self) -> usize {
+        Self::HEADER_LEN + self.ahs_length_bytes() + self.data_length_bytes()
+    }
 }
 
 impl FromBytes for RejectPdu {
     const HEADER_LEN: usize = Self::HEADER_LEN;
 
-    fn peek_total_len(buf: &[u8]) -> Result<usize> {
-        if buf.len() < Self::HEADER_LEN {
-            bail!(
-                "Buffer {} too small for RejectPdu BHS {}",
-                buf.len(),
-                Self::HEADER_LEN
-            );
-        }
-
-        let mut b = [0u8; Self::HEADER_LEN];
-        b.copy_from_slice(&buf[..Self::HEADER_LEN]);
-        let hdr = RejectPdu::from_bhs_bytes(&b)?;
-
-        let ahs_len = hdr.ahs_length_bytes();
-        let data_len = hdr.data_length_bytes();
-
-        Ok(Self::HEADER_LEN + ahs_len + data_len)
-    }
-
     fn from_bytes(buf: &[u8]) -> Result<Self> {
-        Ok(RejectPdu::parse(&buf)?)
+        Self::parse(buf)
     }
 }

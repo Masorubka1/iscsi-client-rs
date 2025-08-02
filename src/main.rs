@@ -7,11 +7,7 @@ use anyhow::{Context, Result};
 use iscsi_client_rs::{
     cfg::{cli::resolve_config_path, config::Config, logger::init_logger},
     client::client::Connection,
-    handlers::{
-        login_simple::login_plain,
-        nop_handler::send_nop,
-        simple_scsi_command::{build_write10, send_scsi_write},
-    },
+    handlers::login_simple::login_plain,
     models::nop::request::NopOutRequest,
     utils::generate_isid,
 };
@@ -31,10 +27,12 @@ async fn main() -> Result<()> {
 
     let (_isid, _isid_str) = generate_isid();
     info!("{_isid:?} {_isid_str}");
-    let isid = [0, 2, 61, 0, 0, 9];
+    let isid = [0, 2, 61, 0, 0, 14];
 
-    let (login_rsp, data) = login_plain(&conn, &config, isid).await?;
-    info!("Res1: {login_rsp:?}\n Data: {data:?}");
+    let login_rsp = login_plain(&conn, &config, isid).await?;
+    info!("Res1: {login_rsp:?}");
+
+    time::sleep(Duration::from_millis(2000)).await;
 
     // seed our three counters:
     let cmd_sn = AtomicU32::new(login_rsp.exp_cmd_sn);
@@ -43,7 +41,7 @@ async fn main() -> Result<()> {
 
     let ttt = NopOutRequest::DEFAULT_TAG;
     // —————— NOP #1 ——————
-    match send_nop(&conn, [0u8; 8], &itt_counter, ttt, &cmd_sn, &exp_stat_sn).await {
+    /*match send_nop(&conn, [0u8; 8], &itt_counter, ttt, &cmd_sn, &exp_stat_sn).await {
         Ok((hdr, data, _)) => {
             info!("[NOP1] hdr={hdr:?} data={data:?}");
         },
@@ -53,7 +51,7 @@ async fn main() -> Result<()> {
         },
     }
 
-    time::sleep(Duration::from_millis(100)).await;
+    time::sleep(Duration::from_millis(100)).await;*/
 
     // —————— NOP #2 ——————
     /*match send_nop(&conn, [0u8; 8], &itt_counter, ttt, &cmd_sn, &exp_stat_sn).await {
@@ -78,7 +76,7 @@ async fn main() -> Result<()> {
     }*/
 
     // —————— WRITE ——————
-    {
+    /*{
         let mut cdb = [0u8; 12];
         build_write10(&mut cdb, 0x1234, 0, 0, 1);
         let write_buf = vec![0x01; 512];
@@ -102,7 +100,7 @@ async fn main() -> Result<()> {
                 //return Err(e);
             },
         }
-    }
+    }*/
 
     // READ
     /*{

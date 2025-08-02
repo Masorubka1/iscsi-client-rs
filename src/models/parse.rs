@@ -2,27 +2,15 @@ use anyhow::{Result, bail};
 use enum_dispatch::enum_dispatch;
 
 use crate::{
-    cfg::config::Config,
+    client::pdu_connection::FromBytes,
     models::{
-        command::{
-            request::{ScsiCommandRequest, ScsiCommandRequestBuilder},
-            response::ScsiCommandResponse,
-        },
-        common::{BasicHeaderSegment, Builder},
-        login::{
-            request::{LoginRequest, LoginRequestBuilder},
-            response::LoginResponse,
-        },
-        nop::{
-            request::{NopOutRequest, NopOutRequestBuilder},
-            response::NopInResponse,
-        },
+        command::{request::ScsiCommandRequest, response::ScsiCommandResponse},
+        common::BasicHeaderSegment,
+        login::{request::LoginRequest, response::LoginResponse},
+        nop::{request::NopOutRequest, response::NopInResponse},
         opcode::{BhsOpcode, Opcode},
         reject::response::RejectPdu,
-        text::{
-            request::{TextRequest, TextRequestBuilder},
-            response::TextResponse,
-        },
+        text::{request::TextRequest, response::TextResponse},
     },
 };
 
@@ -40,8 +28,58 @@ pub enum Pdu {
 }
 
 impl Pdu {
-    pub fn peek_total_len(buf: &[u8]) -> Result<usize> {
-        unimplemented!()
+    pub fn from_bhs_bytes(bytes: &[u8]) -> Result<Self> {
+        let bhs = BhsOpcode::try_from(bytes[0])
+            .map_err(|e| anyhow::anyhow!("invalid opcode: {}", e))?;
+        match bhs.opcode {
+            Opcode::NopOut => {
+                let req = NopOutRequest::from_bhs_bytes(bytes)?;
+                Ok(Pdu::NopOutRequest(req))
+            },
+            Opcode::NopIn => {
+                let req = NopInResponse::from_bhs_bytes(bytes)?;
+                Ok(Pdu::NopInResponse(req))
+            },
+            Opcode::ScsiCommandReq => {
+                let req = ScsiCommandRequest::from_bhs_bytes(bytes)?;
+                Ok(Pdu::ScsiCommandRequest(req))
+            },
+            Opcode::ScsiCommandResp => {
+                let req = ScsiCommandResponse::from_bhs_bytes(bytes)?;
+                Ok(Pdu::ScsiCommandResponse(req))
+            },
+            Opcode::TextReq => {
+                let req = TextRequest::from_bhs_bytes(bytes)?;
+                Ok(Pdu::TextRequest(req))
+            },
+            Opcode::LoginReq => {
+                let req = LoginRequest::from_bhs_bytes(bytes)?;
+                Ok(Pdu::LoginRequest(req))
+            },
+            Opcode::LoginResp => {
+                let rsp = LoginResponse::from_bhs_bytes(bytes)?;
+                Ok(Pdu::LoginResponse(rsp))
+            },
+            Opcode::Reject => {
+                let rsp = RejectPdu::from_bhs_bytes(bytes)?;
+                Ok(Pdu::RejectPdu(rsp))
+            },
+            other => bail!("unsupported opcode: {:?}", other),
+        }
+    }
+
+    fn total_length_bytes(&self) -> usize {
+        match self {
+            Pdu::NopOutRequest(req) => req.total_length_bytes(),
+            Pdu::NopInResponse(res) => res.total_length_bytes(),
+            Pdu::ScsiCommandRequest(req) => req.total_length_bytes(),
+            Pdu::ScsiCommandResponse(res) => res.total_length_bytes(),
+            Pdu::TextRequest(req) => req.total_length_bytes(),
+            Pdu::TextResponse(res) => res.total_length_bytes(),
+            Pdu::LoginRequest(req) => req.total_length_bytes(),
+            Pdu::LoginResponse(res) => res.total_length_bytes(),
+            Pdu::RejectPdu(res) => res.total_length_bytes(),
+        }
     }
 
     /// Parse a PDU from raw bytes (header + data segment + padding).

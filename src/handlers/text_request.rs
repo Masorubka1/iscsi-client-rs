@@ -4,13 +4,11 @@ use anyhow::{Result, bail};
 use tracing::info;
 
 use crate::{
-    client::client::{Connection, PduResponse},
+    client::client::Connection,
     models::{
-        common::Builder,
-        text::{
-            request::{TextRequest, TextRequestBuilder},
-            response::TextResponse,
-        },
+        common::{BasicHeaderSegment, Builder},
+        parse::Pdu,
+        text::{request::TextRequestBuilder, response::TextResponse},
     },
 };
 
@@ -23,7 +21,7 @@ pub async fn send_text(
     target_task_tag: u32,
     cmd_sn: &AtomicU32,
     exp_stat_sn: &AtomicU32,
-) -> Result<(TextResponse, String, Option<u32>)> {
+) -> Result<TextResponse> {
     let sn = cmd_sn.fetch_add(1, Ordering::SeqCst);
     let esn = exp_stat_sn.load(Ordering::SeqCst);
     let itt = initiator_task_tag.fetch_add(1, Ordering::SeqCst);
@@ -40,21 +38,18 @@ pub async fn send_text(
     info!(
         "TextRequest hdr={:?} data={}",
         builder.header,
-        hex::encode(&builder.data)
+        hex::encode(&builder.header.data)
     );
 
-    let response = conn
-        .call::<{ TextRequest::HEADER_LEN }, TextResponse>(builder)
-        .await?;
+    let itt = builder.header.get_initiator_task_tag();
 
-    match response {
-        PduResponse::Normal((hdr, data, dig)) => {
-            exp_stat_sn.store(hdr.stat_sn.wrapping_add(1), Ordering::SeqCst);
+    conn.send_request(itt, builder).await?;
 
-            Ok((hdr, String::from_utf8(data)?, dig))
+    match conn.read_response(itt).await? {
+        Pdu::TextResponse(rsp) => {
+            exp_stat_sn.store(rsp.stat_sn.wrapping_add(1), Ordering::SeqCst);
+            Ok(rsp)
         },
-        PduResponse::Reject((rej, data, _dig)) => {
-            bail!("Text request rejected: {:?}\n  data: {:x?}", rej, data)
-        },
+        other => bail!("got unexpected PDU: {:?}", other.get_opcode()),
     }
 }

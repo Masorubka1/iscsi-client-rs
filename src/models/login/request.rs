@@ -1,4 +1,5 @@
 use anyhow::{Context, Result, anyhow, bail};
+use tracing::info;
 
 use crate::{
     cfg::config::Config,
@@ -106,9 +107,7 @@ impl LoginRequest {
             );
         }
 
-        let mut bhs = [0u8; Self::HEADER_LEN];
-        bhs.copy_from_slice(&buf[..Self::HEADER_LEN]);
-        let mut request = Self::from_bhs_bytes(&bhs)?;
+        let mut request = Self::from_bhs_bytes(&buf[..Self::HEADER_LEN])?;
 
         let ahs_len = request.ahs_length_bytes();
         let data_len = request.data_length_bytes();
@@ -125,6 +124,7 @@ impl LoginRequest {
         offset += data_len;
 
         request.header_digest = if buf.len() >= offset + 4 {
+            info!("HEADER DIGEST");
             Some(u32::from_be_bytes(
                 buf[offset..offset + 4]
                     .try_into()
@@ -140,6 +140,10 @@ impl LoginRequest {
     pub fn encode(&mut self) -> Result<(Vec<u8>, Vec<u8>)> {
         let pad = (4 - (self.data.len() % 4)) % 4;
         self.data.extend(std::iter::repeat_n(0, pad));
+
+        let len = self.data.len() as u32;
+        let be = len.to_be_bytes();
+        self.data_segment_length = [be[1], be[2], be[3]];
 
         Ok((self.to_bhs_bytes().to_vec(), self.data.clone()))
     }
@@ -169,13 +173,16 @@ impl BasicHeaderSegment for LoginRequest {
         let pad = (4 - (data_size % 4)) % 4;
         data_size + pad
     }
+
+    fn total_length_bytes(&self) -> usize {
+        Self::HEADER_LEN + self.ahs_length_bytes() + self.data_length_bytes()
+    }
 }
 
 /// Builder Login Request
 #[derive(Debug)]
 pub struct LoginRequestBuilder {
     pub header: LoginRequest,
-    pub data: Vec<u8>,
 }
 
 impl LoginRequestBuilder {
@@ -183,14 +190,13 @@ impl LoginRequestBuilder {
         LoginRequestBuilder {
             header: LoginRequest {
                 opcode: BhsOpcode {
-                    flags: IfFlags::I,
+                    flags: IfFlags::F,
                     opcode: Opcode::LoginReq,
                 },
                 isid,
                 tsih,
                 ..Default::default()
             },
-            data: Vec::new(),
         }
     }
 
@@ -268,8 +274,8 @@ impl Builder for LoginRequestBuilder {
 
     /// Appends raw bytes to the Data Segment and updates its length field.
     fn append_data(mut self, more: Vec<u8>) -> Self {
-        self.data.extend_from_slice(&more);
-        let len = self.data.len() as u32;
+        self.header.data.extend_from_slice(&more);
+        let len = self.header.data.len() as u32;
         let be = len.to_be_bytes();
         self.header.data_segment_length = [be[1], be[2], be[3]];
 

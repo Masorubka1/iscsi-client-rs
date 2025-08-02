@@ -4,10 +4,11 @@ use anyhow::{Result, bail};
 use tracing::info;
 
 use crate::{
-    client::client::{Connection, PduResponse},
-    models::nop::{
-        request::{NopOutRequest, NopOutRequestBuilder},
-        response::NopInResponse,
+    client::client::Connection,
+    models::{
+        common::BasicHeaderSegment,
+        nop::{request::NopOutRequestBuilder, response::NopInResponse},
+        parse::Pdu,
     },
 };
 
@@ -20,7 +21,7 @@ pub async fn send_nop(
     target_task_tag: u32,
     cmd_sn: &AtomicU32,
     exp_stat_sn: &AtomicU32,
-) -> Result<(NopInResponse, String, Option<u32>)> {
+) -> Result<NopInResponse> {
     let sn = cmd_sn.load(Ordering::SeqCst);
     let esn = exp_stat_sn.fetch_add(1, Ordering::SeqCst);
     let itt = initiator_task_tag.fetch_add(1, Ordering::SeqCst);
@@ -33,22 +34,17 @@ pub async fn send_nop(
         .exp_stat_sn(esn)
         .ping();
 
-    info!(
-        "NOP-Out hdr={:?} data={}",
-        builder.header,
-        hex::encode(&builder.data)
-    );
+    info!("NOP-Out hdr={:?}", builder.header);
 
-    match conn
-        .call::<{ NopOutRequest::HEADER_LEN }, NopInResponse>(builder)
-        .await?
-    {
-        PduResponse::Normal((hdr, data, _dig)) => {
-            exp_stat_sn.store(hdr.stat_sn.wrapping_add(1), Ordering::SeqCst);
-            Ok((hdr, String::from_utf8(data)?, _dig))
+    let itt = builder.header.get_initiator_task_tag();
+
+    conn.send_request(itt, builder).await?;
+
+    match conn.read_response(itt).await? {
+        Pdu::NopInResponse(rsp) => {
+            exp_stat_sn.store(rsp.stat_sn.wrapping_add(1), Ordering::SeqCst);
+            Ok(rsp)
         },
-        PduResponse::Reject((hdr, data, _dig)) => {
-            bail!("NOP-Out rejected: {:?}\n  data: {:x?}", hdr, data)
-        },
+        other => bail!("got unexpected PDU: {:?}", other.get_opcode()),
     }
 }

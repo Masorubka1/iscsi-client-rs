@@ -1,15 +1,7 @@
-use anyhow::{Result, bail};
+use anyhow::Result;
 use enum_dispatch::enum_dispatch;
 
-use crate::{
-    cfg::config::Config,
-    models::{
-        command::request::ScsiCommandRequest,
-        nop::request::NopOutRequest,
-        opcode::{BhsOpcode, Opcode},
-        text::request::TextRequest,
-    },
-};
+use crate::{cfg::config::Config, models::opcode::BhsOpcode};
 
 /// Common functionality for any iSCSI PDU “Basic Header Segment” (BHS).
 ///
@@ -32,6 +24,9 @@ pub trait BasicHeaderSegment: Sized {
 
     /// Number of actual payload bytes in the DataSegment.
     fn data_length_bytes(&self) -> usize;
+
+    /// Number of actual payload bytes in the DataSegment.
+    fn total_length_bytes(&self) -> usize;
 }
 
 pub trait Builder: Sized {

@@ -134,12 +134,9 @@ impl ToLoginKeys for LoginConfig {
         // Security
         let sec = &self.security;
         keys.push(format!("SessionType={}\x00", sec.session_type));
-        //keys.push(format!("TargetPortalGroupTag={}\x00", sec.portal_group_tag));
         keys.push(format!("InitiatorName={}\x00", sec.initiator_name));
         keys.push(format!("InitiatorAlias={}\x00", sec.initiator_alias));
         keys.push(format!("TargetName={}\x00", sec.target_name));
-        //keys.push(format!("TargetAlias={}\x00", sec.target_alias));
-        //keys.push(format!("TargetAddress={}\x00", sec.target_address));
         // Negotiation
         let neg = &self.negotiation;
         //keys.push(format!("VersionMax={}\x00", neg.version_max));
@@ -179,7 +176,7 @@ impl ToLoginKeys for ExtraDataConfig {
         let mut keys = Vec::new();
         // markers
         keys.push(format!("IFMarker={}\x00", self.markers.if_marker));
-        keys.push(format!("OFMarker={}\x00", self.markers.of_marker));
+        keys.push(format!("OFMarker={}\x00", self.markers.if_marker));
         // r2t
         keys.push(format!("InitialR2T={}\x00", self.r2t.initial_r2t));
         keys.push(format!("ImmediateData={}\x00", self.r2t.immediate_data));

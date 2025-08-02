@@ -26,7 +26,7 @@ pub struct NopInResponse {
     pub header_digest: Option<u32>,   // 44..48
 
     pub data: Vec<u8>,
-    pub data_diggest: Option<u32>,
+    pub data_digest: Option<u32>,
 }
 
 impl NopInResponse {
@@ -87,7 +87,7 @@ impl NopInResponse {
             reserved2: [0u8; 8],
             header_digest: None,
             data: vec![],
-            data_diggest: None,
+            data_digest: None,
         })
     }
 
@@ -95,12 +95,11 @@ impl NopInResponse {
     pub fn parse(buf: &[u8]) -> Result<Self> {
         if buf.len() < Self::HEADER_LEN {
             bail!(
-                "Buffer {} too small for NopInResponse BHS {}",
+                "Buffer {} too small for ScsiCommandResponse BHS {}",
                 buf.len(),
                 Self::HEADER_LEN
             );
         }
-
         let mut response = Self::from_bhs_bytes(&buf[..Self::HEADER_LEN])?;
 
         let ahs_len = response.ahs_length_bytes();
@@ -118,6 +117,7 @@ impl NopInResponse {
         offset += data_len;
 
         response.header_digest = if buf.len() >= offset + 4 {
+            println!("HEADER DIGEST {}, {}", buf.len(), offset + 4);
             Some(u32::from_be_bytes(
                 buf[offset..offset + 4]
                     .try_into()
@@ -155,36 +155,16 @@ impl BasicHeaderSegment for NopInResponse {
         let pad = (4 - (data_size % 4)) % 4;
         data_size + pad
     }
+
+    fn total_length_bytes(&self) -> usize {
+        Self::HEADER_LEN + self.ahs_length_bytes() + self.data_length_bytes()
+    }
 }
 
 impl FromBytes for NopInResponse {
     const HEADER_LEN: usize = NopInResponse::HEADER_LEN;
 
-    fn peek_total_len(buf: &[u8]) -> Result<usize> {
-        if buf.len() < Self::HEADER_LEN {
-            bail!(
-                "Buffer {} too small for NopInResponse BHS {}",
-                buf.len(),
-                Self::HEADER_LEN
-            );
-        }
-
-        let mut b = [0u8; Self::HEADER_LEN];
-        b.copy_from_slice(&buf[..Self::HEADER_LEN]);
-        let hdr = NopInResponse::from_bhs_bytes(&b)?;
-
-        let ahs_len = hdr.total_ahs_length as usize;
-        let data_len = u32::from_be_bytes([
-            0,
-            hdr.data_segment_length[0],
-            hdr.data_segment_length[1],
-            hdr.data_segment_length[2],
-        ]) as usize;
-
-        Ok(Self::HEADER_LEN + ahs_len + data_len)
-    }
-
     fn from_bytes(buf: &[u8]) -> Result<Self> {
-        Ok(NopInResponse::parse(buf)?)
+        Self::parse(buf)
     }
 }
