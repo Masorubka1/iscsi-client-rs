@@ -2,7 +2,7 @@ use anyhow::{Result, bail};
 use tracing::info;
 
 use crate::{
-    cfg::config::Config,
+    cfg::config::{Config, ToLoginKeys},
     client::client::Connection,
     models::{
         common::{BasicHeaderSegment, Builder},
@@ -28,11 +28,11 @@ pub async fn login_plain(
             cfg.login.negotiation.version_max,
         );
 
-    /*for key in cfg.to_login_keys().into_iter() {
+    for key in cfg.to_login_keys().into_iter() {
         builder = builder.append_data(key.into_bytes());
-    }*/
+    }
 
-    for key in [
+    /*for key in [
         format!("InitiatorName={}\0", cfg.login.security.initiator_name),
         format!("InitiatorAlias={}\0", cfg.login.security.initiator_alias),
         format!("TargetName={}\0", cfg.login.security.target_name),
@@ -85,7 +85,7 @@ pub async fn login_plain(
         ),
     ] {
         builder = builder.append_data(key.into_bytes());
-    }
+    }*/
 
     info!("{:?}", builder.header);
 
