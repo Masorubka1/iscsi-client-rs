@@ -1,9 +1,12 @@
+use std::{sync::Arc, time::Duration};
+
 use anyhow::{Result, anyhow, bail};
 use dashmap::DashMap;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
     sync::{Mutex, oneshot},
+    time::timeout,
 };
 use tracing::{info, warn};
 
@@ -12,6 +15,8 @@ use crate::{
     client::pdu_connection::{FromBytes, ToBytes},
     models::{common::BasicHeaderSegment, parse::Pdu},
 };
+
+const IO_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// A simple iSCSI connection wrapper over a TCP stream.
 ///
@@ -26,16 +31,26 @@ pub struct Connection {
 
 impl Connection {
     /// Establishes a new TCP connection to the given address.
-    pub async fn connect(cfg: Config) -> Result<Self> {
-        let stream =
-            TcpStream::connect(cfg.login.security.target_address.clone()).await?;
+    pub async fn connect(cfg: Config) -> Result<Arc<Connection>> {
+        let stream = TcpStream::connect(&cfg.login.security.target_address).await?;
         stream.set_linger(None)?;
-        Ok(Self {
+
+        let conn = Arc::new(Connection {
             socket: Mutex::new(stream),
             cfg,
             sending: DashMap::new(),
             reciver: DashMap::new(),
-        })
+        });
+
+        // клон для фоновой таски
+        let reader = Arc::clone(&conn);
+        tokio::spawn(async move {
+            if let Err(e) = reader.read_loop().await {
+                warn!("read loop exited: {e}");
+            }
+        });
+
+        Ok(conn)
     }
 
     /// Helper to serialize and write a PDU to the socket.
@@ -82,31 +97,42 @@ impl Connection {
         };
         let _ = self.sending.remove(&initiator_task_tag);
 
-        rx.await
-            .map_err(|_| anyhow!("connection closed before answer"))
+        rx.await.map_err(|_| {
+            anyhow!("Failed to read response: connection closed before answer")
+        })
     }
 
-    pub async fn start_reading_loop(&self) -> Result<()> {
+    async fn read_loop(self: Arc<Self>) -> Result<()> {
         loop {
             let mut hdr = [0u8; 48];
             {
                 let mut sock = self.socket.lock().await;
-                sock.read_exact(&mut hdr[..48]).await?;
+                if let Err(e) = timeout(IO_TIMEOUT, sock.read_exact(&mut hdr[..48])).await
+                {
+                    warn!("payload read timed out: {e}");
+                    continue;
+                }
             }
 
             let pdu_hdr = Pdu::from_bhs_bytes(&hdr)?;
-            let total = pdu_hdr.total_length_bytes(); // 48 + AHS + Data + pad(+digest)
+            let total = pdu_hdr.total_length_bytes(); // 48 + AHS + Data + pad + digests
 
             let mut buf = Vec::with_capacity(total);
             buf.extend_from_slice(&hdr);
+
             if total > 48 {
                 buf.resize(total, 0);
                 let mut sock = self.socket.lock().await;
-                sock.read_exact(&mut buf[48..]).await?;
+                if let Err(e) = timeout(IO_TIMEOUT, sock.read_exact(&mut buf[48..])).await
+                {
+                    warn!("payload read timed out: {e}");
+                    continue;
+                }
             }
 
             let pdu = Pdu::from_bytes(&buf)?;
             let itt = pdu.get_initiator_task_tag();
+
             match self.sending.remove(&itt) {
                 Some((_, tx)) => {
                     let _ = tx.send(pdu);

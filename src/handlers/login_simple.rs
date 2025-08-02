@@ -28,12 +28,7 @@ pub async fn login_plain(
             cfg.login.negotiation.version_max,
         );
 
-    /*for key in cfg
-        .login
-        .to_login_keys()
-        .into_iter()
-        .chain(cfg.extra_data.to_login_keys())
-    {
+    /*for key in cfg.to_login_keys().into_iter() {
         builder = builder.append_data(key.into_bytes());
     }*/
 

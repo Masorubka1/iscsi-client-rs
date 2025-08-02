@@ -27,7 +27,7 @@ pub struct LoginRequest {
     reserved1: [u8; 2],               // 22..24
     pub cmd_sn: u32,                  // 24..28
     pub exp_stat_sn: u32,             // 28..32
-    reserved2: [u8; 16],              // 32..48
+    reserved2: [u8; 16],              // 32..44
     pub header_digest: Option<u32>,
 
     pub data: Vec<u8>,
@@ -35,7 +35,7 @@ pub struct LoginRequest {
 }
 
 impl LoginRequest {
-    pub const HEADER_LEN: usize = 48;
+    pub const HEADER_LEN: usize = 44;
 
     /// Serialize BHS in 48 bytes
     pub fn to_bhs_bytes(&self) -> [u8; Self::HEADER_LEN] {
