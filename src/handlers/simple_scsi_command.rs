@@ -80,13 +80,13 @@ pub async fn send_scsi_read(
     }
 }
 
-/// Build a 10-byte SCSI WRITE(10) CDB.
+/// Build a 16-byte SCSI WRITE(16) CDB.
 ///
 /// - `lba`     : logical block address to start writing to
 /// - `blocks`  : number of contiguous blocks to write (u16)
 /// - `flags`   : WRPROTECT/DPO/FUA bits (6:4 Protection, 3: DPO, 1: FUA)
 /// - `control` : control byte
-pub fn build_write10(cdb: &mut [u8; 16], lba: u32, blocks: u16, flags: u8, control: u8) {
+pub fn build_write16(cdb: &mut [u8; 16], lba: u32, blocks: u16, flags: u8, control: u8) {
     cdb[0] = 0xAA; // WRITE(10) opcode
     cdb[1] = flags; // WRPROTECT/DPO/FUA
     cdb[2..6].copy_from_slice(&lba.to_be_bytes());

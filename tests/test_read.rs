@@ -7,9 +7,9 @@ use iscsi_client_rs::{
     client::pdu_connection::ToBytes,
     handlers::simple_scsi_command::build_read16,
     models::command::{
-            common::TaskAttribute,
-            request::{ScsiCommandRequest, ScsiCommandRequestBuilder},
-        },
+        common::TaskAttribute,
+        request::{ScsiCommandRequest, ScsiCommandRequestBuilder},
+    },
 };
 
 fn load_fixture(path: &str) -> Result<Vec<u8>> {

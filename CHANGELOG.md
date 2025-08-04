@@ -4,15 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-* Add NOP-Out / NOP-In support: `NopOutRequestBuilder`, `NopInOut` parsing, ping flag, data/header-digest options
+* Add NOP-Out / NOP-In support: `NopOutRequestBuilder`, `NopInResponse` parsing, ping flag, data/header-digest options
 * Introduce `PduResponse` enum and first-class Reject–PDU handling in `Connection::call`
 * Refactor `FromBytes` to return optional digest (u32) and unify digest handling
 * Implement `Opcode` / `BhsOpcode` with top-bit flag masking (I/F bits)
 * Expand `LoginFlags` & `ToLoginKeys` traits; improve YAML config support (Auth enum, ISID deserializer)
 * Add `BasicHeaderSegment` / `Pdu` traits for common PDU logic, BHS-length & data-length plumbing
 * Expose header-digest & data-digest support on both Login and NOP PDUs via CRC-32 iSCSI
-* Refactor `Connection` to use `Mutex<TcpStream>` and dynamic header read for 48- vs 52-byte PDUs
+* Refactor `Connection` to use `Mutex<TcpStream>` and dynamic header read for 48-byte PDUs
 * Unit tests for NOP and Reject PDUs and for full end-to-end login + heartbeat loops
+* **Split `TcpStream` into read/write halves** — refactor `Connection` to use `OwnedReadHalf`/`OwnedWriteHalf` with separate mutexes, removing head-of-line blocking and enabling true full-duplex I/O.
+* **Introduce `io_with_timeout` helper** — a unified wrapper for read/write operations with `tokio::time::timeout`.
+* **Add `BhsHeader` struct** implementing `BasicHeaderSegment::from_bhs_bytes` for direct 48-byte BHS parsing (lengths, opcode, ITT) without full PDU dispatch.
+* **Provide test-only PDU helpers** — `to_hex` / `from_hex` under `#[cfg(test)]` for round-trip encoding/decoding in unit tests.
 
 ## \[0.1.0] - 2025-07-20
 

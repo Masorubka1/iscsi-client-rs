@@ -5,7 +5,7 @@ use hex::FromHex;
 use iscsi_client_rs::{
     cfg::{cli::resolve_config_path, config::Config},
     client::pdu_connection::ToBytes,
-    handlers::simple_scsi_command::build_write10,
+    handlers::simple_scsi_command::build_write16,
     models::{
         command::{
             common::{ResponseCode, TaskAttribute},
@@ -38,7 +38,7 @@ fn test_write_pdu_build() -> Result<()> {
     let exp_stat_sn = 476962680;
 
     let mut cdb = [0u8; 16];
-    build_write10(&mut cdb, 0x1234, 0, 0, 1);
+    build_write16(&mut cdb, 0x1234, 0, 0, 1);
     let write_buf = vec![0x01; 512];
 
     let builder = ScsiCommandRequestBuilder::new()
