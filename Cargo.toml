@@ -1,6 +1,7 @@
 [package]
 name = "iscsi-client-rs"
-version = "0.0.1"
+version = "0.0.2"
+authors = ["Andrei Maltsev"]
 edition = "2024"
 description = "A pure-Rust iSCSI initiator library and CLI"
 license = "MIT"
