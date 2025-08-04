@@ -7,14 +7,14 @@
 
 A pure-Rust iSCSI initiator library and CLI for interacting with iSCSI targets.  It lets you build and send iSCSI PDUs, perform login (including CHAP), and exchange SCSI commands over TCP.
 
-## WARNING ALL CODE TESTED ONLY WITH `targetcli`. ON OTHER TARGETS BEHAVIOUR UNEXPECTED
+## WARNING ALL CODE TESTED ONLY WITH `tgt`. ON OTHER TARGETS BEHAVIOUR UNEXPECTED
 
 ⸻
 
 ## Features
 
-- Build and parse iSCSI Login PDUs across all phases (Security, Operational, Full-Feature)  
-- Support for CHAP authentication (MD5 and HMAC-MD5)  
-- High-level, pure-Rust API for login and SCSI command exchange  
-- Async I/O powered by Tokio  
-- Zero external C dependencies  
+- Build and parse iSCSI Login PDUs across all phases (Security, Operational, Full-Feature)
+- Support for CHAP authentication (MD5 and HMAC-MD5)
+- High-level, pure-Rust API for login and SCSI command exchange
+- Async I/O powered by Tokio
+- Zero external C dependencies

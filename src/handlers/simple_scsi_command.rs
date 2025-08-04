@@ -21,7 +21,7 @@ use crate::{
 /// - `blocks`: number of contiguous blocks to read
 /// - `flags`: bit-fields for RDPROTECT/DPO/FUA (RFC3720 calls it ATTR_BITS)
 /// - `control`: low-level control bits (usually zero)
-pub fn build_read12(cdb: &mut [u8; 16], lba: u32, blocks: u32, flags: u8, control: u8) {
+pub fn build_read16(cdb: &mut [u8; 16], lba: u32, blocks: u32, flags: u8, control: u8) {
     cdb[0] = 0xA8; // READ(12) opcode
     cdb[1] = flags; // RDPROTECT/DPO/FUA bits
     cdb[2..6].copy_from_slice(&lba.to_be_bytes());
@@ -58,6 +58,7 @@ pub async fn send_scsi_read(
         .expected_data_transfer_length(read_length)
         .scsi_descriptor_block(cdb)
         .read()
+        .task_attribute(TaskAttribute::Simple)
         .finall();
 
     info!(

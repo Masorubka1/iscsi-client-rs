@@ -55,8 +55,7 @@ impl ScsiCommandResponse {
         buf[36..40].copy_from_slice(&self.exp_data_sn.to_be_bytes());
         buf[40..44]
             .copy_from_slice(&self.bidirectional_read_residual_count.to_be_bytes());
-        // TODO: fix residual_count
-        //buf[44..48].copy_from_slice(&self.residual_count.to_be_bytes());
+        buf[44..48].copy_from_slice(&self.residual_count.to_be_bytes());
         // TODO: fix header_diggest
         //buf[48..52].copy_from_slice(&self.header_digest.to_be_bytes());
         buf

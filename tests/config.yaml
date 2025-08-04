@@ -11,7 +11,7 @@ login:
 
     target_name: "iqn.2025-08.example:disk0" # TargetName
     target_alias: "iscsi-target-vm" # TargetAlias
-    target_address: "127.0.01:3260" # TargetAddress
+    target_address: "127.0.0.1:3260" # TargetAddress
 
   auth:
     method: none
@@ -30,7 +30,7 @@ login:
 
     data_pdu_in_order: "Yes" # DataPDUInOrder ("Yes"/"No")
     data_sequence_in_order: "Yes" # DataSequenceInOrder ("Yes"/"No")
-    error_recovery_level: 0 # ErrorRecoveryLevel (0–2)
+    error_recovery_level: 1 # ErrorRecoveryLevel (0–2)
 
 extra_data:
   markers:

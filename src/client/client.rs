@@ -4,7 +4,10 @@ use anyhow::{Result, anyhow, bail};
 use dashmap::DashMap;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
-    net::TcpStream,
+    net::{
+        TcpStream,
+        tcp::{OwnedReadHalf, OwnedWriteHalf},
+    },
     sync::{Mutex, oneshot},
     time::timeout,
 };
@@ -18,12 +21,22 @@ use crate::{
 
 const IO_TIMEOUT: Duration = Duration::from_secs(3);
 
+async fn io_with_timeout<F, T>(label: &'static str, fut: F) -> Result<T>
+where F: Future<Output = std::io::Result<T>> {
+    match timeout(IO_TIMEOUT, fut).await {
+        Ok(Ok(v)) => Ok(v),
+        Ok(Err(e)) => Err(e.into()),
+        Err(_) => Err(anyhow!("{label} timeout")),
+    }
+}
+
 /// A simple iSCSI connection wrapper over a TCP stream.
 ///
 /// Manages sending requests (PDUs) and receiving responses by
 /// framing based on header information.
 pub struct Connection {
-    socket: Mutex<TcpStream>,
+    reader: Mutex<OwnedReadHalf>,
+    writer: Mutex<OwnedWriteHalf>,
     cfg: Config,
     sending: DashMap<u32, oneshot::Sender<Pdu>>,
     reciver: DashMap<u32, oneshot::Receiver<Pdu>>,
@@ -35,14 +48,17 @@ impl Connection {
         let stream = TcpStream::connect(&cfg.login.security.target_address).await?;
         stream.set_linger(None)?;
 
+        // IDK why i need splited r/w socket
+        let (r, w) = stream.into_split();
+
         let conn = Arc::new(Connection {
-            socket: Mutex::new(stream),
+            reader: Mutex::new(r),
+            writer: Mutex::new(w),
             cfg,
             sending: DashMap::new(),
             reciver: DashMap::new(),
         });
 
-        // клон для фоновой таски
         let reader = Arc::clone(&conn);
         tokio::spawn(async move {
             if let Err(e) = reader.read_loop().await {
@@ -55,16 +71,16 @@ impl Connection {
 
     /// Helper to serialize and write a PDU to the socket.
     async fn write(&self, req: impl ToBytes<Header = Vec<u8>>) -> Result<()> {
-        let mut socket = self.socket.lock().await;
+        let mut w = self.writer.lock().await;
         let (out_header, out_data) = req.to_bytes(&self.cfg)?;
         info!(
             "Size_header: {} Size_data: {}",
             out_header.len(),
             out_data.len()
         );
-        socket.write_all(&out_header).await?;
+        io_with_timeout("write header", w.write_all(&out_header)).await?;
         if !out_data.is_empty() {
-            socket.write_all(&out_data).await?;
+            io_with_timeout("write data", w.write_all(&out_data)).await?;
         }
         Ok(())
     }
@@ -85,7 +101,11 @@ impl Connection {
         self.sending.insert(initiator_task_tag, tx);
         self.reciver.insert(initiator_task_tag, rx);
 
-        self.write(req).await?;
+        if let Err(e) = self.write(req).await {
+            let _ = self.sending.remove(&initiator_task_tag);
+            let _ = self.reciver.remove(&initiator_task_tag);
+            return Err(e);
+        }
 
         Ok(())
     }
@@ -95,7 +115,6 @@ impl Connection {
             None => bail!("no pending request with itt={initiator_task_tag}"),
             Some((_, rx)) => rx,
         };
-        let _ = self.sending.remove(&initiator_task_tag);
 
         rx.await.map_err(|_| {
             anyhow!("Failed to read response: connection closed before answer")
@@ -106,11 +125,12 @@ impl Connection {
         loop {
             let mut hdr = [0u8; 48];
             {
-                let mut sock = self.socket.lock().await;
-                if let Err(e) = timeout(IO_TIMEOUT, sock.read_exact(&mut hdr[..48])).await
+                let mut r = self.reader.lock().await;
+                if let Err(e) =
+                    io_with_timeout("read header", r.read_exact(&mut hdr)).await
                 {
-                    warn!("payload read timed out: {e}");
-                    continue;
+                    warn!("read header failed: {e}");
+                    break Ok(());
                 }
             }
 
@@ -122,11 +142,12 @@ impl Connection {
 
             if total > 48 {
                 buf.resize(total, 0);
-                let mut sock = self.socket.lock().await;
-                if let Err(e) = timeout(IO_TIMEOUT, sock.read_exact(&mut buf[48..])).await
+                let mut r = self.reader.lock().await;
+                if let Err(e) =
+                    io_with_timeout("read payload", r.read_exact(&mut buf[48..])).await
                 {
-                    warn!("payload read timed out: {e}");
-                    continue;
+                    warn!("read payload failed: {e}");
+                    break Ok(());
                 }
             }
 
@@ -138,7 +159,7 @@ impl Connection {
                     let _ = tx.send(pdu);
                 },
                 None => {
-                    warn!(%itt, "unsolicited PDU – нет получателя");
+                    warn!(%itt, "unsolicited PDU");
                 },
             }
         }

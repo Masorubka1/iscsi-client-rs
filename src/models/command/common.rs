@@ -100,14 +100,15 @@ bitflags::bitflags! {
     #[derive(Default, Clone, PartialEq)]
     /// iSCSI SCSI Command PDU flags
     pub struct ScsiCommandResponseFlags: u8 {
-        /// bit 7: I (Immediate/ping)
-        const IMMEDIATE    = 0b1000_0000;
-        /// bit 6: U (Unsolicited response)
-        const UNSOLICITED  = 0b0100_0000;
-        /// bit 5: o (parameter‐offset wrap / overflow)
-        const OVERFLOW     = 0b0010_0000;
-        /// bit 4: u (update bit / param‐start)
-        const UPDATE       = 0b0001_0000;
+        const FINAL     = 0b1000_0000;
+        /// Bidir Read Residual Overflow (o)
+        const O_SMALL = 0b0001_0000;
+        /// Bidir Read Residual Underflow (u)
+        const U_SMALL = 0b0000_1000;
+        /// Residual Overflow (O)
+        const O_BIG = 0b0000_0100;
+        /// Residual Underflow (U)
+        const U_BIG = 0b0000_0010;
     }
 }
 
@@ -124,17 +125,20 @@ impl fmt::Debug for ScsiCommandResponseFlags {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut parts: Vec<String> = Vec::new();
 
-        if self.contains(ScsiCommandResponseFlags::IMMEDIATE) {
-            parts.push("IMMEDIATE".into());
+        if self.contains(ScsiCommandResponseFlags::FINAL) {
+            parts.push("FINAL".into());
         }
-        if self.contains(ScsiCommandResponseFlags::UNSOLICITED) {
-            parts.push("UNSOLICITED".into());
+        if self.contains(ScsiCommandResponseFlags::O_SMALL) {
+            parts.push("O_SMALL".into());
         }
-        if self.contains(ScsiCommandResponseFlags::OVERFLOW) {
-            parts.push("OVERFLOW".into());
+        if self.contains(ScsiCommandResponseFlags::U_SMALL) {
+            parts.push("U_SMALL".into());
         }
-        if self.contains(ScsiCommandResponseFlags::UPDATE) {
-            parts.push("UPDATE".into());
+        if self.contains(ScsiCommandResponseFlags::O_BIG) {
+            parts.push("O_BIG".into());
+        }
+        if self.contains(ScsiCommandResponseFlags::U_BIG) {
+            parts.push("U_BIG".into());
         }
 
         write!(f, "ScsiCommandResponseFlags({})", parts.join("|"))

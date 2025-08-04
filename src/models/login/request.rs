@@ -35,7 +35,7 @@ pub struct LoginRequest {
 }
 
 impl LoginRequest {
-    pub const HEADER_LEN: usize = 44;
+    pub const HEADER_LEN: usize = 48;
 
     /// Serialize BHS in 48 bytes
     pub fn to_bhs_bytes(&self) -> [u8; Self::HEADER_LEN] {
