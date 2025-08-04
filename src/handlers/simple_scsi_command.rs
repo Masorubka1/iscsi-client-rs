@@ -4,24 +4,24 @@ use anyhow::{Result, bail};
 use tracing::info;
 
 use crate::{
-    client::client::{Connection, PduResponse},
+    client::client::Connection,
     models::{
         command::{
-            common::TaskAttribute,
-            request::{ScsiCommandRequest, ScsiCommandRequestBuilder},
+            common::TaskAttribute, request::ScsiCommandRequestBuilder,
             response::ScsiCommandResponse,
         },
-        common::Builder,
+        common::{BasicHeaderSegment, Builder},
+        parse::Pdu,
     },
 };
 
-/// Build a 12-byte SCSI READ(12) CDB.
+/// Build a 16-byte SCSI READ(16) CDB.
 ///
 /// - `lba`: logical block address to start reading from
 /// - `blocks`: number of contiguous blocks to read
 /// - `flags`: bit-fields for RDPROTECT/DPO/FUA (RFC3720 calls it ATTR_BITS)
 /// - `control`: low-level control bits (usually zero)
-pub fn build_read12(cdb: &mut [u8; 12], lba: u32, blocks: u32, flags: u8, control: u8) {
+pub fn build_read16(cdb: &mut [u8; 16], lba: u32, blocks: u32, flags: u8, control: u8) {
     cdb[0] = 0xA8; // READ(12) opcode
     cdb[1] = flags; // RDPROTECT/DPO/FUA bits
     cdb[2..6].copy_from_slice(&lba.to_be_bytes());
@@ -44,8 +44,8 @@ pub async fn send_scsi_read(
     cmd_sn: &AtomicU32,
     exp_stat_sn: &AtomicU32,
     read_length: u32,
-    cdb: &[u8; 12],
-) -> Result<(ScsiCommandResponse, Vec<u8>, Option<u32>)> {
+    cdb: &[u8; 16],
+) -> Result<ScsiCommandResponse> {
     let sn = cmd_sn.fetch_add(1, Ordering::SeqCst);
     let esn = exp_stat_sn.load(Ordering::SeqCst);
     let itt = initiator_task_tag.fetch_add(1, Ordering::SeqCst);
@@ -58,31 +58,35 @@ pub async fn send_scsi_read(
         .expected_data_transfer_length(read_length)
         .scsi_descriptor_block(cdb)
         .read()
+        .task_attribute(TaskAttribute::Simple)
         .finall();
 
-    info!("{:?}, {}", builder.header, hex::encode(&builder.data));
+    info!(
+        "{:?}, {}",
+        builder.header,
+        hex::encode(&builder.header.data)
+    );
 
-    match conn
-        .call::<{ ScsiCommandRequest::HEADER_LEN }, ScsiCommandResponse>(builder)
-        .await?
-    {
-        PduResponse::Normal((hdr, data, digest)) => {
-            exp_stat_sn.store(hdr.stat_sn.wrapping_add(1), Ordering::SeqCst);
-            Ok((hdr, data, digest))
+    let itt = builder.header.get_initiator_task_tag();
+
+    conn.send_request(itt, builder).await?;
+
+    match conn.read_response(itt).await? {
+        Pdu::ScsiCommandResponse(rsp) => {
+            exp_stat_sn.store(rsp.stat_sn.wrapping_add(1), Ordering::SeqCst);
+            Ok(rsp)
         },
-        PduResponse::Reject((hdr, data, _)) => {
-            bail!("SCSI READ rejected: {:?}\nData: {:x?}", hdr, data)
-        },
+        other => bail!("got unexpected PDU: {:?}", other.get_opcode()),
     }
 }
 
-/// Build a 10-byte SCSI WRITE(10) CDB.
+/// Build a 16-byte SCSI WRITE(16) CDB.
 ///
 /// - `lba`     : logical block address to start writing to
 /// - `blocks`  : number of contiguous blocks to write (u16)
 /// - `flags`   : WRPROTECT/DPO/FUA bits (6:4 Protection, 3: DPO, 1: FUA)
 /// - `control` : control byte
-pub fn build_write10(cdb: &mut [u8; 12], lba: u32, blocks: u16, flags: u8, control: u8) {
+pub fn build_write16(cdb: &mut [u8; 16], lba: u32, blocks: u16, flags: u8, control: u8) {
     cdb[0] = 0xAA; // WRITE(10) opcode
     cdb[1] = flags; // WRPROTECT/DPO/FUA
     cdb[2..6].copy_from_slice(&lba.to_be_bytes());
@@ -105,9 +109,9 @@ pub async fn send_scsi_write(
     initiator_task_tag: &AtomicU32,
     cmd_sn: &AtomicU32,
     exp_stat_sn: &AtomicU32,
-    cdb: &[u8; 12],
+    cdb: &[u8; 16],
     write_data: Vec<u8>,
-) -> Result<(ScsiCommandResponse, String)> {
+) -> Result<ScsiCommandResponse> {
     // pull our sequence numbers
     let cmd_sn1 = cmd_sn.fetch_add(1, Ordering::SeqCst);
     let exp_stat_sn1 = exp_stat_sn.load(Ordering::SeqCst);
@@ -125,18 +129,21 @@ pub async fn send_scsi_write(
         .task_attribute(TaskAttribute::Simple)
         .append_data(write_data.clone());
 
-    info!("{:?}, {}", builder.header, hex::encode(&builder.data));
+    info!(
+        "{:?}, {}",
+        builder.header,
+        hex::encode(&builder.header.data)
+    );
 
-    match conn
-        .call::<{ ScsiCommandRequest::HEADER_LEN }, ScsiCommandResponse>(builder)
-        .await?
-    {
-        PduResponse::Normal((hdr, data, _digest)) => {
-            exp_stat_sn.store(hdr.stat_sn.wrapping_add(1), Ordering::SeqCst);
-            Ok((hdr, String::from_utf8(data)?))
+    let itt = builder.header.get_initiator_task_tag();
+
+    conn.send_request(itt, builder).await?;
+
+    match conn.read_response(itt).await? {
+        Pdu::ScsiCommandResponse(rsp) => {
+            exp_stat_sn.store(rsp.stat_sn.wrapping_add(1), Ordering::SeqCst);
+            Ok(rsp)
         },
-        PduResponse::Reject((hdr, data, _)) => {
-            bail!("SCSI WRITE rejected: {:?}\nData: {:x?}", hdr, data)
-        },
+        other => bail!("got unexpected PDU: {:?}", other.get_opcode()),
     }
 }

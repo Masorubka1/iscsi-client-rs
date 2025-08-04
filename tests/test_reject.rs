@@ -2,12 +2,9 @@ use std::fs;
 
 use anyhow::Result;
 use hex::FromHex;
-use iscsi_client_rs::{
-    client::pdu_connection::FromBytes,
-    models::{
-        opcode::{BhsOpcode, IfFlags, Opcode},
-        reject::response::RejectPdu,
-    },
+use iscsi_client_rs::models::{
+    opcode::{BhsOpcode, IfFlags, Opcode},
+    reject::response::RejectPdu,
 };
 
 fn load_fixture(path: &str) -> Result<Vec<u8>> {
@@ -21,9 +18,10 @@ fn test_nop_in_parse() -> Result<()> {
     let bytes = load_fixture("tests/fixtures/reject_example.hex")?;
     assert!(bytes.len() >= 48);
 
-    let (parsed, data, digest) = RejectPdu::from_bytes(&bytes)?;
-    assert!(data.is_empty());
-    assert!(digest.is_none());
+    let parsed = RejectPdu::parse(&bytes)?;
+    assert!(!parsed.data.is_empty());
+    assert_eq!(parsed.header_digest, Some(0));
+    assert!(parsed.data_digest.is_none());
 
     assert_eq!(
         parsed.opcode,

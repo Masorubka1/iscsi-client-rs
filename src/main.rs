@@ -10,7 +10,9 @@ use iscsi_client_rs::{
     handlers::{
         login_simple::login_plain,
         nop_handler::send_nop,
-        simple_scsi_command::{build_write10, send_scsi_write},
+        simple_scsi_command::{
+            build_read16, build_write16, send_scsi_read, send_scsi_write,
+        },
     },
     models::nop::request::NopOutRequest,
     utils::generate_isid,
@@ -31,21 +33,24 @@ async fn main() -> Result<()> {
 
     let (_isid, _isid_str) = generate_isid();
     info!("{_isid:?} {_isid_str}");
-    let isid = [0, 2, 61, 0, 0, 9];
+    let isid = [0, 2, 61, 0, 0, 14];
 
-    let (login_rsp, data) = login_plain(&conn, &config, isid).await?;
-    info!("Res1: {login_rsp:?}\n Data: {data:?}");
+    let login_rsp = login_plain(&conn, &config, isid).await?;
+    info!("Res1: {login_rsp:?}");
+
+    time::sleep(Duration::from_millis(2000)).await;
 
     // seed our three counters:
     let cmd_sn = AtomicU32::new(login_rsp.exp_cmd_sn);
     let exp_stat_sn = AtomicU32::new(login_rsp.stat_sn.wrapping_add(1));
     let itt_counter = AtomicU32::new(1);
+    let lun = [0, 1, 0, 0, 0, 0, 0, 0];
 
     let ttt = NopOutRequest::DEFAULT_TAG;
     // —————— NOP #1 ——————
     match send_nop(&conn, [0u8; 8], &itt_counter, ttt, &cmd_sn, &exp_stat_sn).await {
-        Ok((hdr, data, _)) => {
-            info!("[NOP1] hdr={hdr:?} data={data:?}");
+        Ok(resp) => {
+            info!("[NOP1] resp={resp:?}");
         },
         Err(e) => {
             eprintln!("[NOP1] rejected or failed: {e}");
@@ -68,8 +73,8 @@ async fn main() -> Result<()> {
 
     // —————— TEXT ——————
     /*match send_text(&conn, [0u8; 8], &itt_counter, ttt, &cmd_sn, &exp_stat_sn).await {
-        Ok((hdr, data, _)) => {
-            info!("[Text] hdr={hdr:?} data={data:?}");
+        Ok(resp) => {
+            info!("[Text] resp={resp:?}");
         },
         Err(e) => {
             eprintln!("[Text] rejected or failed: {e}");
@@ -79,13 +84,13 @@ async fn main() -> Result<()> {
 
     // —————— WRITE ——————
     {
-        let mut cdb = [0u8; 12];
-        build_write10(&mut cdb, 0x1234, 0, 0, 1);
+        let mut cdb = [0u8; 16];
+        build_write16(&mut cdb, 0x1234, 0, 0, 1);
         let write_buf = vec![0x01; 512];
 
         match send_scsi_write(
             &conn,
-            [0u8; 8],
+            lun,
             &itt_counter,
             &cmd_sn,
             &exp_stat_sn,
@@ -94,23 +99,23 @@ async fn main() -> Result<()> {
         )
         .await
         {
-            Ok((resp, data)) => {
-                info!("[WRITE] resp={resp:?} data={data:?}");
+            Ok(resp) => {
+                info!("[WRITE] resp={resp:?}");
             },
             Err(e) => {
                 eprintln!("[WRITE] rejected or failed: {e}");
                 //return Err(e);
             },
-        }
+        };
     }
 
     // READ
-    /*{
-        let mut cdb_read = [0u8; 12];
-        build_read12(&mut cdb_read, 0x1000, 16, 0, 0);
+    {
+        let mut cdb_read = [0u8; 16];
+        build_read16(&mut cdb_read, 0x1234, 16, 0, 0);
         match send_scsi_read(
             &conn,
-            [0u8; 8],
+            lun,
             &itt_counter,
             &cmd_sn,
             &exp_stat_sn,
@@ -119,17 +124,14 @@ async fn main() -> Result<()> {
         )
         .await
         {
-            Ok((resp, data, digest)) => {
-                println!(
-                    "[IO] READ completed: resp={resp:?}, data.len={} digest={digest:?}",
-                    data.len()
-                );
+            Ok(resp) => {
+                println!("[IO] READ completed: resp={resp:?}");
             },
             Err(e) => {
                 eprintln!("[IO] READ failed: {e}");
             },
         }
-    }*/
+    }
 
     Ok(())
 }

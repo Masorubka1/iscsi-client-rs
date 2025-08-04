@@ -23,7 +23,10 @@ pub struct TextResponse {
     pub exp_cmd_sn: u32,              // 28..32
     pub max_cmd_sn: u32,              // 32..36
     reserved2: [u8; 16],              // 36..48
-    pub header_digest: u32,           // 48..52
+    pub header_digest: Option<u32>,   // 48..52
+
+    pub data: Vec<u8>,
+    pub data_digest: Option<u32>,
 }
 
 impl TextResponse {
@@ -70,7 +73,7 @@ impl TextResponse {
         let exp_cmd_sn = u32::from_be_bytes(buf[28..32].try_into()?);
         let max_cmd_sn = u32::from_be_bytes(buf[32..36].try_into()?);
         // buf[32..44] -- reserved
-        let header_digest = u32::from_be_bytes(buf[44..48].try_into()?);
+        //let header_digest = u32::from_be_bytes(buf[44..48].try_into()?);
         Ok(TextResponse {
             opcode,
             reserved1,
@@ -83,39 +86,39 @@ impl TextResponse {
             exp_cmd_sn,
             max_cmd_sn,
             reserved2: [0u8; 16],
-            header_digest,
+            header_digest: None,
+            data: vec![],
+            data_digest: None,
         })
     }
 
     /// Parsing PDU with DataSegment and Digest
-    pub fn parse(buf: &[u8]) -> Result<(Self, Vec<u8>, Option<u32>)> {
+    pub fn parse(buf: &[u8]) -> Result<Self> {
         if buf.len() < Self::HEADER_LEN {
             bail!(
-                "Buffer {} too small for TextResponse BHS {}",
+                "Buffer {} too small for ScsiCommandResponse BHS {}",
                 buf.len(),
                 Self::HEADER_LEN
             );
         }
+        let mut response = Self::from_bhs_bytes(&buf[..Self::HEADER_LEN])?;
 
-        let mut bhs = [0u8; Self::HEADER_LEN];
-        bhs.copy_from_slice(&buf[..Self::HEADER_LEN]);
-        let header = Self::from_bhs_bytes(&bhs)?;
-
-        let ahs_len = header.ahs_length_bytes();
-        let data_len = header.data_length_bytes();
+        let ahs_len = response.ahs_length_bytes();
+        let data_len = response.data_length_bytes();
         let mut offset = Self::HEADER_LEN + ahs_len;
 
         if buf.len() < offset + data_len {
             bail!(
-                "TextResponse Buffer {} too small for DataSegment {}",
+                "NopInResponse Buffer {} too small for DataSegment {}",
                 buf.len(),
                 offset + data_len
             );
         }
-        let data = buf[offset..offset + data_len].to_vec();
+        response.data = buf[offset..offset + data_len].to_vec();
         offset += data_len;
 
-        let hd = if buf.len() >= offset + 4 {
+        response.header_digest = if buf.len() >= offset + 4 {
+            println!("HEADER DIGEST {}, {}", buf.len(), offset + 4);
             Some(u32::from_be_bytes(
                 buf[offset..offset + 4]
                     .try_into()
@@ -125,13 +128,17 @@ impl TextResponse {
             None
         };
 
-        Ok((header, data, hd))
+        Ok(response)
     }
 }
 
 impl BasicHeaderSegment for TextResponse {
     fn get_opcode(&self) -> &BhsOpcode {
         &self.opcode
+    }
+
+    fn get_initiator_task_tag(&self) -> u32 {
+        self.initiator_task_tag
     }
 
     fn ahs_length_bytes(&self) -> usize {
@@ -150,46 +157,15 @@ impl BasicHeaderSegment for TextResponse {
         data_size + pad
     }
 
-    fn to_bytes(&self) -> Vec<u8> {
-        self.to_bhs_bytes().to_vec()
-    }
-
-    fn from_bytes(buf: &[u8]) -> Result<Self> {
-        let mut new_buf = [0u8; TextResponse::HEADER_LEN];
-        new_buf.clone_from_slice(buf);
-        TextResponse::from_bhs_bytes(&new_buf)
+    fn total_length_bytes(&self) -> usize {
+        Self::HEADER_LEN + self.ahs_length_bytes() + self.data_length_bytes()
     }
 }
 
 impl FromBytes for TextResponse {
     const HEADER_LEN: usize = TextResponse::HEADER_LEN;
 
-    fn peek_total_len(buf: &[u8]) -> Result<usize> {
-        if buf.len() < Self::HEADER_LEN {
-            bail!(
-                "Buffer {} too small for TextResponse BHS {}",
-                buf.len(),
-                Self::HEADER_LEN
-            );
-        }
-
-        let mut b = [0u8; Self::HEADER_LEN];
-        b.copy_from_slice(&buf[..Self::HEADER_LEN]);
-        let hdr = TextResponse::from_bhs_bytes(&b)?;
-
-        let ahs_len = hdr.total_ahs_length as usize;
-        let data_len = u32::from_be_bytes([
-            0,
-            hdr.data_segment_length[0],
-            hdr.data_segment_length[1],
-            hdr.data_segment_length[2],
-        ]) as usize;
-
-        Ok(Self::HEADER_LEN + ahs_len + data_len)
-    }
-
-    fn from_bytes(buf: &[u8]) -> Result<(Self, Vec<u8>, Option<u32>)> {
-        let (hdr, data, digest) = TextResponse::parse(buf)?;
-        Ok((hdr, data, digest))
+    fn from_bytes(buf: &[u8]) -> Result<Self> {
+        Self::parse(buf)
     }
 }

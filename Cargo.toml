@@ -38,6 +38,8 @@ tracing-subscriber = { version = "0.3.19", features = [
 ] }
 tracing-appender = "0.2.3"
 chrono = "0.4.41"
+enum_dispatch = "0.3.13"
+dashmap = "6.1.0"
 
 
 [workspace]

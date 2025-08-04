@@ -1,6 +1,12 @@
-use anyhow::Result;
+use anyhow::{Result, bail};
 
-use crate::{cfg::config::Config, models::common::Builder};
+use crate::{
+    cfg::config::Config,
+    models::{
+        common::{BasicHeaderSegment, Builder},
+        parse::Pdu,
+    },
+};
 
 /// Trait for serializing a Protocol Data Unit (PDU) into bytes.
 pub trait ToBytes: Sized {
@@ -16,7 +22,7 @@ pub trait ToBytes: Sized {
 }
 
 /// Trait for deserializing a full PDU from raw bytes.
-pub trait FromBytes: Sized {
+pub trait FromBytes: Sized + BasicHeaderSegment {
     /// The fixed length of the PDU header in bytes.
     ///
     /// rust now don`t support compile time array length
@@ -27,13 +33,24 @@ pub trait FromBytes: Sized {
     ///
     /// The total PDU length in bytes, or an error if the header is malformed
     /// or too short.
-    fn peek_total_len(header: &[u8]) -> Result<usize>;
+    fn total_len(buf: &[u8]) -> Result<usize> {
+        if buf.len() < Self::HEADER_LEN {
+            bail!(
+                "Buffer {} too small for Pdu BHS {}",
+                buf.len(),
+                Self::HEADER_LEN
+            );
+        }
+        let hdr = Pdu::from_bhs_bytes(&buf[..Self::HEADER_LEN])?;
+
+        Ok(hdr.total_length_bytes())
+    }
 
     /// Parse the full PDU from a contiguous byte buffer.
     ///
     /// The parsed `Response` (often a tuple of header struct, payload bytes,
     /// and digest), or an error if parsing fails.
-    fn from_bytes(buf: &[u8]) -> Result<(Self, Vec<u8>, Option<u32>)>;
+    fn from_bytes(buf: &[u8]) -> Result<Self>;
 }
 
 impl<B> ToBytes for B

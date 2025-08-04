@@ -3,14 +3,11 @@ use tracing::info;
 
 use crate::{
     cfg::config::{Config, ToLoginKeys},
-    client::client::{Connection, PduResponse},
+    client::client::Connection,
     models::{
-        common::Builder,
-        login::{
-            common::Stage,
-            request::{LoginRequest, LoginRequestBuilder},
-            response::LoginResponse,
-        },
+        common::{BasicHeaderSegment, Builder},
+        login::{common::Stage, request::LoginRequestBuilder, response::LoginResponse},
+        parse::Pdu,
     },
 };
 
@@ -20,7 +17,7 @@ pub async fn login_plain(
     conn: &Connection,
     cfg: &Config,
     isid: [u8; 6],
-) -> Result<(LoginResponse, String)> {
+) -> Result<LoginResponse> {
     // 1) Full-Feature transition: CSG=Operational(1) → NSG=FullFeature(3)
     let mut builder = LoginRequestBuilder::new(isid, 0)
         .transit()
@@ -31,26 +28,18 @@ pub async fn login_plain(
             cfg.login.negotiation.version_max,
         );
 
-    for key in cfg
-        .login
-        .to_login_keys()
-        .into_iter()
-        .chain(cfg.extra_data.to_login_keys())
-    {
+    for key in cfg.to_login_keys().into_iter() {
         builder = builder.append_data(key.into_bytes());
     }
 
-    info!("{:?}, {:?}", builder.header, hex::encode(&builder.data));
+    info!("{:?}", builder.header);
 
-    let (hdr, data, _dig) = match conn
-        .call::<{ LoginRequest::HEADER_LEN }, LoginResponse>(builder)
-        .await?
-    {
-        PduResponse::Normal((hdr, data, _dig)) => (hdr, data, _dig),
-        PduResponse::Reject((hdr, data, _dig)) => {
-            bail!("Error_resp: {:?}\n Data: {:?}", hdr, data)
-        },
-    };
+    let itt = builder.header.get_initiator_task_tag();
 
-    Ok((hdr, String::from_utf8(data)?))
+    conn.send_request(itt, builder).await?;
+
+    match conn.read_response(itt).await? {
+        Pdu::LoginResponse(rsp) => Ok(rsp),
+        other => bail!("got unexpected PDU: {:?}", other.get_opcode()),
+    }
 }

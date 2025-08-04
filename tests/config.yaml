@@ -6,12 +6,12 @@ login:
     session_type: "Normal" # SessionType
     portal_group_tag: 1 # TargetPortalGroupTag
 
-    initiator_name: "iqn.2004-10.com.ubuntu:01:3667ac2e2d88" # InitiatorName
+    initiator_name: "iqn.2004-10.com.ubuntu:01:c676ed18968f" # InitiatorName
     initiator_alias: "ubuntu" # InitiatorAlias
 
-    target_name: "iqn.2025-07.com.example:target0" # TargetName
+    target_name: "iqn.2025-08.example:disk0" # TargetName
     target_alias: "iscsi-target-vm" # TargetAlias
-    target_address: "192.168.64.2:3260" # TargetAddress
+    target_address: "127.0.0.1:3260" # TargetAddress
 
   auth:
     method: none
@@ -40,7 +40,7 @@ extra_data:
     initial_r2t: "No" # InitialR2T=No\x00
     immediate_data: "Yes" # ImmediateData=Yes\x00
     max_outstanding_r2t: 1 # MaxOutstandingR2T=1\x00
-    default_time2wait: 0 # DefaultTime2Wait (секунды)
+    default_time2wait: 2 # DefaultTime2Wait (секунды)
     default_time2retain: 0 # DefaultTime2Retain (секунды)
   connections:
     max_connections: 1 # MaxConnections=1\x00

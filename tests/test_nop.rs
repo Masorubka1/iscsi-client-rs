@@ -66,9 +66,10 @@ fn test_nop_in_parse() -> Result<()> {
     let bytes = load_fixture("tests/fixtures/nop_in_response.hex")?;
     assert!(bytes.len() >= NopInResponse::HEADER_LEN);
 
-    let (parsed, data, digest) = NopInResponse::parse(&bytes)?;
-    assert!(data.is_empty());
-    assert!(digest.is_none());
+    let parsed = NopInResponse::parse(&bytes)?;
+    assert!(parsed.data.is_empty());
+    assert!(parsed.header_digest.is_none());
+    assert!(parsed.data_digest.is_none());
 
     assert_eq!(
         parsed.opcode,
