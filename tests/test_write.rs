@@ -23,11 +23,11 @@ fn load_fixture(path: &str) -> Result<Vec<u8>> {
 }
 
 #[test]
-fn test_write10_pdu_build() -> Result<()> {
+fn test_write_pdu_build() -> Result<()> {
     let cfg = resolve_config_path("tests/config.yaml")
         .and_then(Config::load_from_file)
         .context("failed to resolve or load config")?;
-    let expected = load_fixture("tests/fixtures/write10_request.hex")?;
+    let expected = load_fixture("tests/fixtures/write_request.hex")?;
     let expected_hdr = ScsiCommandRequest::parse(&expected)?;
 
     let header_len = ScsiCommandRequest::HEADER_LEN;
@@ -65,13 +65,13 @@ fn test_write10_pdu_build() -> Result<()> {
 }
 
 #[test]
-fn test_write10_response_parse() -> Result<()> {
-    let bytes = load_fixture("tests/fixtures/write10_response.hex")?;
+fn test_write_response_parse() -> Result<()> {
+    let bytes = load_fixture("tests/fixtures/write_response.hex")?;
     assert!(bytes.len() >= ScsiCommandResponse::HEADER_LEN);
 
     let parsed = ScsiCommandResponse::parse(&bytes)?;
     assert!(parsed.data.is_empty());
-    assert!(parsed.header_digest.is_none());
+    assert!(parsed.header_digest.is_some());
     assert!(parsed.data_digest.is_none());
 
     assert_eq!(parsed.stat_sn, 1914934025, "Unexpected StatSN");

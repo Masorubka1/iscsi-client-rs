@@ -1,5 +1,4 @@
-use anyhow::{Context, Result, bail};
-use tracing::info;
+use anyhow::{Result, bail};
 
 use crate::{
     cfg::config::Config,
@@ -105,7 +104,7 @@ impl NopOutRequest {
 
         let ahs_len = request.ahs_length_bytes();
         let data_len = request.data_length_bytes();
-        let mut offset = Self::HEADER_LEN + ahs_len;
+        let offset = Self::HEADER_LEN + ahs_len;
 
         if buf.len() < offset + data_len {
             bail!(
@@ -115,7 +114,7 @@ impl NopOutRequest {
             );
         }
         request.data = buf[offset..offset + data_len].to_vec();
-        offset += data_len;
+        /*offset += data_len;
 
         request.header_digest = if buf.len() >= offset + 4 {
             info!("HEADER DIGEST");
@@ -126,16 +125,17 @@ impl NopOutRequest {
             ))
         } else {
             None
-        };
+        };*/
 
         Ok(request)
     }
 
-    pub fn encode(&mut self) -> Result<(Vec<u8>, Vec<u8>)> {
+    pub fn encode(&self) -> Result<(Vec<u8>, Vec<u8>)> {
         let pad = (4 - (self.data.len() % 4)) % 4;
-        self.data.extend(std::iter::repeat_n(0, pad));
+        let mut body = self.data.clone();
+        body.extend(std::iter::repeat_n(0, pad));
 
-        Ok((self.to_bhs_bytes().to_vec(), self.data.clone()))
+        Ok((self.to_bhs_bytes().to_vec(), body))
     }
 }
 
@@ -153,15 +153,12 @@ impl BasicHeaderSegment for NopOutRequest {
     }
 
     fn data_length_bytes(&self) -> usize {
-        let data_size = u32::from_be_bytes([
+        u32::from_be_bytes([
             0,
             self.data_segment_length[0],
             self.data_segment_length[1],
             self.data_segment_length[2],
-        ]) as usize;
-
-        let pad = (4 - (data_size % 4)) % 4;
-        data_size + pad
+        ]) as usize
     }
 
     fn total_length_bytes(&self) -> usize {
@@ -260,8 +257,8 @@ impl Builder for NopOutRequestBuilder {
     }
 
     /// Build finnal PDU (BHS + DataSegment)
-    fn build(mut self, cfg: &Config) -> Result<(Self::Header, Vec<u8>)> {
-        let encoded = NopOutRequest::encode(&mut self.header)?;
+    fn build(self, cfg: &Config) -> Result<(Self::Header, Vec<u8>)> {
+        let encoded = NopOutRequest::encode(&self.header)?;
 
         if (cfg.login.negotiation.max_recv_data_segment_length as usize) < encoded.1.len()
         {

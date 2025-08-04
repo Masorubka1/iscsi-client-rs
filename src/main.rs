@@ -11,7 +11,7 @@ use iscsi_client_rs::{
         login_simple::login_plain,
         nop_handler::send_nop,
         simple_scsi_command::{
-            build_read16, build_write10, send_scsi_read, send_scsi_write,
+            build_read16, send_scsi_read,
         },
     },
     models::nop::request::NopOutRequest,
@@ -83,7 +83,7 @@ async fn main() -> Result<()> {
     }*/
 
     // —————— WRITE ——————
-    {
+    /*{
         let mut cdb = [0u8; 16];
         build_write10(&mut cdb, 0x1234, 0, 0, 1);
         let write_buf = vec![0x01; 512];
@@ -107,12 +107,12 @@ async fn main() -> Result<()> {
                 //return Err(e);
             },
         };
-    }
+    }*/
 
     // READ
     {
         let mut cdb_read = [0u8; 16];
-        build_read16(&mut cdb_read, 0x1000, 16, 0, 0);
+        build_read16(&mut cdb_read, 0x1234, 16, 0, 0);
         match send_scsi_read(
             &conn,
             lun,

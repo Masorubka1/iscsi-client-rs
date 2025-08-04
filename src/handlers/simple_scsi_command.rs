@@ -15,7 +15,7 @@ use crate::{
     },
 };
 
-/// Build a 12-byte SCSI READ(12) CDB.
+/// Build a 16-byte SCSI READ(16) CDB.
 ///
 /// - `lba`: logical block address to start reading from
 /// - `blocks`: number of contiguous blocks to read

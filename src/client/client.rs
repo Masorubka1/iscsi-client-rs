@@ -15,7 +15,7 @@ use tracing::{info, warn};
 
 use crate::{
     cfg::config::Config,
-    client::pdu_connection::{FromBytes, ToBytes},
+    client::pdu_connection::ToBytes,
     models::{common::BasicHeaderSegment, parse::Pdu},
 };
 

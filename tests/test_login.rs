@@ -61,7 +61,7 @@ fn test_login_request() -> Result<()> {
     parsed.data = data;
     builder.header.data = new_data;
 
-    let (hdr, body) = builder.to_bytes(&cfg).expect("failed to serialize");
+    let (_hdr, body) = builder.to_bytes(&cfg).expect("failed to serialize");
 
     //println!("Header: {}", hdr.encode_hex::<String>());
     //println!("ParsedHeader: {}", parsed.encode_hex::<String>());

@@ -1,17 +1,14 @@
 use anyhow::{Result, bail};
 use enum_dispatch::enum_dispatch;
 
-use crate::{
-    client::pdu_connection::FromBytes,
-    models::{
-        command::{request::ScsiCommandRequest, response::ScsiCommandResponse},
-        common::BasicHeaderSegment,
-        login::{request::LoginRequest, response::LoginResponse},
-        nop::{request::NopOutRequest, response::NopInResponse},
-        opcode::{BhsOpcode, Opcode},
-        reject::response::RejectPdu,
-        text::{request::TextRequest, response::TextResponse},
-    },
+use crate::models::{
+    command::{request::ScsiCommandRequest, response::ScsiCommandResponse},
+    common::BasicHeaderSegment,
+    login::{request::LoginRequest, response::LoginResponse},
+    nop::{request::NopOutRequest, response::NopInResponse},
+    opcode::{BhsOpcode, Opcode},
+    reject::response::RejectPdu,
+    text::{request::TextRequest, response::TextResponse},
 };
 
 #[enum_dispatch(BasicHeaderSegment)]
@@ -68,6 +65,7 @@ impl Pdu {
         }
     }
 
+    #[allow(dead_code)]
     fn total_length_bytes(&self) -> usize {
         match self {
             Pdu::NopOutRequest(req) => req.total_length_bytes(),
@@ -124,7 +122,7 @@ impl Pdu {
     }
 
     /// Serialize the full PDU (header + data segment + padding) to raw bytes.
-    pub fn to_bytes(&mut self) -> Result<(Vec<u8>, Vec<u8>)> {
+    pub fn to_bytes(&self) -> Result<(Vec<u8>, Vec<u8>)> {
         match self {
             Pdu::NopOutRequest(req) => req.encode(),
             Pdu::ScsiCommandRequest(req) => req.encode(),
@@ -138,7 +136,8 @@ impl Pdu {
     }
 
     /// Encode the full PDU into a continuous hex string (no spaces).
-    fn to_hex(&mut self) -> Result<String> {
+    #[allow(dead_code)]
+    fn to_hex(&self) -> Result<String> {
         let ans = self.to_bytes()?;
         let mut tmp = ans.0;
         tmp.extend_from_slice(&ans.1);
@@ -146,6 +145,7 @@ impl Pdu {
     }
 
     /// Decode a hex string (ignoring any whitespace) and parse into the PDU.
+    #[allow(dead_code)]
     fn from_hex(hex_str: &str) -> Result<Self> {
         let cleaned: String = hex_str.chars().filter(|c| !c.is_whitespace()).collect();
         let bytes = hex::decode(&cleaned)
