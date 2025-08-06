@@ -5,34 +5,35 @@ use crate::{
     models::{
         common::{BasicHeaderSegment, HEADER_LEN},
         opcode::{BhsOpcode, IfFlags, Opcode},
+        text::common::StageFlags,
     },
 };
 
 /// BHS for NopOutRequest PDU
 #[repr(C)]
-#[derive(Debug, Default, PartialEq)]
+#[derive(Default, Debug, PartialEq)]
 pub struct TextRequest {
-    pub opcode: BhsOpcode,            // 0
-    reserved1: [u8; 3],               // 1..4
-    pub total_ahs_length: u8,         // 4
-    pub data_segment_length: [u8; 3], // 5..8
-    pub lun: [u8; 8],                 // 8..16
-    pub initiator_task_tag: u32,      // 16..20
-    pub target_task_tag: u32,         // 20..24
-    pub cmd_sn: u32,                  // 24..28
-    pub exp_stat_sn: u32,             // 28..32
-    reserved2: [u8; 16],              // 32..48
+    pub opcode: BhsOpcode,            // byte 0 (I + 0x04)
+    pub flags: StageFlags,            // byte 1 (F/C)
+    reserved1: [u8; 2],               // bytes 2..3
+    pub total_ahs_length: u8,         // byte 4
+    pub data_segment_length: [u8; 3], // bytes 5..7
+    pub lun: [u8; 8],                 // bytes 8..15
+    pub initiator_task_tag: u32,      // bytes 16..19
+    pub target_task_tag: u32,         // bytes 20..23
+    pub cmd_sn: u32,                  // bytes 24..27
+    pub exp_stat_sn: u32,             // bytes 28..31
+    reserved2: [u8; 16],              // bytes 32..47
 }
 
 impl TextRequest {
-    pub const DEFAULT_TAG: u32 = 0xffffffff_u32;
+    pub const DEFAULT_TAG: u32 = 0xFFFF_FFFF;
 
-    /// Serialize BHS in 48 bytes
     pub fn to_bhs_bytes(&self) -> [u8; HEADER_LEN] {
         let mut buf = [0u8; HEADER_LEN];
         buf[0] = (&self.opcode).into();
-        // final bit && continue bit
-        buf[1..4].copy_from_slice(&self.reserved1);
+        buf[1] = self.flags.bits();
+        buf[2..4].copy_from_slice(&self.reserved1);
         buf[4] = self.total_ahs_length;
         buf[5..8].copy_from_slice(&self.data_segment_length);
         buf[8..16].copy_from_slice(&self.lun);
@@ -40,35 +41,34 @@ impl TextRequest {
         buf[20..24].copy_from_slice(&self.target_task_tag.to_be_bytes());
         buf[24..28].copy_from_slice(&self.cmd_sn.to_be_bytes());
         buf[28..32].copy_from_slice(&self.exp_stat_sn.to_be_bytes());
-        // buf[32..48] -- reserved
+        // 32..48 reserved
         buf
     }
 
-    pub fn from_bhs_bytes(buf: &[u8]) -> Result<Self, anyhow::Error> {
+    pub fn from_bhs_bytes(buf: &[u8]) -> Result<Self> {
         if buf.len() < HEADER_LEN {
             bail!("buffer too small");
         }
         let opcode = BhsOpcode::try_from(buf[0])?;
-        // buf[1..4] -- reserved
-        // TODO: add support flag continious
-        let mut reserved1 = [0u8; 3];
-        reserved1.clone_from_slice(&buf[1..4]);
+        let flags = StageFlags::try_from(buf[1])?;
+        let mut reserved1 = [0u8; 2];
+        reserved1.copy_from_slice(&buf[2..4]);
         let total_ahs_length = buf[4];
         let data_segment_length = [buf[5], buf[6], buf[7]];
         let mut lun = [0u8; 8];
-        lun.clone_from_slice(&buf[8..16]);
+        lun.copy_from_slice(&buf[8..16]);
         let initiator_task_tag = u32::from_be_bytes(buf[16..20].try_into()?);
         let target_task_tag = u32::from_be_bytes(buf[20..24].try_into()?);
         let cmd_sn = u32::from_be_bytes(buf[24..28].try_into()?);
         let exp_stat_sn = u32::from_be_bytes(buf[28..32].try_into()?);
-        // buf[32..44] -- reserved
-        // let header_digest = u32::from_be_bytes(buf[44..48].try_into()?);
+
         Ok(TextRequest {
             opcode,
+            flags,
             reserved1,
             total_ahs_length,
-            lun,
             data_segment_length,
+            lun,
             initiator_task_tag,
             target_task_tag,
             cmd_sn,
@@ -94,11 +94,8 @@ impl TextRequestBuilder {
                     flags: IfFlags::empty(),
                     opcode: Opcode::TextReq,
                 },
-                reserved1: {
-                    let mut tmp = [0; 3];
-                    tmp[0] = IfFlags::I.bits();
-                    tmp
-                },
+                flags: StageFlags::FINAL,
+                reserved1: [0u8; 2],
                 cmd_sn: 1,
                 ..Default::default()
             },
@@ -108,20 +105,20 @@ impl TextRequestBuilder {
     }
 
     /// Set Ping bit (Ping = bit6)
-    pub fn ping(mut self) -> Self {
-        self.header.opcode.flags.insert(IfFlags::F);
+    pub fn immediate(mut self) -> Self {
+        self.header.opcode.flags.insert(IfFlags::I);
         self
     }
 
     /// Set Final bit
     pub fn final_bit(mut self) -> Self {
-        self.header.data_segment_length[0] |= IfFlags::I.bits();
+        self.header.flags.insert(StageFlags::FINAL);
         self
     }
 
     /// Set Continue bit
-    pub fn continiue_bit(mut self) -> Self {
-        self.header.data_segment_length[0] |= IfFlags::F.bits();
+    pub fn continue_bit(mut self) -> Self {
+        self.header.flags.insert(StageFlags::CONTINUE);
         self
     }
 

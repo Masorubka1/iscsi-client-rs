@@ -23,6 +23,34 @@ impl TryFrom<u8> for ScsiCommandRequestFlags {
     }
 }
 
+impl fmt::Debug for ScsiCommandRequestFlags {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use ScsiCommandRequestFlags as F;
+
+        write!(f, "ScsiCommandRequestFlags(")?;
+
+        let mut sep = "";
+        if self.contains(F::FINAL) {
+            write!(f, "FINAL")?;
+            sep = "|";
+        }
+        if self.contains(F::READ) {
+            write!(f, "{sep}READ")?;
+            sep = "|";
+        }
+        if self.contains(F::WRITE) {
+            write!(f, "{sep}WRITE")?;
+            sep = "|";
+        }
+
+        let attr_bits = self.bits() & F::ATTR_MASK.bits();
+        let attr = TaskAttribute::from(attr_bits);
+        write!(f, "{sep}ATTR={attr:?}({attr_bits:#04x})")?;
+
+        write!(f, ")")
+    }
+}
+
 /// SCSI Task Attributes, including reserved values
 #[derive(Clone, Copy, PartialEq)]
 pub enum TaskAttribute {
@@ -74,30 +102,8 @@ impl fmt::Debug for TaskAttribute {
     }
 }
 
-impl fmt::Debug for ScsiCommandRequestFlags {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut parts: Vec<String> = Vec::new();
-
-        if self.contains(ScsiCommandRequestFlags::FINAL) {
-            parts.push("FINAL".into());
-        }
-        if self.contains(ScsiCommandRequestFlags::READ) {
-            parts.push("READ".into());
-        }
-        if self.contains(ScsiCommandRequestFlags::WRITE) {
-            parts.push("WRITE".into());
-        }
-
-        let raw_attr = self.bits() & ScsiCommandRequestFlags::ATTR_MASK.bits();
-        let attr = TaskAttribute::from(raw_attr);
-        parts.push(format!("{attr:?}"));
-
-        write!(f, "ScsiCommandRequestFlags({})", parts.join("|"))
-    }
-}
-
 bitflags::bitflags! {
-    #[derive(Default, Clone, PartialEq)]
+    #[derive(Debug, Default, Clone, PartialEq)]
     /// iSCSI SCSI Command PDU flags
     pub struct ScsiCommandResponseFlags: u8 {
         const FINAL     = 0b1000_0000;
@@ -121,33 +127,9 @@ impl TryFrom<u8> for ScsiCommandResponseFlags {
     }
 }
 
-impl fmt::Debug for ScsiCommandResponseFlags {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut parts: Vec<String> = Vec::new();
-
-        if self.contains(ScsiCommandResponseFlags::FINAL) {
-            parts.push("FINAL".into());
-        }
-        if self.contains(ScsiCommandResponseFlags::O_SMALL) {
-            parts.push("O_SMALL".into());
-        }
-        if self.contains(ScsiCommandResponseFlags::U_SMALL) {
-            parts.push("U_SMALL".into());
-        }
-        if self.contains(ScsiCommandResponseFlags::O_BIG) {
-            parts.push("O_BIG".into());
-        }
-        if self.contains(ScsiCommandResponseFlags::U_BIG) {
-            parts.push("U_BIG".into());
-        }
-
-        write!(f, "ScsiCommandResponseFlags({})", parts.join("|"))
-    }
-}
-
 /// The 1-byte “Response” field in a SCSI Response PDU (RFC 7143 § 11.4.3)
 #[repr(u8)]
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResponseCode {
     /// 0x00 – Command Completed at Target
     CommandCompleted = 0x00,
@@ -182,22 +164,11 @@ impl TryFrom<u8> for ResponseCode {
     }
 }
 
-impl fmt::Debug for ResponseCode {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {
-            ResponseCode::CommandCompleted => write!(f, "CommandCompleted(0x00)"),
-            ResponseCode::TargetFailure => write!(f, "TargetFailure(0x01)"),
-            ResponseCode::VendorSpecific(v) => write!(f, "VendorSpecific(0x{v:02x})"),
-            ResponseCode::Reserved(r) => write!(f, "Reserved(0x{r:02x})"),
-        }
-    }
-}
-
 /// The 1-byte “Status” field in a SCSI Response PDU (RFC 7143 § 11.4.2)
 ///
 /// Only valid when ResponseCode == CommandCompleted.
 #[repr(u8)]
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScsiStatus {
     Good = 0x00,
     CheckCondition = 0x02,
@@ -235,20 +206,5 @@ impl TryFrom<u8> for ScsiStatus {
             other => ScsiStatus::Other(other),
         };
         Ok(s)
-    }
-}
-
-impl fmt::Debug for ScsiStatus {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {
-            ScsiStatus::Good => write!(f, "Good(0x00)"),
-            ScsiStatus::CheckCondition => write!(f, "CheckCondition(0x02)"),
-            ScsiStatus::Busy => write!(f, "Busy(0x08)"),
-            ScsiStatus::ReservationConflict => write!(f, "ReservationConflict(0x18)"),
-            ScsiStatus::TaskSetFull => write!(f, "TaskSetFull(0x28)"),
-            ScsiStatus::AcaActive => write!(f, "AcaActive(0x30)"),
-            ScsiStatus::TaskAborted => write!(f, "TaskAborted(0x40)"),
-            ScsiStatus::Other(v) => write!(f, "Other(0x{v:02x})"),
-        }
     }
 }

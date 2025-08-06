@@ -85,7 +85,7 @@ async fn main() -> Result<()> {
     // —————— WRITE ——————
     {
         let mut cdb = [0u8; 16];
-        build_write16(&mut cdb, 0x1234, 0, 0, 1);
+        build_write16(&mut cdb, 0x1234, 1, 0, 1);
         let write_buf = vec![0x01; 512];
 
         match send_scsi_write(
@@ -104,7 +104,6 @@ async fn main() -> Result<()> {
             },
             Err(e) => {
                 eprintln!("[WRITE] rejected or failed: {e}");
-                //return Err(e);
             },
         };
     }
@@ -135,36 +134,3 @@ async fn main() -> Result<()> {
 
     Ok(())
 }
-
-// 4) Heartbeat-таск: NOP-Out / NOP-In каждую секунду
-/*let hb_conn = conn.clone();
-let hb_handle = tokio::spawn(async move {
-    loop {
-        let sn = cmd_sn_hb.fetch_add(1, Ordering::SeqCst);
-        let esn = exp_stat_sn_hb.load(Ordering::SeqCst);
-        let itag = itag_hb.fetch_add(1, Ordering::SeqCst);
-        match send_nop(
-            &hb_conn,
-            [0u8; 8],
-            itag,
-            NopOutRequest::DEFAULT_TAG,
-            sn,
-            esn,
-            true,
-        )
-        .await
-        {
-            Ok((hdr, data, _)) => {
-                println!("[HEARTBEAT] NOP-In: hdr={hdr:?}, data={data:?}");
-                exp_stat_sn_hb
-                    .store(hdr.exp_cmd_sn.wrapping_add(1), Ordering::SeqCst);
-            },
-            Err(e) => {
-                eprintln!("[HEARTBEAT] error: {e}");
-            },
-        }
-        time::sleep(Duration::from_secs(1)).await;
-    }
-});*/
-
-//time::sleep(Duration::from_secs(5)).await;

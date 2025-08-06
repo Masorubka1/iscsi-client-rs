@@ -41,8 +41,6 @@ impl NopOutRequest {
         buf[24..28].copy_from_slice(&self.cmd_sn.to_be_bytes());
         buf[28..32].copy_from_slice(&self.exp_stat_sn.to_be_bytes());
         // buf[32..48] -- reserved
-        // TODO: fix header_diggest
-        //buf[48..52].copy_from_slice(&self.header_digest.to_be_bytes());
         buf
     }
 
@@ -51,7 +49,6 @@ impl NopOutRequest {
             bail!("buffer too small");
         }
         let opcode = BhsOpcode::try_from(buf[0])?;
-        // buf[1..4] -- reserved
         let reserved1 = {
             let mut tmp = [0u8; 3];
             tmp[0] = IfFlags::I.bits();
@@ -65,7 +62,6 @@ impl NopOutRequest {
         let target_task_tag = u32::from_be_bytes(buf[20..24].try_into()?);
         let cmd_sn = u32::from_be_bytes(buf[24..28].try_into()?);
         let exp_stat_sn = u32::from_be_bytes(buf[28..32].try_into()?);
-        // buf[32..48] -- reserved
         Ok(NopOutRequest {
             opcode,
             reserved1,
@@ -111,7 +107,7 @@ impl NopOutRequestBuilder {
 
     /// Set Ping bit (Ping = bit6)
     pub fn ping(mut self) -> Self {
-        self.header.opcode.flags.insert(IfFlags::F);
+        self.header.opcode.flags.insert(IfFlags::I);
         self
     }
 

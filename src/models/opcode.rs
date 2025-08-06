@@ -12,9 +12,7 @@ bitflags::bitflags! {
     #[derive(Debug, Default, Clone, PartialEq, Eq)]
     pub struct IfFlags: u8 {
         /// NOP-Out “I” (Immediate/ping) bit
-        const I      = 0b1000_0000;
-        /// “Final”/Continuation bit (e.g. last chunk of text/login)
-        const F      = 0b0100_0000;
+        const I      = 0b0100_0000;
     }
 }
 

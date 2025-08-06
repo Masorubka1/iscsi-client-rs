@@ -12,6 +12,7 @@ use crate::{
             response::ScsiCommandResponse,
         },
         common::Builder,
+        data::response::ScsiDataIn,
         data_fromat::PDUWithData,
     },
 };
@@ -46,7 +47,7 @@ pub async fn send_scsi_read(
     exp_stat_sn: &AtomicU32,
     read_length: u32,
     cdb: &[u8; 16],
-) -> Result<PDUWithData<ScsiCommandResponse>> {
+) -> Result<PDUWithData<ScsiDataIn>> {
     let sn = cmd_sn.fetch_add(1, Ordering::SeqCst);
     let esn = exp_stat_sn.load(Ordering::SeqCst);
     let itt = initiator_task_tag.fetch_add(1, Ordering::SeqCst);
@@ -69,9 +70,10 @@ pub async fn send_scsi_read(
 
     conn.send_request(itt, builder).await?;
 
-    match conn.read_response::<ScsiCommandResponse>(itt).await {
+    match conn.read_response::<ScsiDataIn>(itt).await {
         Ok(rsp) => {
-            exp_stat_sn.store(rsp.header.stat_sn.wrapping_add(1), Ordering::SeqCst);
+            exp_stat_sn
+                .store(rsp.header.stat_sn_or_rsvd.wrapping_add(1), Ordering::SeqCst);
             Ok(rsp)
         },
         Err(other) => bail!("got unexpected PDU: {:?}", other.to_string()),

@@ -4,6 +4,7 @@ use enum_dispatch::enum_dispatch;
 use crate::models::{
     command::{request::ScsiCommandRequest, response::ScsiCommandResponse},
     common::{BasicHeaderSegment, HEADER_LEN},
+    data::{request::ScsiDataOut, response::ScsiDataIn},
     login::{request::LoginRequest, response::LoginResponse},
     nop::{request::NopOutRequest, response::NopInResponse},
     opcode::{BhsOpcode, Opcode},
@@ -17,10 +18,12 @@ pub enum Pdu {
     ScsiCommandRequest,
     TextRequest,
     LoginRequest,
+    ScsiDataOut,
     NopInResponse,
     ScsiCommandResponse,
     TextResponse,
     LoginResponse,
+    ScsiDataIn,
     RejectPdu,
 }
 
@@ -53,6 +56,10 @@ impl Pdu {
                 let req = LoginRequest::from_bhs_bytes(bytes)?;
                 Ok(Pdu::LoginRequest(req))
             },
+            Opcode::ScsiDataOut => {
+                let req = ScsiDataOut::from_bhs_bytes(bytes)?;
+                Ok(Pdu::ScsiDataOut(req))
+            },
             Opcode::LoginResp => {
                 let rsp = LoginResponse::from_bhs_bytes(bytes)?;
                 Ok(Pdu::LoginResponse(rsp))
@@ -60,6 +67,10 @@ impl Pdu {
             Opcode::Reject => {
                 let rsp = RejectPdu::from_bhs_bytes(bytes)?;
                 Ok(Pdu::RejectPdu(rsp))
+            },
+            Opcode::ScsiDataIn => {
+                let req = ScsiDataIn::from_bhs_bytes(bytes)?;
+                Ok(Pdu::ScsiDataIn(req))
             },
             other => bail!("unsupported opcode: {:?}", other),
         }

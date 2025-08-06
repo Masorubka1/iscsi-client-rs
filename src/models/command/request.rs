@@ -106,11 +106,11 @@ impl ScsiCommandRequestBuilder {
 
     /// Set Ping bit (Ping = bit6)
     pub fn ping(mut self) -> Self {
-        self.header.opcode.flags.insert(IfFlags::F);
+        self.header.opcode.flags.insert(IfFlags::I);
         self
     }
 
-    /// Set Finall bit
+    /// Set Final bit
     pub fn finall(mut self) -> Self {
         self.header.flags.insert(ScsiCommandRequestFlags::FINAL);
         self

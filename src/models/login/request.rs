@@ -99,7 +99,7 @@ impl LoginRequestBuilder {
         LoginRequestBuilder {
             header: LoginRequest {
                 opcode: BhsOpcode {
-                    flags: IfFlags::F,
+                    flags: IfFlags::I,
                     opcode: Opcode::LoginReq,
                 },
                 isid,
