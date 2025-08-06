@@ -1,10 +1,10 @@
-use anyhow::{Context, Result, bail};
+use anyhow::{Result, bail};
 
 use crate::{
     client::pdu_connection::FromBytes,
     models::{
         command::common::{ResponseCode, ScsiCommandResponseFlags, ScsiStatus},
-        common::BasicHeaderSegment,
+        common::{BasicHeaderSegment, HEADER_LEN},
         opcode::BhsOpcode,
     },
 };
@@ -28,18 +28,12 @@ pub struct ScsiCommandResponse {
     pub exp_data_sn: u32,                       // 36..40
     pub bidirectional_read_residual_count: u32, // 40..44
     pub residual_count: u32,                    // 44..48
-    pub header_digest: Option<u32>,             // 48..52
-
-    pub data: Vec<u8>,
-    pub data_digest: Option<u32>,
 }
 
 impl ScsiCommandResponse {
-    pub const HEADER_LEN: usize = 48;
-
     /// Serialize BHS in 48 bytes
-    pub fn to_bhs_bytes(&self) -> [u8; Self::HEADER_LEN] {
-        let mut buf = [0u8; Self::HEADER_LEN];
+    pub fn to_bhs_bytes(&self) -> [u8; HEADER_LEN] {
+        let mut buf = [0u8; HEADER_LEN];
         buf[0] = (&self.opcode).into();
         buf[1] = self.flags.bits();
         buf[2] = (&self.response).into();
@@ -56,14 +50,12 @@ impl ScsiCommandResponse {
         buf[40..44]
             .copy_from_slice(&self.bidirectional_read_residual_count.to_be_bytes());
         buf[44..48].copy_from_slice(&self.residual_count.to_be_bytes());
-        // TODO: fix header_diggest
-        //buf[48..52].copy_from_slice(&self.header_digest.to_be_bytes());
         buf
     }
 
     pub fn from_bhs_bytes(buf: &[u8]) -> Result<Self> {
-        if buf.len() < Self::HEADER_LEN {
-            bail!("buffer too small: {} < {}", buf.len(), Self::HEADER_LEN);
+        if buf.len() < HEADER_LEN {
+            bail!("buffer too small: {} < {}", buf.len(), HEADER_LEN);
         }
 
         let opcode = BhsOpcode::try_from(buf[0])?;
@@ -82,10 +74,7 @@ impl ScsiCommandResponse {
         let exp_data_sn = u32::from_be_bytes(buf[36..40].try_into()?);
         let bidirectional_read_residual_count =
             u32::from_be_bytes(buf[40..44].try_into()?);
-        // TODO: fix residual_count
-        //let residual_count = u32::from_be_bytes(buf[44..48].try_into()?);
-        // TODO: fix header_diggest
-        //let header_digest = u32::from_be_bytes(buf[48..52].try_into()?);
+        let residual_count = u32::from_be_bytes(buf[44..48].try_into()?);
 
         Ok(ScsiCommandResponse {
             opcode,
@@ -102,54 +91,22 @@ impl ScsiCommandResponse {
             max_cmd_sn,
             exp_data_sn,
             bidirectional_read_residual_count,
-            residual_count: 0,
-            header_digest: None,
-            data: vec![],
-            data_digest: None,
+            residual_count,
         })
     }
+}
 
-    /// Parsing PDU with DataSegment and Digest
-    pub fn parse(buf: &[u8]) -> Result<Self> {
-        if buf.len() < Self::HEADER_LEN {
-            bail!(
-                "Buffer {} too small for ScsiCommandResponse BHS {}",
-                buf.len(),
-                Self::HEADER_LEN
-            );
-        }
-        let mut response = Self::from_bhs_bytes(&buf[..Self::HEADER_LEN])?;
-
-        let ahs_len = response.ahs_length_bytes();
-        let data_len = response.data_length_bytes();
-        let mut offset = Self::HEADER_LEN + ahs_len;
-
-        if buf.len() < offset + data_len {
-            bail!(
-                "NopInResponse Buffer {} too small for DataSegment {}",
-                buf.len(),
-                offset + data_len
-            );
-        }
-        response.data = buf[offset..offset + data_len].to_vec();
-        offset += data_len;
-
-        response.header_digest = if buf.len() >= offset + 4 {
-            println!("HEADER DIGEST {}, {}", buf.len(), offset + 4);
-            Some(u32::from_be_bytes(
-                buf[offset..offset + 4]
-                    .try_into()
-                    .context("Failed to get offset from buf")?,
-            ))
-        } else {
-            None
-        };
-
-        Ok(response)
+impl FromBytes for ScsiCommandResponse {
+    fn from_bhs_bytes(bytes: &[u8]) -> Result<Self> {
+        Self::from_bhs_bytes(bytes)
     }
 }
 
 impl BasicHeaderSegment for ScsiCommandResponse {
+    fn to_bhs_bytes(&self) -> Result<[u8; HEADER_LEN]> {
+        Ok(self.to_bhs_bytes())
+    }
+
     fn get_opcode(&self) -> &BhsOpcode {
         &self.opcode
     }
@@ -158,31 +115,25 @@ impl BasicHeaderSegment for ScsiCommandResponse {
         self.initiator_task_tag
     }
 
-    fn ahs_length_bytes(&self) -> usize {
+    fn get_ahs_length_bytes(&self) -> usize {
         (self.total_ahs_length as usize) * 4
     }
 
-    fn data_length_bytes(&self) -> usize {
-        let data_size = u32::from_be_bytes([
+    fn set_ahs_length_bytes(&mut self, len: u8) {
+        self.total_ahs_length = len >> 2;
+    }
+
+    fn get_data_length_bytes(&self) -> usize {
+        u32::from_be_bytes([
             0,
             self.data_segment_length[0],
             self.data_segment_length[1],
             self.data_segment_length[2],
-        ]) as usize;
-
-        let pad = (4 - (data_size % 4)) % 4;
-        data_size + pad
+        ]) as usize
     }
 
-    fn total_length_bytes(&self) -> usize {
-        Self::HEADER_LEN + self.ahs_length_bytes() + self.data_length_bytes()
-    }
-}
-
-impl FromBytes for ScsiCommandResponse {
-    const HEADER_LEN: usize = ScsiCommandResponse::HEADER_LEN;
-
-    fn from_bytes(buf: &[u8]) -> Result<Self> {
-        Self::parse(buf)
+    fn set_data_length_bytes(&mut self, len: u32) {
+        let be = len.to_be_bytes();
+        self.data_segment_length = [be[1], be[2], be[3]];
     }
 }

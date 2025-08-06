@@ -7,11 +7,12 @@ use crate::{
     client::client::Connection,
     models::{
         command::{
-            common::TaskAttribute, request::ScsiCommandRequestBuilder,
+            common::TaskAttribute,
+            request::{ScsiCommandRequest, ScsiCommandRequestBuilder},
             response::ScsiCommandResponse,
         },
-        common::{BasicHeaderSegment, Builder},
-        parse::Pdu,
+        common::Builder,
+        data_fromat::PDUWithData,
     },
 };
 
@@ -45,12 +46,12 @@ pub async fn send_scsi_read(
     exp_stat_sn: &AtomicU32,
     read_length: u32,
     cdb: &[u8; 16],
-) -> Result<ScsiCommandResponse> {
+) -> Result<PDUWithData<ScsiCommandResponse>> {
     let sn = cmd_sn.fetch_add(1, Ordering::SeqCst);
     let esn = exp_stat_sn.load(Ordering::SeqCst);
     let itt = initiator_task_tag.fetch_add(1, Ordering::SeqCst);
 
-    let builder = ScsiCommandRequestBuilder::new()
+    let header = ScsiCommandRequestBuilder::new()
         .lun(&lun)
         .initiator_task_tag(itt)
         .cmd_sn(sn)
@@ -61,22 +62,19 @@ pub async fn send_scsi_read(
         .task_attribute(TaskAttribute::Simple)
         .finall();
 
-    info!(
-        "{:?}, {}",
-        builder.header,
-        hex::encode(&builder.header.data)
-    );
+    let builder: PDUWithData<ScsiCommandRequest> =
+        PDUWithData::from_header(header.header);
 
-    let itt = builder.header.get_initiator_task_tag();
+    info!("{:?}, {}", builder.header, hex::encode(&builder.data));
 
     conn.send_request(itt, builder).await?;
 
-    match conn.read_response(itt).await? {
-        Pdu::ScsiCommandResponse(rsp) => {
-            exp_stat_sn.store(rsp.stat_sn.wrapping_add(1), Ordering::SeqCst);
+    match conn.read_response::<ScsiCommandResponse>(itt).await {
+        Ok(rsp) => {
+            exp_stat_sn.store(rsp.header.stat_sn.wrapping_add(1), Ordering::SeqCst);
             Ok(rsp)
         },
-        other => bail!("got unexpected PDU: {:?}", other.get_opcode()),
+        Err(other) => bail!("got unexpected PDU: {:?}", other.to_string()),
     }
 }
 
@@ -111,13 +109,13 @@ pub async fn send_scsi_write(
     exp_stat_sn: &AtomicU32,
     cdb: &[u8; 16],
     write_data: Vec<u8>,
-) -> Result<ScsiCommandResponse> {
+) -> Result<PDUWithData<ScsiCommandResponse>> {
     // pull our sequence numbers
     let cmd_sn1 = cmd_sn.fetch_add(1, Ordering::SeqCst);
     let exp_stat_sn1 = exp_stat_sn.load(Ordering::SeqCst);
     let itt = initiator_task_tag.fetch_add(1, Ordering::SeqCst);
 
-    let builder = ScsiCommandRequestBuilder::new()
+    let header = ScsiCommandRequestBuilder::new()
         .lun(&lun)
         .initiator_task_tag(itt)
         .cmd_sn(cmd_sn1)
@@ -126,24 +124,22 @@ pub async fn send_scsi_write(
         .scsi_descriptor_block(cdb)
         .write()
         .finall()
-        .task_attribute(TaskAttribute::Simple)
-        .append_data(write_data.clone());
+        .task_attribute(TaskAttribute::Simple);
 
-    info!(
-        "{:?}, {}",
-        builder.header,
-        hex::encode(&builder.header.data)
-    );
+    let mut builder: PDUWithData<ScsiCommandRequest> =
+        PDUWithData::from_header(header.header);
 
-    let itt = builder.header.get_initiator_task_tag();
+    builder.append_data(write_data.clone());
+
+    info!("{:?}, {}", builder.header, hex::encode(&builder.data));
 
     conn.send_request(itt, builder).await?;
 
-    match conn.read_response(itt).await? {
-        Pdu::ScsiCommandResponse(rsp) => {
-            exp_stat_sn.store(rsp.stat_sn.wrapping_add(1), Ordering::SeqCst);
+    match conn.read_response::<ScsiCommandResponse>(itt).await {
+        Ok(rsp) => {
+            exp_stat_sn.store(rsp.header.stat_sn.wrapping_add(1), Ordering::SeqCst);
             Ok(rsp)
         },
-        other => bail!("got unexpected PDU: {:?}", other.get_opcode()),
+        Err(other) => bail!("got unexpected PDU: {:?}", other.to_string()),
     }
 }

@@ -4,9 +4,9 @@ use anyhow::{Context, Result};
 use hex::FromHex;
 use iscsi_client_rs::{
     cfg::{cli::resolve_config_path, config::Config},
-    client::pdu_connection::ToBytes,
     models::{
-        common::BasicHeaderSegment,
+        common::{BasicHeaderSegment, Builder, HEADER_LEN},
+        data_fromat::PDUWithData,
         nop::request::NopOutRequest,
         opcode::{BhsOpcode, IfFlags, Opcode},
         text::{
@@ -29,7 +29,11 @@ fn test_text_request() -> Result<()> {
         resolve_config_path("tests/config.yaml").and_then(Config::load_from_file)?;
 
     let bytes = load_fixture("tests/fixtures/text_request.hex")?;
-    assert!(bytes.len() > TextRequest::HEADER_LEN);
+    assert!(bytes.len() > HEADER_LEN);
+
+    let header_parsed = TextRequest::from_bhs_bytes(&bytes[..HEADER_LEN])?;
+    let parsed_fixture =
+        PDUWithData::<TextRequest>::parse(header_parsed, &bytes, false, false)?;
 
     let lun = [0u8; 8];
     let itt = 1;
@@ -37,61 +41,77 @@ fn test_text_request() -> Result<()> {
     let cmd_sn = 1;
     let exp_sn = 1939077135;
 
-    let mut builder = TextRequestBuilder::new()
+    let header_builder = TextRequestBuilder::new()
         .lun(&lun)
         .initiator_task_tag(itt)
         .target_task_tag(ttt)
         .cmd_sn(cmd_sn)
         .exp_stat_sn(exp_sn);
 
-    let expected = TextRequest::from_bhs_bytes(&bytes)?;
-    builder.header.data_segment_length = [0u8; 3];
-    builder.header.data_segment_length[2] = 16;
+    let mut built = PDUWithData::<TextRequest>::from_header(header_builder.header);
+    built.append_data(parsed_fixture.data.clone());
 
-    assert_eq!(&builder.header, &expected, "PDU bytes do not match fixture");
-
-    let (hdr, data) = builder.to_bytes(&cfg).expect("failed to serialize");
-    assert!(data.is_empty());
-
-    //println!("Header: {}", hdr.encode_hex::<String>());
-    //println!("Body:   {}", data.encode_hex::<String>());
+    let chunks = built.build(&cfg)?;
+    assert_eq!(chunks.len(), 1);
+    let (hdr_bytes, body_bytes) = &chunks[0];
 
     assert_eq!(
-        &hdr[..],
-        &bytes[..TextRequest::HEADER_LEN],
+        &hdr_bytes[..],
+        &bytes[..HEADER_LEN],
         "TextRequest header mismatch"
     );
+
+    assert_eq!(
+        &body_bytes[..],
+        &bytes[HEADER_LEN..],
+        "TextRequest body mismatch"
+    );
+
+    assert_eq!(
+        built.header.get_data_length_bytes(),
+        parsed_fixture.header.get_data_length_bytes(),
+        "data_segment_length mismatch"
+    );
+    assert_eq!(
+        built.header.get_opcode(),
+        parsed_fixture.header.get_opcode(),
+        "opcode mismatch"
+    );
+
     Ok(())
 }
 
 #[test]
 fn test_text_response() -> Result<()> {
     let bytes = load_fixture("tests/fixtures/text_response.hex")?;
-    assert!(bytes.len() >= TextResponse::HEADER_LEN);
+    assert!(bytes.len() >= HEADER_LEN);
 
-    let parsed = TextResponse::parse(&bytes)?;
+    let hdr_only = TextResponse::from_bhs_bytes(&bytes[..HEADER_LEN])?;
+    let parsed = PDUWithData::<TextResponse>::parse(hdr_only, &bytes, false, false)?;
+
     assert!(!parsed.data.is_empty());
     assert!(parsed.header_digest.is_none());
     assert!(parsed.data_digest.is_none());
 
     assert_eq!(
-        parsed.opcode,
+        parsed.header.opcode,
         BhsOpcode {
             flags: IfFlags::empty(),
-            opcode: Opcode::TextResp,
+            opcode: Opcode::TextResp
         },
-        "expected NOP-IN opcode 0x20"
+        "expected TextResp opcode"
     );
-    let data_size = parsed.data_length_bytes();
+
+    let data_size = parsed.header.get_data_length_bytes();
     assert_eq!(data_size, parsed.data.len());
-    assert_eq!(parsed.stat_sn, 1939077135);
-    assert_eq!(parsed.exp_cmd_sn, 2);
-    let expected = "TargetName=iqn.2025-07.com.example:target0\0TargetAddress=127.0.0.1:\
-                    3260,1\0\0\0";
-    assert_eq!(
-        expected.to_string(),
-        String::from_utf8(parsed.data).context("Failed to serialize")?
-    );
+
+    assert_eq!(parsed.header.stat_sn, 1939077135);
+    assert_eq!(parsed.header.exp_cmd_sn, 2);
+
+    let expected =
+        "TargetName=iqn.2025-07.com.example:target0\0TargetAddress=127.0.0.1:3260,1\0";
+    let actual = String::from_utf8(parsed.data).context("Failed to decode TEXT data")?;
+    assert_eq!(expected.to_string(), actual);
 
     Ok(())
 }

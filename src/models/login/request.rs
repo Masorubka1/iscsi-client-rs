@@ -1,9 +1,9 @@
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Result, anyhow};
 
 use crate::{
-    cfg::config::Config,
+    client::pdu_connection::FromBytes,
     models::{
-        common::{BasicHeaderSegment, Builder},
+        common::{BasicHeaderSegment, HEADER_LEN},
         login::common::{LoginFlags, Stage},
         opcode::{BhsOpcode, IfFlags, Opcode},
     },
@@ -26,19 +26,13 @@ pub struct LoginRequest {
     reserved1: [u8; 2],               // 22..24
     pub cmd_sn: u32,                  // 24..28
     pub exp_stat_sn: u32,             // 28..32
-    reserved2: [u8; 16],              // 32..44
-    pub header_digest: Option<u32>,
-
-    pub data: Vec<u8>,
-    pub data_digest: Option<u32>,
+    reserved2: [u8; 16],              // 32..48
 }
 
 impl LoginRequest {
-    pub const HEADER_LEN: usize = 48;
-
     /// Serialize BHS in 48 bytes
-    pub fn to_bhs_bytes(&self) -> [u8; Self::HEADER_LEN] {
-        let mut buf = [0u8; Self::HEADER_LEN];
+    pub fn to_bhs_bytes(&self) -> [u8; HEADER_LEN] {
+        let mut buf = [0u8; HEADER_LEN];
         buf[0] = (&self.opcode).into();
         buf[1] = self.flags.bits();
         buf[2] = self.version_max;
@@ -57,7 +51,7 @@ impl LoginRequest {
     }
 
     pub fn from_bhs_bytes(buf: &[u8]) -> Result<Self> {
-        if buf.len() < Self::HEADER_LEN {
+        if buf.len() < HEADER_LEN {
             return Err(anyhow!("buffer too small"));
         }
         let opcode = buf[0].try_into()?;
@@ -90,88 +84,7 @@ impl LoginRequest {
             cmd_sn,
             exp_stat_sn,
             reserved2: [0u8; 16],
-            header_digest: None,
-            data: vec![],
-            data_digest: None,
         })
-    }
-
-    /// Parsing PDU with DataSegment and Digest
-    pub fn parse(buf: &[u8]) -> Result<Self> {
-        if buf.len() < Self::HEADER_LEN {
-            bail!(
-                "Buffer {} too small for LoginRequest BHS {}",
-                buf.len(),
-                Self::HEADER_LEN
-            );
-        }
-
-        let mut request = Self::from_bhs_bytes(&buf[..Self::HEADER_LEN])?;
-
-        let ahs_len = request.ahs_length_bytes();
-        let data_len = request.data_length_bytes();
-        let offset = Self::HEADER_LEN + ahs_len;
-
-        if buf.len() < offset + data_len {
-            bail!(
-                "LoginRequest Buffer {} too small for DataSegment {}",
-                buf.len(),
-                offset + data_len
-            );
-        }
-        request.data = buf[offset..offset + data_len].to_vec();
-        /*offset += data_len;
-
-        request.header_digest = if buf.len() >= offset + 4 {
-            info!("HEADER DIGEST");
-            Some(u32::from_be_bytes(
-                buf[offset..offset + 4]
-                    .try_into()
-                    .context("Failed to get offset from buf")?,
-            ))
-        } else {
-            None
-        };*/
-
-        Ok(request)
-    }
-
-    pub fn encode(&self) -> Result<(Vec<u8>, Vec<u8>)> {
-        let pad = (4 - (self.data.len() % 4)) % 4;
-        let mut body = self.data.clone();
-        body.extend(std::iter::repeat_n(0, pad));
-
-        Ok((self.to_bhs_bytes().to_vec(), body))
-    }
-}
-
-impl BasicHeaderSegment for LoginRequest {
-    fn get_opcode(&self) -> &BhsOpcode {
-        &self.opcode
-    }
-
-    fn get_initiator_task_tag(&self) -> u32 {
-        self.initiator_task_tag
-    }
-
-    fn ahs_length_bytes(&self) -> usize {
-        (self.total_ahs_length as usize) * 4
-    }
-
-    fn data_length_bytes(&self) -> usize {
-        let data_size = u32::from_be_bytes([
-            0,
-            self.data_segment_length[0],
-            self.data_segment_length[1],
-            self.data_segment_length[2],
-        ]) as usize;
-
-        let pad = (4 - (data_size % 4)) % 4;
-        data_size + pad
-    }
-
-    fn total_length_bytes(&self) -> usize {
-        Self::HEADER_LEN + self.ahs_length_bytes() + self.data_length_bytes()
     }
 }
 
@@ -265,32 +178,44 @@ impl LoginRequestBuilder {
     }
 }
 
-impl Builder for LoginRequestBuilder {
-    type Header = Vec<u8>;
+impl FromBytes for LoginRequest {
+    fn from_bhs_bytes(bytes: &[u8]) -> Result<Self> {
+        Self::from_bhs_bytes(bytes)
+    }
+}
 
-    /// Appends raw bytes to the Data Segment and updates its length field.
-    fn append_data(mut self, more: Vec<u8>) -> Self {
-        self.header.data.extend_from_slice(&more);
-        let len = self.header.data.len() as u32;
-        let be = len.to_be_bytes();
-        self.header.data_segment_length = [be[1], be[2], be[3]];
-
-        self
+impl BasicHeaderSegment for LoginRequest {
+    fn to_bhs_bytes(&self) -> Result<[u8; HEADER_LEN]> {
+        Ok(self.to_bhs_bytes())
     }
 
-    /// Build finnal PDU (BHS + DataSegment)
-    fn build(self, cfg: &Config) -> Result<(Self::Header, Vec<u8>)> {
-        let encoded = LoginRequest::encode(&self.header)?;
+    fn get_opcode(&self) -> &BhsOpcode {
+        &self.opcode
+    }
 
-        if (cfg.login.negotiation.max_recv_data_segment_length as usize) < encoded.1.len()
-        {
-            bail!(
-                "ScsiCommandRequest data size: {} reached out of limit {}",
-                encoded.1.len(),
-                cfg.login.negotiation.max_recv_data_segment_length
-            );
-        }
+    fn get_initiator_task_tag(&self) -> u32 {
+        self.initiator_task_tag
+    }
 
-        Ok(encoded)
+    fn get_ahs_length_bytes(&self) -> usize {
+        (self.total_ahs_length as usize) * 4
+    }
+
+    fn set_ahs_length_bytes(&mut self, len: u8) {
+        self.total_ahs_length = len >> 2;
+    }
+
+    fn get_data_length_bytes(&self) -> usize {
+        u32::from_be_bytes([
+            0,
+            self.data_segment_length[0],
+            self.data_segment_length[1],
+            self.data_segment_length[2],
+        ]) as usize
+    }
+
+    fn set_data_length_bytes(&mut self, len: u32) {
+        let be = len.to_be_bytes();
+        self.data_segment_length = [be[1], be[2], be[3]];
     }
 }

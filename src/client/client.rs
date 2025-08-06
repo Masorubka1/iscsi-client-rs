@@ -15,8 +15,12 @@ use tracing::{info, warn};
 
 use crate::{
     cfg::config::Config,
-    client::pdu_connection::ToBytes,
-    models::{common::BasicHeaderSegment, parse::Pdu},
+    client::pdu_connection::{FromBytes, ToBytes},
+    models::{
+        common::{BasicHeaderSegment, HEADER_LEN},
+        data_fromat::PDUWithData,
+        parse::Pdu,
+    },
 };
 
 const IO_TIMEOUT: Duration = Duration::from_secs(3);
@@ -30,6 +34,7 @@ where F: Future<Output = std::io::Result<T>> {
     }
 }
 
+pub type Data = ([u8; 48], Vec<u8>);
 /// A simple iSCSI connection wrapper over a TCP stream.
 ///
 /// Manages sending requests (PDUs) and receiving responses by
@@ -38,8 +43,8 @@ pub struct Connection {
     reader: Mutex<OwnedReadHalf>,
     writer: Mutex<OwnedWriteHalf>,
     cfg: Config,
-    sending: DashMap<u32, oneshot::Sender<Pdu>>,
-    reciver: DashMap<u32, oneshot::Receiver<Pdu>>,
+    sending: DashMap<u32, oneshot::Sender<Data>>,
+    reciver: DashMap<u32, oneshot::Receiver<Data>>,
 }
 
 impl Connection {
@@ -70,17 +75,18 @@ impl Connection {
     }
 
     /// Helper to serialize and write a PDU to the socket.
-    async fn write(&self, req: impl ToBytes<Header = Vec<u8>>) -> Result<()> {
+    async fn write(&self, mut req: impl ToBytes<Header = Vec<u8>>) -> Result<()> {
         let mut w = self.writer.lock().await;
-        let (out_header, out_data) = req.to_bytes(&self.cfg)?;
-        info!(
-            "Size_header: {} Size_data: {}",
-            out_header.len(),
-            out_data.len()
-        );
-        io_with_timeout("write header", w.write_all(&out_header)).await?;
-        if !out_data.is_empty() {
-            io_with_timeout("write data", w.write_all(&out_data)).await?;
+        for (out_header, out_data) in req.to_bytes(&self.cfg)? {
+            info!(
+                "Size_header: {} Size_data: {}",
+                out_header.len(),
+                out_data.len()
+            );
+            io_with_timeout("write header", w.write_all(&out_header)).await?;
+            if !out_data.is_empty() {
+                io_with_timeout("write data", w.write_all(&out_data)).await?;
+            }
         }
         Ok(())
     }
@@ -110,20 +116,26 @@ impl Connection {
         Ok(())
     }
 
-    pub async fn read_response(&self, initiator_task_tag: u32) -> Result<Pdu> {
+    pub async fn read_response<T: BasicHeaderSegment + FromBytes>(
+        &self,
+        initiator_task_tag: u32,
+    ) -> Result<PDUWithData<T>> {
         let rx = match self.reciver.remove(&initiator_task_tag) {
             None => bail!("no pending request with itt={initiator_task_tag}"),
             Some((_, rx)) => rx,
         };
 
-        rx.await.map_err(|_| {
+        let (header, body) = rx.await.map_err(|_| {
             anyhow!("Failed to read response: connection closed before answer")
-        })
+        })?;
+
+        let pdu_header = T::from_bhs_bytes(&header)?;
+        PDUWithData::<T>::parse(pdu_header, body.as_slice(), false, false)
     }
 
     async fn read_loop(self: Arc<Self>) -> Result<()> {
+        let mut hdr = [0u8; HEADER_LEN];
         loop {
-            let mut hdr = [0u8; 48];
             {
                 let mut r = self.reader.lock().await;
                 if let Err(e) =
@@ -135,28 +147,28 @@ impl Connection {
             }
 
             let pdu_hdr = Pdu::from_bhs_bytes(&hdr)?;
-            let total = pdu_hdr.total_length_bytes(); // 48 + AHS + Data + pad + digests
+            let total = pdu_hdr.total_length_bytes(); // 48 + AHS + pad + Data + pad + digests
 
             let mut buf = Vec::with_capacity(total);
             buf.extend_from_slice(&hdr);
 
-            if total > 48 {
+            if total > HEADER_LEN {
                 buf.resize(total, 0);
                 let mut r = self.reader.lock().await;
                 if let Err(e) =
-                    io_with_timeout("read payload", r.read_exact(&mut buf[48..])).await
+                    io_with_timeout("read payload", r.read_exact(&mut buf[HEADER_LEN..]))
+                        .await
                 {
                     warn!("read payload failed: {e}");
                     break Ok(());
                 }
             }
 
-            let pdu = Pdu::from_bytes(&buf)?;
-            let itt = pdu.get_initiator_task_tag();
+            let itt = pdu_hdr.get_initiator_task_tag();
 
             match self.sending.remove(&itt) {
                 Some((_, tx)) => {
-                    let _ = tx.send(pdu);
+                    let _ = tx.send((hdr, buf));
                 },
                 None => {
                     warn!(%itt, "unsolicited PDU");

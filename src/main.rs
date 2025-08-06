@@ -41,8 +41,8 @@ async fn main() -> Result<()> {
     time::sleep(Duration::from_millis(2000)).await;
 
     // seed our three counters:
-    let cmd_sn = AtomicU32::new(login_rsp.exp_cmd_sn);
-    let exp_stat_sn = AtomicU32::new(login_rsp.stat_sn.wrapping_add(1));
+    let cmd_sn = AtomicU32::new(login_rsp.header.exp_cmd_sn);
+    let exp_stat_sn = AtomicU32::new(login_rsp.header.stat_sn.wrapping_add(1));
     let itt_counter = AtomicU32::new(1);
     let lun = [0, 1, 0, 0, 0, 0, 0, 0];
 

@@ -4,8 +4,9 @@ use anyhow::Result;
 use hex::FromHex;
 use iscsi_client_rs::{
     cfg::{cli::resolve_config_path, config::Config},
-    client::pdu_connection::ToBytes,
     models::{
+        common::{Builder, HEADER_LEN},
+        data_fromat::PDUWithData,
         nop::{
             request::{NopOutRequest, NopOutRequestBuilder},
             response::NopInResponse,
@@ -27,7 +28,9 @@ fn test_nop_out_minimal() -> Result<()> {
         resolve_config_path("tests/config.yaml").and_then(Config::load_from_file)?;
 
     let bytes = load_fixture("tests/fixtures/nop_out_request.hex")?;
-    assert_eq!(bytes.len(), NopOutRequest::HEADER_LEN);
+    let parsed_header = NopOutRequest::from_bhs_bytes(&bytes)?;
+    let parsed =
+        PDUWithData::<NopOutRequest>::parse(parsed_header, &bytes, false, false)?;
 
     let lun = [0u8; 8];
     let itt = NopOutRequest::DEFAULT_TAG;
@@ -35,7 +38,7 @@ fn test_nop_out_minimal() -> Result<()> {
     let cmd_sn = 191;
     let exp_sn = 3699214689;
 
-    let builder = NopOutRequestBuilder::new()
+    let header_builder = NopOutRequestBuilder::new()
         .lun(&lun)
         .initiator_task_tag(itt)
         .target_task_tag(ttt)
@@ -43,19 +46,25 @@ fn test_nop_out_minimal() -> Result<()> {
         .exp_stat_sn(exp_sn)
         .ping();
 
-    let expected = NopOutRequest::from_bhs_bytes(&bytes)?;
-
-    assert_eq!(&builder.header, &expected, "PDU bytes do not match fixture");
-
-    let (hdr, data) = builder.to_bytes(&cfg).expect("failed to serialize");
-    assert!(data.is_empty());
-
-    //println!("Header: {}", hdr.encode_hex::<String>());
-    //println!("Body:   {}", data.encode_hex::<String>());
+    let mut builder = PDUWithData::<NopOutRequest>::from_header(header_builder.header);
 
     assert_eq!(
+        &builder.header, &parsed.header,
+        "PDU bytes do not match fixture"
+    );
+
+    let chunks = builder.build(&cfg).expect("failed to serialize");
+    assert_eq!(
+        chunks.len(),
+        1,
+        "NOP-Out (without data) payload must be 1 chunk"
+    );
+
+    let (hdr, body) = &chunks[0];
+    assert!(body.is_empty(), "NOP-Out payload must be empty");
+    assert_eq!(
         &hdr[..],
-        &bytes[..NopOutRequest::HEADER_LEN],
+        &bytes[..HEADER_LEN],
         "NOP-OUT ping header mismatch"
     );
     Ok(())
@@ -64,23 +73,25 @@ fn test_nop_out_minimal() -> Result<()> {
 #[test]
 fn test_nop_in_parse() -> Result<()> {
     let bytes = load_fixture("tests/fixtures/nop_in_response.hex")?;
-    assert!(bytes.len() >= NopInResponse::HEADER_LEN);
+    assert!(bytes.len() >= HEADER_LEN);
 
-    let parsed = NopInResponse::parse(&bytes)?;
+    let hdr = NopInResponse::from_bhs_bytes(&bytes[..HEADER_LEN])?;
+    let parsed = PDUWithData::<NopInResponse>::parse(hdr, &bytes, false, false)?;
+
     assert!(parsed.data.is_empty());
     assert!(parsed.header_digest.is_none());
     assert!(parsed.data_digest.is_none());
 
     assert_eq!(
-        parsed.opcode,
+        parsed.header.opcode,
         BhsOpcode {
             flags: IfFlags::empty(),
             opcode: Opcode::NopIn,
         },
         "expected NOP-IN opcode 0x20"
     );
-    assert_eq!(parsed.stat_sn, 3699214689);
-    assert_eq!(parsed.exp_cmd_sn, 191);
+    assert_eq!(parsed.header.stat_sn, 3699214689);
+    assert_eq!(parsed.header.exp_cmd_sn, 191);
 
     Ok(())
 }
