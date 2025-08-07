@@ -1,35 +1,45 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use anyhow::{Result, bail};
+use anyhow::{Result, anyhow, bail};
 use tracing::info;
 
 use crate::{
     client::client::Connection,
     models::{
         command::{
-            common::TaskAttribute,
+            common::{ResponseCode, ScsiStatus, TaskAttribute},
             request::{ScsiCommandRequest, ScsiCommandRequestBuilder},
             response::ScsiCommandResponse,
         },
         common::Builder,
-        data::response::ScsiDataIn,
+        data::{response::ScsiDataIn, sense_data::SenseData},
         data_fromat::PDUWithData,
     },
 };
 
-/// Build a 16-byte SCSI READ(16) CDB.
+/// Build a padded 16-byte **SCSI READ (10)** CDB.
 ///
-/// - `lba`: logical block address to start reading from
-/// - `blocks`: number of contiguous blocks to read
-/// - `flags`: bit-fields for RDPROTECT/DPO/FUA (RFC3720 calls it ATTR_BITS)
-/// - `control`: low-level control bits (usually zero)
-pub fn build_read16(cdb: &mut [u8; 16], lba: u32, blocks: u32, flags: u8, control: u8) {
-    cdb[0] = 0xA8; // READ(12) opcode
-    cdb[1] = flags; // RDPROTECT/DPO/FUA bits
+/// * `lba`     – 32-bit Logical-Block Address to start reading from
+/// * `blocks`  – number of contiguous blocks to transfer (max 65 535)
+/// * `flags`   – RDPROTECT / DPO / FUA bits (6:4 Protection, 3 = DPO, 1 = FUA)
+/// * `control` – Control byte
+///
+/// The first 10 bytes follow SPC-4 §6.13; the remaining six bytes are
+/// zero-padding because iSCSI always carries a 16-byte CDB field.
+pub fn build_read10(
+    cdb: &mut [u8; 16],
+    lba: u32,
+    blocks: u16, // 16-bit per the READ(10) spec
+    flags: u8,
+    control: u8,
+) {
+    cdb.fill(0); // zero-pad bytes 10-15 up-front
+    cdb[0] = 0x28; // READ(10) opcode
+    cdb[1] = flags; // RDPROTECT / DPO / FUA
     cdb[2..6].copy_from_slice(&lba.to_be_bytes());
-    cdb[6..10].copy_from_slice(&blocks.to_be_bytes());
-    cdb[10] = 0; // group number
-    cdb[11] = control; // control byte
+    cdb[6] = 0; // Group Number (usually 0)
+    cdb[7..9].copy_from_slice(&blocks.to_be_bytes());
+    cdb[9] = control; // Control
 }
 
 /// Send a SCSI READ (Data-In) command and await the Data-In / Response PDU.
@@ -60,8 +70,8 @@ pub async fn send_scsi_read(
         .expected_data_transfer_length(read_length)
         .scsi_descriptor_block(cdb)
         .read()
-        .task_attribute(TaskAttribute::Simple)
-        .finall();
+        .immediate()
+        .task_attribute(TaskAttribute::Simple);
 
     let builder: PDUWithData<ScsiCommandRequest> =
         PDUWithData::from_header(header.header);
@@ -80,19 +90,20 @@ pub async fn send_scsi_read(
     }
 }
 
-/// Build a 16-byte SCSI WRITE(16) CDB.
+/// Build a padded 16-byte SCSI WRITE(10) CDB.
 ///
-/// - `lba`     : logical block address to start writing to
-/// - `blocks`  : number of contiguous blocks to write (u16)
-/// - `flags`   : WRPROTECT/DPO/FUA bits (6:4 Protection, 3: DPO, 1: FUA)
-/// - `control` : control byte
-pub fn build_write16(cdb: &mut [u8; 16], lba: u32, blocks: u16, flags: u8, control: u8) {
-    cdb[0] = 0xAA; // WRITE(10) opcode
-    cdb[1] = flags; // WRPROTECT/DPO/FUA
+/// * `lba`     – 32-bit Logical-Block Address
+/// * `blocks`  – число последовательных блоков (u16)
+/// * `flags`   – WRPROTECT/DPO/FUA (биты 6:4,3,1)
+/// * `control` – байт управления
+pub fn build_write10(cdb: &mut [u8; 16], lba: u32, blocks: u16, flags: u8, control: u8) {
+    cdb.fill(0); // обнуляем хвост (байты 10-15)
+    cdb[0] = 0x2A; // WRITE(10)
+    cdb[1] = flags;
     cdb[2..6].copy_from_slice(&lba.to_be_bytes());
-    cdb[6..8].copy_from_slice(&blocks.to_be_bytes());
-    cdb[8] = 0; // group number (обычно 0)
-    cdb[9] = control; // control
+    cdb[6] = 0; // group number
+    cdb[7..9].copy_from_slice(&blocks.to_be_bytes());
+    cdb[9] = control;
 }
 
 /// Send a SCSI WRITE (Data-Out) command with payload and await the Response
@@ -125,7 +136,6 @@ pub async fn send_scsi_write(
         .expected_data_transfer_length(write_data.len() as u32)
         .scsi_descriptor_block(cdb)
         .write()
-        .finall()
         .task_attribute(TaskAttribute::Simple);
 
     let mut builder: PDUWithData<ScsiCommandRequest> =
@@ -137,11 +147,19 @@ pub async fn send_scsi_write(
 
     conn.send_request(itt, builder).await?;
 
-    match conn.read_response::<ScsiCommandResponse>(itt).await {
-        Ok(rsp) => {
-            exp_stat_sn.store(rsp.header.stat_sn.wrapping_add(1), Ordering::SeqCst);
-            Ok(rsp)
-        },
-        Err(other) => bail!("got unexpected PDU: {:?}", other.to_string()),
+    let rsp: PDUWithData<ScsiCommandResponse> = conn.read_response(itt).await?;
+    exp_stat_sn.store(rsp.header.stat_sn.wrapping_add(1), Ordering::SeqCst);
+
+    let hdr = &rsp.header;
+    if hdr.response != ResponseCode::CommandCompleted {
+        bail!("SCSI WRITE failed: response code = {:?}", hdr.response);
     }
+    // only if status==GOOD do we succeed
+    if hdr.status != ScsiStatus::Good {
+        let sense = SenseData::parse(&rsp.data)
+            .map_err(|e| anyhow!("failed parsing sense data: {}", e))?;
+        bail!("SCSI WRITE failed: ({:?})", sense);
+    }
+
+    Ok(rsp)
 }

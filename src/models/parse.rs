@@ -3,7 +3,7 @@ use enum_dispatch::enum_dispatch;
 
 use crate::models::{
     command::{request::ScsiCommandRequest, response::ScsiCommandResponse},
-    common::{BasicHeaderSegment, HEADER_LEN},
+    common::{BasicHeaderSegment, HEADER_LEN, SendingData},
     data::{request::ScsiDataOut, response::ScsiDataIn},
     login::{request::LoginRequest, response::LoginResponse},
     nop::{request::NopOutRequest, response::NopInResponse},
@@ -12,7 +12,7 @@ use crate::models::{
     text::{request::TextRequest, response::TextResponse},
 };
 
-#[enum_dispatch(BasicHeaderSegment)]
+#[enum_dispatch(BasicHeaderSegment, SendingData)]
 pub enum Pdu {
     NopOutRequest,
     ScsiCommandRequest,

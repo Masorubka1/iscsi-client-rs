@@ -32,8 +32,12 @@ fn test_text_request() -> Result<()> {
     assert!(bytes.len() > HEADER_LEN);
 
     let header_parsed = TextRequest::from_bhs_bytes(&bytes[..HEADER_LEN])?;
-    let parsed_fixture =
-        PDUWithData::<TextRequest>::parse(header_parsed, &bytes, false, false)?;
+    let parsed_fixture = PDUWithData::<TextRequest>::parse(
+        header_parsed,
+        &bytes[HEADER_LEN..],
+        false,
+        false,
+    )?;
 
     let lun = [0u8; 8];
     let itt = 1;
@@ -87,7 +91,8 @@ fn test_text_response() -> Result<()> {
     assert!(bytes.len() >= HEADER_LEN);
 
     let hdr_only = TextResponse::from_bhs_bytes(&bytes[..HEADER_LEN])?;
-    let parsed = PDUWithData::<TextResponse>::parse(hdr_only, &bytes, false, false)?;
+    let parsed =
+        PDUWithData::<TextResponse>::parse(hdr_only, &bytes[HEADER_LEN..], false, false)?;
 
     assert!(!parsed.data.is_empty());
     assert!(parsed.header_digest.is_none());

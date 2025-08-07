@@ -3,7 +3,7 @@ use anyhow::{Result, bail};
 use crate::{
     client::pdu_connection::FromBytes,
     models::{
-        common::{BasicHeaderSegment, HEADER_LEN},
+        common::{BasicHeaderSegment, HEADER_LEN, SendingData},
         opcode::{BhsOpcode, IfFlags, Opcode},
         text::common::StageFlags,
     },
@@ -104,21 +104,9 @@ impl TextRequestBuilder {
         }
     }
 
-    /// Set Ping bit (Ping = bit6)
+    /// Set Immediate bit (Immediate = bit6)
     pub fn immediate(mut self) -> Self {
         self.header.opcode.flags.insert(IfFlags::I);
-        self
-    }
-
-    /// Set Final bit
-    pub fn final_bit(mut self) -> Self {
-        self.header.flags.insert(StageFlags::FINAL);
-        self
-    }
-
-    /// Set Continue bit
-    pub fn continue_bit(mut self) -> Self {
-        self.header.flags.insert(StageFlags::CONTINUE);
         self
     }
 
@@ -162,6 +150,28 @@ impl TextRequestBuilder {
     pub fn lun(mut self, lun: &[u8; 8]) -> Self {
         self.header.lun.clone_from_slice(lun);
         self
+    }
+}
+
+impl SendingData for TextRequest {
+    fn get_final_bit(&self) -> bool {
+        self.flags.contains(StageFlags::FINAL)
+    }
+
+    fn set_final_bit(&mut self) {
+        // F ← 1,  C ← 0
+        self.flags.remove(StageFlags::CONTINUE);
+        self.flags.insert(StageFlags::FINAL);
+    }
+
+    fn get_continue_bit(&self) -> bool {
+        self.flags.contains(StageFlags::CONTINUE)
+    }
+
+    fn set_continue_bit(&mut self) {
+        // C ← 1,  F ← 0
+        self.flags.remove(StageFlags::FINAL);
+        self.flags.insert(StageFlags::CONTINUE);
     }
 }
 

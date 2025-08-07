@@ -3,8 +3,9 @@ use anyhow::{Result, bail};
 use crate::{
     client::pdu_connection::FromBytes,
     models::{
-        common::{BasicHeaderSegment, HEADER_LEN},
-        opcode::{BhsOpcode, IfFlags},
+        common::{BasicHeaderSegment, HEADER_LEN, SendingData},
+        opcode::BhsOpcode,
+        text::common::StageFlags,
     },
 };
 
@@ -13,7 +14,8 @@ use crate::{
 #[derive(Debug, Default, PartialEq)]
 pub struct TextResponse {
     pub opcode: BhsOpcode,            // 0
-    reserved1: [u8; 3],               // 1..4
+    pub flags: StageFlags,            // 1
+    reserved1: [u8; 2],               // 2..4
     pub total_ahs_length: u8,         // 4
     pub data_segment_length: [u8; 3], // 5..8
     pub lun: [u8; 8],                 // 8..16
@@ -30,8 +32,8 @@ impl TextResponse {
     pub fn to_bhs_bytes(&self) -> [u8; HEADER_LEN] {
         let mut buf = [0u8; HEADER_LEN];
         buf[0] = (&self.opcode).into();
-        // finnal bit && continue bit
-        buf[1..4].copy_from_slice(&self.reserved1);
+        buf[1] = self.flags.bits();
+        buf[2..4].copy_from_slice(&self.reserved1);
         buf[4] = self.total_ahs_length;
         buf[5..8].copy_from_slice(&self.data_segment_length);
         buf[8..16].copy_from_slice(&self.lun);
@@ -49,12 +51,7 @@ impl TextResponse {
             bail!("buffer too small");
         }
         let opcode = BhsOpcode::try_from(buf[0])?;
-        // buf[1..4] -- reserved
-        let reserved1 = {
-            let mut tmp = [0u8; 3];
-            tmp[0] = IfFlags::I.bits();
-            tmp
-        };
+        let flags = StageFlags::try_from(buf[1])?;
         let total_ahs_length = buf[4];
         let data_segment_length = [buf[5], buf[6], buf[7]];
         let mut lun = [0u8; 8];
@@ -67,7 +64,8 @@ impl TextResponse {
         // buf[32..44] -- reserved
         Ok(TextResponse {
             opcode,
-            reserved1,
+            flags,
+            reserved1: [0u8; 2],
             total_ahs_length,
             lun,
             data_segment_length,
@@ -78,6 +76,28 @@ impl TextResponse {
             max_cmd_sn,
             reserved2: [0u8; 16],
         })
+    }
+}
+
+impl SendingData for TextResponse {
+    fn get_final_bit(&self) -> bool {
+        self.flags.contains(StageFlags::FINAL)
+    }
+
+    fn set_final_bit(&mut self) {
+        // F ← 1,  C ← 0
+        self.flags.remove(StageFlags::CONTINUE);
+        self.flags.insert(StageFlags::FINAL);
+    }
+
+    fn get_continue_bit(&self) -> bool {
+        self.flags.contains(StageFlags::CONTINUE)
+    }
+
+    fn set_continue_bit(&mut self) {
+        // C ← 1,  F ← 0
+        self.flags.remove(StageFlags::FINAL);
+        self.flags.insert(StageFlags::CONTINUE);
     }
 }
 

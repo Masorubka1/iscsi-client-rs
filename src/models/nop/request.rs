@@ -1,9 +1,10 @@
 use anyhow::{Result, bail};
+use tracing::warn;
 
 use crate::{
     client::pdu_connection::FromBytes,
     models::{
-        common::{BasicHeaderSegment, HEADER_LEN},
+        common::{BasicHeaderSegment, HEADER_LEN, SendingData},
         opcode::{BhsOpcode, IfFlags, Opcode},
     },
 };
@@ -31,7 +32,6 @@ impl NopOutRequest {
     pub fn to_bhs_bytes(&self) -> [u8; HEADER_LEN] {
         let mut buf = [0u8; HEADER_LEN];
         buf[0] = (&self.opcode).into();
-        // finnal bit
         buf[1..4].copy_from_slice(&self.reserved1);
         buf[4] = self.total_ahs_length;
         buf[5..8].copy_from_slice(&self.data_segment_length);
@@ -51,7 +51,7 @@ impl NopOutRequest {
         let opcode = BhsOpcode::try_from(buf[0])?;
         let reserved1 = {
             let mut tmp = [0u8; 3];
-            tmp[0] = IfFlags::I.bits();
+            tmp[0] = 0b1000_0000;
             tmp
         };
         let total_ahs_length = buf[4];
@@ -95,7 +95,7 @@ impl NopOutRequestBuilder {
                 },
                 reserved1: {
                     let mut tmp = [0; 3];
-                    tmp[0] = IfFlags::I.bits();
+                    tmp[0] = 0b1000_0000;
                     tmp
                 },
                 ..Default::default()
@@ -105,8 +105,8 @@ impl NopOutRequestBuilder {
         }
     }
 
-    /// Set Ping bit (Ping = bit6)
-    pub fn ping(mut self) -> Self {
+    /// Set Immediate bit (Immediate = bit6)
+    pub fn immediate(mut self) -> Self {
         self.header.opcode.flags.insert(IfFlags::I);
         self
     }
@@ -151,6 +151,24 @@ impl NopOutRequestBuilder {
     pub fn lun(mut self, lun: &[u8; 8]) -> Self {
         self.header.lun.clone_from_slice(lun);
         self
+    }
+}
+
+impl SendingData for NopOutRequest {
+    fn get_final_bit(&self) -> bool {
+        true
+    }
+
+    fn set_final_bit(&mut self) {
+        warn!("NopOut Request cannot be marked as Final");
+    }
+
+    fn get_continue_bit(&self) -> bool {
+        false
+    }
+
+    fn set_continue_bit(&mut self) {
+        warn!("NopOut Request cannot be marked as Contine");
     }
 }
 

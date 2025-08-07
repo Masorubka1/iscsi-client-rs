@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use hex::FromHex;
 use iscsi_client_rs::{
     cfg::{cli::resolve_config_path, config::Config},
-    handlers::simple_scsi_command::build_write16,
+    handlers::simple_scsi_command::build_write10,
     models::{
         command::{
             common::{ResponseCode, TaskAttribute},
@@ -32,13 +32,13 @@ fn test_write_pdu_build() -> Result<()> {
 
     let expected_hdr = ScsiCommandRequest::from_bhs_bytes(&expected[..HEADER_LEN])?;
 
-    let lun = [0u8; 8];
-    let itt = 1728053248;
-    let cmd_sn = 96;
-    let exp_stat_sn = 476962680;
+    let lun = [0, 1, 0, 0, 0, 0, 0, 0];
+    let itt = 2;
+    let cmd_sn = 0;
+    let exp_stat_sn = 2;
 
     let mut cdb = [0u8; 16];
-    build_write16(&mut cdb, 0x1234, 0, 0, 1);
+    build_write10(&mut cdb, 0x1234, 0, 0, 1);
     let write_buf = vec![0x01; 512];
 
     let header = ScsiCommandRequestBuilder::new()
@@ -49,22 +49,27 @@ fn test_write_pdu_build() -> Result<()> {
         .expected_data_transfer_length(write_buf.len() as u32)
         .scsi_descriptor_block(&cdb)
         .write()
-        .finall()
         .task_attribute(TaskAttribute::Simple);
 
-    assert_eq!(&header.header, &expected_hdr, "BHS mismatch");
-
     let mut pdu = PDUWithData::<ScsiCommandRequest>::from_header(header.header);
-    pdu.append_data(write_buf.clone());
+    pdu.append_data(write_buf);
 
     let chunks = pdu.build(&cfg)?;
     assert_eq!(chunks.len(), 1, "WRITE PDU must be a single chunk");
 
     let (hdr_bytes, body_bytes) = &chunks[0];
 
-    assert_eq!(&hdr_bytes[..], &expected[..HEADER_LEN], "BHS mismatch");
+    assert_eq!(
+        ScsiCommandRequest::from_bhs_bytes(hdr_bytes)?,
+        expected_hdr,
+        "BHS mismatch"
+    );
 
-    assert_eq!(body_bytes, &write_buf, "Data-Out payload mismatch");
+    assert_eq!(
+        body_bytes,
+        &expected[HEADER_LEN..],
+        "Data-Out payload mismatch"
+    );
 
     Ok(())
 }
@@ -75,8 +80,12 @@ fn test_write_response_parse() -> Result<()> {
     assert!(bytes.len() >= HEADER_LEN);
 
     let hdr_only = ScsiCommandResponse::from_bhs_bytes(&bytes[..HEADER_LEN])?;
-    let parsed =
-        PDUWithData::<ScsiCommandResponse>::parse(hdr_only, &bytes, true, false)?;
+    let parsed = PDUWithData::<ScsiCommandResponse>::parse(
+        hdr_only,
+        &bytes[HEADER_LEN..],
+        true,
+        false,
+    )?;
 
     assert!(parsed.data.is_empty());
     assert!(parsed.header_digest.is_some());

@@ -3,7 +3,7 @@ use anyhow::{Result, anyhow};
 use crate::{
     client::pdu_connection::FromBytes,
     models::{
-        common::{BasicHeaderSegment, HEADER_LEN},
+        common::{BasicHeaderSegment, HEADER_LEN, SendingData},
         login::common::{LoginFlags, Stage},
         opcode::{BhsOpcode, IfFlags, Opcode},
     },
@@ -115,12 +115,6 @@ impl LoginRequestBuilder {
         self
     }
 
-    /// Set Continue (C = bit6)
-    pub fn cont(mut self) -> Self {
-        self.header.flags.insert(LoginFlags::CONTINUE);
-        self
-    }
-
     /// Set CSG (connection-stage: bits 3–4)
     pub fn csg(mut self, stage: Stage) -> Self {
         let bits = (stage as u8 & 0b11) << 2;
@@ -175,6 +169,24 @@ impl LoginRequestBuilder {
     pub fn isid(mut self, isid: &[u8; 8]) -> Self {
         self.header.isid.clone_from_slice(isid);
         self
+    }
+}
+
+impl SendingData for LoginRequest {
+    fn get_final_bit(&self) -> bool {
+        !self.flags.contains(LoginFlags::CONTINUE)
+    }
+
+    fn set_final_bit(&mut self) {
+        self.flags.remove(LoginFlags::CONTINUE);
+    }
+
+    fn get_continue_bit(&self) -> bool {
+        self.flags.contains(LoginFlags::CONTINUE)
+    }
+
+    fn set_continue_bit(&mut self) {
+        self.flags.insert(LoginFlags::CONTINUE);
     }
 }
 

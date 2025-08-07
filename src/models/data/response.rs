@@ -4,7 +4,7 @@ use bitflags::bitflags;
 use crate::{
     client::pdu_connection::FromBytes,
     models::{
-        common::{BasicHeaderSegment, HEADER_LEN},
+        common::{BasicHeaderSegment, HEADER_LEN, SendingData},
         opcode::BhsOpcode,
     },
 };
@@ -12,7 +12,7 @@ use crate::{
 bitflags! {
     #[derive(Default, Debug, PartialEq)]
     pub struct DataInFlags: u8 {
-        const F = 1 << 7; // Final
+        const FINAL = 1 << 7; // Final
         const A = 1 << 6; // Acknowledge (DataACK SNACK, ERL>0)
         // bits 5..3 reserved (0)
         const O = 1 << 2; // Residual Overflow (валиден только при S=1)
@@ -67,7 +67,7 @@ impl ScsiDataIn {
         match st {
             Some(s) => {
                 self.flags.insert(DataInFlags::S);
-                self.flags.insert(DataInFlags::F); // S=1 ⇒ F=1
+                self.flags.insert(DataInFlags::FINAL); // S=1 ⇒ F=1
                 self.status_or_rsvd = s;
             },
             None => {
@@ -153,6 +153,28 @@ impl ScsiDataIn {
             buffer_offset,
             residual_count,
         })
+    }
+}
+
+impl SendingData for ScsiDataIn {
+    fn get_final_bit(&self) -> bool {
+        self.flags.contains(DataInFlags::FINAL)
+    }
+
+    fn set_final_bit(&mut self) {
+        // S => F, но F можно ставить и без S
+        self.flags.insert(DataInFlags::FINAL);
+    }
+
+    fn get_continue_bit(&self) -> bool {
+        !self.flags.contains(DataInFlags::FINAL)
+    }
+
+    fn set_continue_bit(&mut self) {
+        // снимаем Final; если был Status-present, его тоже надо убрать,
+        // потому что «S=1 ⇒ F=1» (RFC 7143 §11.8.1)
+        self.flags.remove(DataInFlags::FINAL);
+        self.flags.remove(DataInFlags::S);
     }
 }
 

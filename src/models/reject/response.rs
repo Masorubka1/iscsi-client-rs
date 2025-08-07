@@ -1,9 +1,10 @@
 use anyhow::{Result, bail};
+use tracing::warn;
 
 use crate::{
     client::pdu_connection::FromBytes,
     models::{
-        common::{BasicHeaderSegment, HEADER_LEN},
+        common::{BasicHeaderSegment, HEADER_LEN, SendingData},
         opcode::BhsOpcode,
         reject::reject_description::RejectReason,
     },
@@ -115,6 +116,24 @@ impl RejectPdu {
     pub fn set_data_length_bytes(&mut self, len: u32) {
         let be = len.to_be_bytes();
         self.data_segment_length = [be[1], be[2], be[3]];
+    }
+}
+
+impl SendingData for RejectPdu {
+    fn get_final_bit(&self) -> bool {
+        true
+    }
+
+    fn set_final_bit(&mut self) {
+        warn!("RejectPdu Response cannot be marked as Final");
+    }
+
+    fn get_continue_bit(&self) -> bool {
+        false
+    }
+
+    fn set_continue_bit(&mut self) {
+        warn!("RejectPdu Response cannot be marked as Contine");
     }
 }
 

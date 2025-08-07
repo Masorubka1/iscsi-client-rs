@@ -1,7 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use anyhow::{Result, anyhow, bail};
-use dashmap::DashMap;
+use dashmap::{DashMap, Entry};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{
@@ -17,7 +17,7 @@ use crate::{
     cfg::config::Config,
     client::pdu_connection::{FromBytes, ToBytes},
     models::{
-        common::{BasicHeaderSegment, HEADER_LEN},
+        common::{BasicHeaderSegment, HEADER_LEN, SendingData},
         data_fromat::PDUWithData,
         parse::Pdu,
     },
@@ -34,7 +34,11 @@ where F: Future<Output = std::io::Result<T>> {
     }
 }
 
-pub type Data = ([u8; 48], Vec<u8>);
+struct Pending {
+    first_hdr: [u8; HEADER_LEN],
+    data: Vec<u8>,
+}
+
 /// A simple iSCSI connection wrapper over a TCP stream.
 ///
 /// Manages sending requests (PDUs) and receiving responses by
@@ -43,8 +47,8 @@ pub struct Connection {
     reader: Mutex<OwnedReadHalf>,
     writer: Mutex<OwnedWriteHalf>,
     cfg: Config,
-    sending: DashMap<u32, oneshot::Sender<Data>>,
-    reciver: DashMap<u32, oneshot::Receiver<Data>>,
+    sending: DashMap<u32, oneshot::Sender<Pending>>,
+    reciver: DashMap<u32, oneshot::Receiver<Pending>>,
 }
 
 impl Connection {
@@ -125,53 +129,81 @@ impl Connection {
             Some((_, rx)) => rx,
         };
 
-        let (header, body) = rx.await.map_err(|_| {
+        let Pending { first_hdr, data } = rx.await.map_err(|_| {
             anyhow!("Failed to read response: connection closed before answer")
         })?;
 
-        let pdu_header = T::from_bhs_bytes(&header)?;
-        PDUWithData::<T>::parse(pdu_header, body.as_slice(), false, false)
+        let pdu_header = T::from_bhs_bytes(&first_hdr)?;
+        PDUWithData::<T>::parse(pdu_header, data.as_slice(), false, false)
     }
 
     async fn read_loop(self: Arc<Self>) -> Result<()> {
         let mut hdr = [0u8; HEADER_LEN];
+        let pending: DashMap<u32, Pending> = DashMap::new();
+
         loop {
             {
                 let mut r = self.reader.lock().await;
-                if let Err(e) =
-                    io_with_timeout("read header", r.read_exact(&mut hdr)).await
-                {
-                    warn!("read header failed: {e}");
-                    break Ok(());
-                }
+                io_with_timeout("read header", r.read_exact(&mut hdr)).await?;
             }
 
             let pdu_hdr = Pdu::from_bhs_bytes(&hdr)?;
-            let total = pdu_hdr.total_length_bytes(); // 48 + AHS + pad + Data + pad + digests
+            let itt = pdu_hdr.get_initiator_task_tag();
+            let cont_bit = pdu_hdr.get_continue_bit();
+            let fin_bit = pdu_hdr.get_final_bit();
+            let total = pdu_hdr.total_length_bytes();
 
-            let mut buf = Vec::with_capacity(total);
-            buf.extend_from_slice(&hdr);
+            let mut payload = Vec::with_capacity(total);
+            payload.extend_from_slice(&hdr);
 
             if total > HEADER_LEN {
-                buf.resize(total, 0);
+                payload.resize(total, 0);
                 let mut r = self.reader.lock().await;
-                if let Err(e) =
-                    io_with_timeout("read payload", r.read_exact(&mut buf[HEADER_LEN..]))
-                        .await
-                {
-                    warn!("read payload failed: {e}");
-                    break Ok(());
-                }
+                io_with_timeout("read payload", r.read_exact(&mut payload[HEADER_LEN..]))
+                    .await?;
             }
 
-            let itt = pdu_hdr.get_initiator_task_tag();
-
-            match self.sending.remove(&itt) {
-                Some((_, tx)) => {
-                    let _ = tx.send((hdr, buf));
+            match (cont_bit, fin_bit) {
+                (true, false) => match pending.entry(itt) {
+                    Entry::Occupied(mut e) => {
+                        e.get_mut().data.extend_from_slice(&payload[HEADER_LEN..]);
+                    },
+                    Entry::Vacant(v) => {
+                        v.insert(Pending {
+                            first_hdr: hdr,
+                            data: payload[HEADER_LEN..].to_vec(),
+                        });
+                    },
                 },
-                None => {
-                    warn!(%itt, "unsolicited PDU");
+
+                (_, true) => {
+                    let data_combined = if let Some((_, mut pend)) = pending.remove(&itt)
+                    {
+                        pend.data.extend_from_slice(&payload[HEADER_LEN..]);
+                        pend.data
+                    } else {
+                        payload[HEADER_LEN..].to_vec()
+                    };
+
+                    let mut fixed_hdr = hdr;
+                    let len_be = (data_combined.len() as u32).to_be_bytes();
+                    fixed_hdr[5..8].copy_from_slice(&len_be[1..4]);
+
+                    if let Some((_, tx)) = self.sending.remove(&itt) {
+                        let _ = tx.send(Pending {
+                            first_hdr: fixed_hdr,
+                            data: data_combined,
+                        });
+                    }
+                },
+
+                (false, false) => {
+                    if let Some((_, tx)) = self.sending.remove(&itt) {
+                        let _ = tx.send(Pending {
+                            first_hdr: hdr,
+                            data: payload,
+                        });
+                    }
                 },
             }
         }

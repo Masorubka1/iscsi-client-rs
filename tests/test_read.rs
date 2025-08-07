@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use hex::FromHex;
 use iscsi_client_rs::{
     cfg::{cli::resolve_config_path, config::Config},
-    handlers::simple_scsi_command::build_read16,
+    handlers::simple_scsi_command::build_read10,
     models::{
         command::{
             common::TaskAttribute,
@@ -29,15 +29,13 @@ fn test_read_pdu_build() -> Result<()> {
 
     let expected = load_fixture("tests/fixtures/read_request.hex")?;
 
-    let expected_hdr = ScsiCommandRequest::from_bhs_bytes(&expected[..HEADER_LEN])?;
-
     let lun = [0, 1, 0, 0, 0, 0, 0, 0];
     let itt = 2;
     let cmd_sn = 0;
     let exp_stat_sn = 2;
 
     let mut cdb_read = [0u8; 16];
-    build_read16(&mut cdb_read, 0x1234, 16, 0, 0);
+    build_read10(&mut cdb_read, 0x1234, 16, 0, 0);
 
     let header_builder = ScsiCommandRequestBuilder::new()
         .lun(&lun)
@@ -47,13 +45,10 @@ fn test_read_pdu_build() -> Result<()> {
         .expected_data_transfer_length(512u32)
         .scsi_descriptor_block(&cdb_read)
         .read()
-        .task_attribute(TaskAttribute::Simple)
-        .finall();
+        .task_attribute(TaskAttribute::Simple);
 
     let mut builder =
         PDUWithData::<ScsiCommandRequest>::from_header(header_builder.header);
-
-    assert_eq!(&builder.header, &expected_hdr, "BHS mismatch");
 
     let chunks = builder.build(&cfg)?;
     assert_eq!(
@@ -63,12 +58,14 @@ fn test_read_pdu_build() -> Result<()> {
     );
 
     let (hdr_bytes, body_bytes) = &chunks[0];
-    assert!(
-        body_bytes.is_empty(),
-        "READ запрос не должен нести Data-Out"
-    );
 
     assert_eq!(&hdr_bytes[..], &expected[..HEADER_LEN], "BHS mismatch");
+
+    assert_eq!(
+        body_bytes,
+        &expected[HEADER_LEN..],
+        "READ PDU payload mismatch"
+    );
 
     Ok(())
 }

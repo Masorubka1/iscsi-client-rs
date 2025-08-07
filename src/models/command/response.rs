@@ -1,10 +1,11 @@
 use anyhow::{Result, bail};
+use tracing::warn;
 
 use crate::{
     client::pdu_connection::FromBytes,
     models::{
         command::common::{ResponseCode, ScsiCommandResponseFlags, ScsiStatus},
-        common::{BasicHeaderSegment, HEADER_LEN},
+        common::{BasicHeaderSegment, HEADER_LEN, SendingData},
         opcode::BhsOpcode,
     },
 };
@@ -93,6 +94,25 @@ impl ScsiCommandResponse {
             bidirectional_read_residual_count,
             residual_count,
         })
+    }
+}
+
+impl SendingData for ScsiCommandResponse {
+    fn get_final_bit(&self) -> bool {
+        true
+    }
+
+    fn set_final_bit(&mut self) {
+        warn!("ScsiCommand Response must contain Final");
+        self.flags.insert(ScsiCommandResponseFlags::FINAL);
+    }
+
+    fn get_continue_bit(&self) -> bool {
+        false
+    }
+
+    fn set_continue_bit(&mut self) {
+        warn!("ScsiCommand Response don`t support Continue");
     }
 }
 

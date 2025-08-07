@@ -5,7 +5,7 @@ use anyhow::{Context, Result, bail};
 use crate::{
     cfg::config::Config,
     client::pdu_connection::FromBytes,
-    models::common::{BasicHeaderSegment, Builder, HEADER_LEN},
+    models::common::{BasicHeaderSegment, Builder, SendingData},
 };
 
 #[derive(Debug)]
@@ -18,7 +18,7 @@ pub struct PDUWithData<T> {
 }
 
 impl<T> Builder for PDUWithData<T>
-where T: BasicHeaderSegment + FromBytes
+where T: BasicHeaderSegment + SendingData + FromBytes
 {
     type Header = Vec<u8>;
 
@@ -44,11 +44,12 @@ where T: BasicHeaderSegment + FromBytes
         let padding_ahs = (4 - (self.aditional_heder.len() % 4)) % 4;
 
         let mut final_body = Vec::with_capacity(chunks.len());
-        for chunk in chunks.iter() {
-            // TODO: fix continue/final flag
-            // let last = i == chunks.len() - 1;
-            // h.set_continue(!last);
-            // h.set_final(last);
+        for (i, chunk) in chunks.iter().enumerate() {
+            if i == chunks.len() - 1 {
+                self.header.set_final_bit();
+            } else {
+                self.header.set_continue_bit();
+            }
             self.header.set_data_length_bytes(chunk.len() as u32);
             let bhs = T::to_bhs_bytes(&self.header)?;
             let padding_chunk = (4 - (chunk.len() % 4)) % 4;
@@ -107,19 +108,12 @@ where T: BasicHeaderSegment + FromBytes
     ) -> Result<Self> {
         let tn = type_name::<T>();
 
-        if buf.len() < HEADER_LEN {
-            bail!(
-                "{tn}: buffer {} too small for BHS ({HEADER_LEN})",
-                buf.len()
-            );
-        }
-
         let ahs_len = header.get_ahs_length_bytes();
         let data_len = header.get_data_length_bytes();
         let ahs_pad = (4 - (ahs_len % 4)) % 4;
         let data_pad = (4 - (data_len % 4)) % 4;
 
-        let mut off = HEADER_LEN;
+        let mut off = 0;
 
         // --- AHS ---
         let aditional_heder = if ahs_len > 0 {

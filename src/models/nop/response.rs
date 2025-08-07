@@ -1,9 +1,10 @@
 use anyhow::{Result, bail};
+use tracing::warn;
 
 use crate::{
     client::pdu_connection::FromBytes,
     models::{
-        common::{BasicHeaderSegment, HEADER_LEN},
+        common::{BasicHeaderSegment, HEADER_LEN, SendingData},
         opcode::{BhsOpcode, IfFlags},
     },
 };
@@ -80,6 +81,24 @@ impl NopInResponse {
             max_cmd_sn,
             reserved2: [0u8; 8],
         })
+    }
+}
+
+impl SendingData for NopInResponse {
+    fn get_final_bit(&self) -> bool {
+        true
+    }
+
+    fn set_final_bit(&mut self) {
+        warn!("NopIn Response cannot be marked as Final");
+    }
+
+    fn get_continue_bit(&self) -> bool {
+        false
+    }
+
+    fn set_continue_bit(&mut self) {
+        warn!("NopIn Response cannot be marked as Contine");
     }
 }
 

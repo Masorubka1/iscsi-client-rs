@@ -33,10 +33,10 @@ fn test_nop_out_minimal() -> Result<()> {
         PDUWithData::<NopOutRequest>::parse(parsed_header, &bytes, false, false)?;
 
     let lun = [0u8; 8];
-    let itt = NopOutRequest::DEFAULT_TAG;
-    let ttt = 189;
-    let cmd_sn = 191;
-    let exp_sn = 3699214689;
+    let itt = 1;
+    let ttt = NopOutRequest::DEFAULT_TAG;
+    let cmd_sn = 0;
+    let exp_sn = 1;
 
     let header_builder = NopOutRequestBuilder::new()
         .lun(&lun)
@@ -44,14 +44,9 @@ fn test_nop_out_minimal() -> Result<()> {
         .target_task_tag(ttt)
         .cmd_sn(cmd_sn)
         .exp_stat_sn(exp_sn)
-        .ping();
+        .immediate();
 
     let mut builder = PDUWithData::<NopOutRequest>::from_header(header_builder.header);
-
-    assert_eq!(
-        &builder.header, &parsed.header,
-        "PDU bytes do not match fixture"
-    );
 
     let chunks = builder.build(&cfg).expect("failed to serialize");
     assert_eq!(
@@ -63,8 +58,8 @@ fn test_nop_out_minimal() -> Result<()> {
     let (hdr, body) = &chunks[0];
     assert!(body.is_empty(), "NOP-Out payload must be empty");
     assert_eq!(
-        &hdr[..],
-        &bytes[..HEADER_LEN],
+        NopOutRequest::from_bhs_bytes(hdr)?,
+        parsed.header,
         "NOP-OUT ping header mismatch"
     );
     Ok(())

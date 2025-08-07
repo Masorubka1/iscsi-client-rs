@@ -4,7 +4,7 @@ use crate::{
     client::pdu_connection::FromBytes,
     models::{
         command::common::{ScsiCommandRequestFlags, TaskAttribute},
-        common::{BasicHeaderSegment, HEADER_LEN},
+        common::{BasicHeaderSegment, HEADER_LEN, SendingData},
         opcode::{BhsOpcode, IfFlags, Opcode},
     },
 };
@@ -104,15 +104,9 @@ impl ScsiCommandRequestBuilder {
         }
     }
 
-    /// Set Ping bit (Ping = bit6)
-    pub fn ping(mut self) -> Self {
+    /// Set Immediate bit (Immediate = bit6)
+    pub fn immediate(mut self) -> Self {
         self.header.opcode.flags.insert(IfFlags::I);
-        self
-    }
-
-    /// Set Final bit
-    pub fn finall(mut self) -> Self {
-        self.header.flags.insert(ScsiCommandRequestFlags::FINAL);
         self
     }
 
@@ -186,6 +180,24 @@ impl ScsiCommandRequestBuilder {
             .scsi_descriptor_block
             .clone_from_slice(scsi_descriptor_block);
         self
+    }
+}
+
+impl SendingData for ScsiCommandRequest {
+    fn get_final_bit(&self) -> bool {
+        self.flags.contains(ScsiCommandRequestFlags::FINAL)
+    }
+
+    fn set_final_bit(&mut self) {
+        self.flags.insert(ScsiCommandRequestFlags::FINAL);
+    }
+
+    fn get_continue_bit(&self) -> bool {
+        !self.flags.contains(ScsiCommandRequestFlags::FINAL)
+    }
+
+    fn set_continue_bit(&mut self) {
+        self.flags.remove(ScsiCommandRequestFlags::FINAL);
     }
 }
 

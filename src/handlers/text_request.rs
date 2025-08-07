@@ -30,7 +30,6 @@ pub async fn send_text(
     let itt = initiator_task_tag.fetch_add(1, Ordering::SeqCst);
 
     let header = TextRequestBuilder::new()
-        .final_bit()
         .lun(&lun)
         .initiator_task_tag(itt)
         .target_task_tag(target_task_tag)

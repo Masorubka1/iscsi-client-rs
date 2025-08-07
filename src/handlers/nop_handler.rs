@@ -34,7 +34,7 @@ pub async fn send_nop(
         .initiator_task_tag(itt)
         .target_task_tag(target_task_tag)
         .exp_stat_sn(esn)
-        .ping();
+        .immediate();
 
     let builder: PDUWithData<NopOutRequest> = PDUWithData::from_header(header.header);
 

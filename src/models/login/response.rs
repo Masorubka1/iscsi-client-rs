@@ -3,7 +3,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use crate::{
     client::pdu_connection::FromBytes,
     models::{
-        common::{BasicHeaderSegment, HEADER_LEN},
+        common::{BasicHeaderSegment, HEADER_LEN, SendingData},
         login::{
             common::LoginFlags,
             status::{StatusClass, StatusDetail},
@@ -112,6 +112,24 @@ impl LoginResponse {
         buf[37] = self.status_detail.clone().into();
         // reserved2 (38..48)
         buf
+    }
+}
+
+impl SendingData for LoginResponse {
+    fn get_final_bit(&self) -> bool {
+        !self.flags.contains(LoginFlags::CONTINUE)
+    }
+
+    fn set_final_bit(&mut self) {
+        self.flags.remove(LoginFlags::CONTINUE);
+    }
+
+    fn get_continue_bit(&self) -> bool {
+        self.flags.contains(LoginFlags::CONTINUE)
+    }
+
+    fn set_continue_bit(&mut self) {
+        self.flags.insert(LoginFlags::CONTINUE);
     }
 }
 

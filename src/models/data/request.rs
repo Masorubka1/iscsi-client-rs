@@ -4,7 +4,7 @@ use bitflags::bitflags;
 use crate::{
     client::pdu_connection::FromBytes,
     models::{
-        common::{BasicHeaderSegment, HEADER_LEN},
+        common::{BasicHeaderSegment, HEADER_LEN, SendingData},
         opcode::{BhsOpcode, IfFlags, Opcode},
     },
 };
@@ -12,7 +12,7 @@ use crate::{
 bitflags! {
     #[derive(Default, Debug, PartialEq)]
     pub struct DataOutFlags: u8 {
-        const F = 1 << 7; // Final
+        const FINAL = 1 << 7; // Final
         // bits 6..0 зарезервированы (0)
     }
 }
@@ -30,19 +30,19 @@ impl TryFrom<u8> for DataOutFlags {
 #[repr(C)]
 #[derive(Debug, Default, PartialEq)]
 pub struct ScsiDataOut {
-    pub opcode: BhsOpcode,            // byte 0 (должен быть 0x26)
-    pub flags: DataOutFlags,          // byte 1 (F, остальное 0)
-    pub reserved2: [u8; 2],           // bytes 2..3 (reserved)
-    pub total_ahs_length: u8,         // byte 4  (в 4-байтных словах)
-    pub data_segment_length: [u8; 3], // bytes 5..7
-    pub lun: [u8; 8],                 // bytes 8..15
-    pub initiator_task_tag: u32,      // bytes 16..19
-    pub target_transfer_tag: u32,     // bytes 20..23 (TTT, либо 0xffffffff)
-    pub exp_stat_sn: u32,             // bytes 24..27 (от инициатора)
-    pub reserved3: [u8; 8],           // bytes 28..35 (reserved)
-    pub data_sn: u32,                 // bytes 36..39
-    pub buffer_offset: u32,           // bytes 40..43
-    pub reserved4: u32,               // bytes 44..47 (reserved, 0)
+    pub opcode: BhsOpcode,            // 0 (0x26)
+    pub flags: DataOutFlags,          // 1 (F, rest 0)
+    pub reserved2: [u8; 2],           // 2..4
+    pub total_ahs_length: u8,         // 4
+    pub data_segment_length: [u8; 3], // 5..8
+    pub lun: [u8; 8],                 // 8..16
+    pub initiator_task_tag: u32,      // 16..20
+    pub target_transfer_tag: u32,     // 20..23
+    pub exp_stat_sn: u32,             // 24..28
+    pub reserved3: [u8; 8],           // 28..36
+    pub data_sn: u32,                 // 36..40
+    pub buffer_offset: u32,           // 40..44
+    pub reserved4: u32,               // 44..48
 }
 
 impl ScsiDataOut {
@@ -103,6 +103,24 @@ impl ScsiDataOut {
             buffer_offset,
             reserved4,
         })
+    }
+}
+
+impl SendingData for ScsiDataOut {
+    fn get_final_bit(&self) -> bool {
+        self.flags.contains(DataOutFlags::FINAL)
+    }
+
+    fn set_final_bit(&mut self) {
+        self.flags.insert(DataOutFlags::FINAL);
+    }
+
+    fn get_continue_bit(&self) -> bool {
+        !self.flags.contains(DataOutFlags::FINAL)
+    }
+
+    fn set_continue_bit(&mut self) {
+        self.flags.remove(DataOutFlags::FINAL);
     }
 }
 
@@ -179,17 +197,6 @@ impl ScsiDataOutBuilder {
             enable_header_digest: false,
             enable_data_digest: false,
         }
-    }
-
-    /// (обычно не трогаем вручную — выставляется в `to_bytes` на последнем
-    /// чанке)
-    pub fn final_flag(mut self, set: bool) -> Self {
-        if set {
-            self.header.flags.insert(DataOutFlags::F);
-        } else {
-            self.header.flags.remove(DataOutFlags::F);
-        }
-        self
     }
 
     pub fn lun(mut self, lun: &[u8; 8]) -> Self {

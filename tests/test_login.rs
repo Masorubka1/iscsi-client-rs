@@ -36,7 +36,12 @@ fn test_login_request() -> Result<()> {
 
     let header_parsed = LoginRequest::from_bhs_bytes(&bytes[..HEADER_LEN])?;
 
-    let parsed = PDUWithData::<LoginRequest>::parse(header_parsed, &bytes, false, false)?;
+    let parsed = PDUWithData::<LoginRequest>::parse(
+        header_parsed,
+        &bytes[HEADER_LEN..],
+        false,
+        false,
+    )?;
     assert!(!parsed.data.is_empty());
     assert!(parsed.header_digest.is_none());
     assert!(parsed.data_digest.is_none());
@@ -79,12 +84,7 @@ fn test_login_response_echo() -> Result<()> {
         .and_then(Config::load_from_file)
         .context("failed to resolve or load config")?;
 
-    // Читаем фикстуру ответа
-    let hex_str = fs::read_to_string("tests/fixtures/login_response.hex")?
-        .trim()
-        .replace(char::is_whitespace, "");
-    let resp_bytes: Vec<u8> =
-        Vec::from_hex(&hex_str).context("failed to decode login_response.hex")?;
+    let resp_bytes = load_fixture("tests/fixtures/login_request.hex")?;
 
     let resp_hdr = LoginResponse::from_bhs_bytes(&resp_bytes[..HEADER_LEN])?;
     let parsed =
