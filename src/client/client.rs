@@ -26,7 +26,9 @@ use crate::{
 const IO_TIMEOUT: Duration = Duration::from_secs(3);
 
 async fn io_with_timeout<F, T>(label: &'static str, fut: F) -> Result<T>
-where F: Future<Output = std::io::Result<T>> {
+where
+    F: Future<Output = std::io::Result<T>>,
+{
     match timeout(IO_TIMEOUT, fut).await {
         Ok(Ok(v)) => Ok(v),
         Ok(Err(e)) => Err(e.into()),
@@ -152,6 +154,7 @@ impl Connection {
             let cont_bit = pdu_hdr.get_continue_bit();
             let fin_bit = pdu_hdr.get_final_bit();
             let total = pdu_hdr.total_length_bytes();
+            let ahs = pdu_hdr.get_ahs_length_bytes();
 
             let mut payload = Vec::with_capacity(total);
             payload.extend_from_slice(&hdr);
@@ -163,6 +166,7 @@ impl Connection {
                     .await?;
             }
 
+            // TODO: inplace support checking header_digest && data_digest
             match (cont_bit, fin_bit) {
                 (true, false) => match pending.entry(itt) {
                     Entry::Occupied(mut e) => {
@@ -171,7 +175,7 @@ impl Connection {
                     Entry::Vacant(v) => {
                         v.insert(Pending {
                             first_hdr: hdr,
-                            data: payload[HEADER_LEN..].to_vec(),
+                            data: payload[ahs + HEADER_LEN..].to_vec(),
                         });
                     },
                 },
@@ -179,7 +183,7 @@ impl Connection {
                 (_, true) => {
                     let data_combined = if let Some((_, mut pend)) = pending.remove(&itt)
                     {
-                        pend.data.extend_from_slice(&payload[HEADER_LEN..]);
+                        pend.data.extend_from_slice(&payload[ahs + HEADER_LEN..]);
                         pend.data
                     } else {
                         payload[HEADER_LEN..].to_vec()
