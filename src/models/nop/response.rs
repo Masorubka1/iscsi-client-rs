@@ -1,10 +1,11 @@
-use anyhow::{Context, Result, bail};
+use anyhow::{Result, bail};
+use tracing::warn;
 
 use crate::{
     client::pdu_connection::FromBytes,
     models::{
-        common::BasicHeaderSegment,
-        opcode::{BhsOpcode, IfFlags},
+        common::{BasicHeaderSegment, HEADER_LEN, SendingData},
+        opcode::{BhsOpcode, Opcode},
     },
 };
 
@@ -22,19 +23,13 @@ pub struct NopInResponse {
     pub stat_sn: u32,                 // 24..28
     pub exp_cmd_sn: u32,              // 28..32
     pub max_cmd_sn: u32,              // 32..36
-    reserved2: [u8; 8],               // 36..44
-    pub header_digest: Option<u32>,   // 44..48
-
-    pub data: Vec<u8>,
-    pub data_digest: Option<u32>,
+    reserved2: [u8; 8],               // 36..48
 }
 
 impl NopInResponse {
-    pub const HEADER_LEN: usize = 48;
-
     /// Serialize BHS in 48 bytes
-    pub fn to_bhs_bytes(&self) -> [u8; Self::HEADER_LEN] {
-        let mut buf = [0u8; Self::HEADER_LEN];
+    pub fn to_bhs_bytes(&self) -> [u8; HEADER_LEN] {
+        let mut buf = [0u8; HEADER_LEN];
         buf[0] = (&self.opcode).into();
         // finnal bit
         buf[1..4].copy_from_slice(&self.reserved1);
@@ -52,14 +47,17 @@ impl NopInResponse {
     }
 
     pub fn from_bhs_bytes(buf: &[u8]) -> Result<Self, anyhow::Error> {
-        if buf.len() < Self::HEADER_LEN {
+        if buf.len() < HEADER_LEN {
             bail!("buffer too small");
         }
         let opcode = BhsOpcode::try_from(buf[0])?;
+        if opcode.opcode != Opcode::NopIn {
+            bail!("NopIn invalid opcode: {:?}", opcode.opcode);
+        }
         // buf[1..4] -- reserved
         let reserved1 = {
             let mut tmp = [0u8; 3];
-            tmp[0] = IfFlags::I.bits();
+            tmp[0] = 0b0100_0000;
             tmp
         };
         let total_ahs_length = buf[4];
@@ -85,53 +83,39 @@ impl NopInResponse {
             exp_cmd_sn,
             max_cmd_sn,
             reserved2: [0u8; 8],
-            header_digest: None,
-            data: vec![],
-            data_digest: None,
         })
     }
+}
 
-    /// Parsing PDU with DataSegment and Digest
-    pub fn parse(buf: &[u8]) -> Result<Self> {
-        if buf.len() < Self::HEADER_LEN {
-            bail!(
-                "Buffer {} too small for ScsiCommandResponse BHS {}",
-                buf.len(),
-                Self::HEADER_LEN
-            );
-        }
-        let mut response = Self::from_bhs_bytes(&buf[..Self::HEADER_LEN])?;
+impl SendingData for NopInResponse {
+    fn get_final_bit(&self) -> bool {
+        true
+    }
 
-        let ahs_len = response.ahs_length_bytes();
-        let data_len = response.data_length_bytes();
-        let mut offset = Self::HEADER_LEN + ahs_len;
+    fn set_final_bit(&mut self) {
+        warn!("NopIn Response cannot be marked as Final");
+    }
 
-        if buf.len() < offset + data_len {
-            bail!(
-                "NopInResponse Buffer {} too small for DataSegment {}",
-                buf.len(),
-                offset + data_len
-            );
-        }
-        response.data = buf[offset..offset + data_len].to_vec();
-        offset += data_len;
+    fn get_continue_bit(&self) -> bool {
+        false
+    }
 
-        response.header_digest = if buf.len() >= offset + 4 {
-            println!("HEADER DIGEST {}, {}", buf.len(), offset + 4);
-            Some(u32::from_be_bytes(
-                buf[offset..offset + 4]
-                    .try_into()
-                    .context("Failed to get offset from buf")?,
-            ))
-        } else {
-            None
-        };
+    fn set_continue_bit(&mut self) {
+        warn!("NopIn Response cannot be marked as Contine");
+    }
+}
 
-        Ok(response)
+impl FromBytes for NopInResponse {
+    fn from_bhs_bytes(bytes: &[u8]) -> Result<Self> {
+        Self::from_bhs_bytes(bytes)
     }
 }
 
 impl BasicHeaderSegment for NopInResponse {
+    fn to_bhs_bytes(&self) -> Result<[u8; HEADER_LEN]> {
+        Ok(self.to_bhs_bytes())
+    }
+
     fn get_opcode(&self) -> &BhsOpcode {
         &self.opcode
     }
@@ -140,31 +124,25 @@ impl BasicHeaderSegment for NopInResponse {
         self.initiator_task_tag
     }
 
-    fn ahs_length_bytes(&self) -> usize {
+    fn get_ahs_length_bytes(&self) -> usize {
         (self.total_ahs_length as usize) * 4
     }
 
-    fn data_length_bytes(&self) -> usize {
-        let data_size = u32::from_be_bytes([
+    fn set_ahs_length_bytes(&mut self, len: u8) {
+        self.total_ahs_length = len >> 2;
+    }
+
+    fn get_data_length_bytes(&self) -> usize {
+        u32::from_be_bytes([
             0,
             self.data_segment_length[0],
             self.data_segment_length[1],
             self.data_segment_length[2],
-        ]) as usize;
-
-        let pad = (4 - (data_size % 4)) % 4;
-        data_size + pad
+        ]) as usize
     }
 
-    fn total_length_bytes(&self) -> usize {
-        Self::HEADER_LEN + self.ahs_length_bytes() + self.data_length_bytes()
-    }
-}
-
-impl FromBytes for NopInResponse {
-    const HEADER_LEN: usize = NopInResponse::HEADER_LEN;
-
-    fn from_bytes(buf: &[u8]) -> Result<Self> {
-        Self::parse(buf)
+    fn set_data_length_bytes(&mut self, len: u32) {
+        let be = len.to_be_bytes();
+        self.data_segment_length = [be[1], be[2], be[3]];
     }
 }

@@ -7,9 +7,9 @@ use iscsi_client_rs::{
         cli::resolve_config_path,
         config::{Config, ToLoginKeys},
     },
-    client::pdu_connection::ToBytes,
     models::{
-        common::Builder,
+        common::{Builder, HEADER_LEN},
+        data_fromat::PDUWithData,
         login::{
             common::Stage,
             request::{LoginRequest, LoginRequestBuilder},
@@ -33,12 +33,20 @@ fn test_login_request() -> Result<()> {
         .context("failed to resolve or load config")?;
 
     let bytes = load_fixture("tests/fixtures/login_request.hex")?;
-    let mut parsed = LoginRequest::parse(&bytes)?;
+
+    let header_parsed = LoginRequest::from_bhs_bytes(&bytes[..HEADER_LEN])?;
+
+    let parsed = PDUWithData::<LoginRequest>::parse(
+        header_parsed,
+        &bytes[HEADER_LEN..],
+        false,
+        false,
+    )?;
     assert!(!parsed.data.is_empty());
     assert!(parsed.header_digest.is_none());
     assert!(parsed.data_digest.is_none());
 
-    let mut builder = LoginRequestBuilder::new(ISID, 0)
+    let header_builder = LoginRequestBuilder::new(ISID, 0)
         .transit()
         .csg(Stage::Operational)
         .nsg(Stage::FullFeature)
@@ -47,32 +55,17 @@ fn test_login_request() -> Result<()> {
             cfg.login.negotiation.version_max,
         );
 
-    for key in cfg.to_login_keys().into_iter() {
-        builder = builder.append_data(key.into_bytes());
+    let mut builder = PDUWithData::<LoginRequest>::from_header(header_builder.header);
+
+    for key in cfg.to_login_keys() {
+        builder.append_data(key.into_bytes());
     }
 
-    let data = parsed.data.clone();
-    parsed.data = vec![];
-    let new_data = builder.header.data;
-    builder.header.data = vec![];
+    assert_eq!(builder.header, parsed.header, "BHS differs from fixture");
 
-    assert_eq!(builder.header, parsed, "PDU bytes do not match fixture");
-
-    parsed.data = data;
-    builder.header.data = new_data;
-
-    let (_hdr, body) = builder.to_bytes(&cfg).expect("failed to serialize");
-
-    //println!("Header: {}", hdr.encode_hex::<String>());
-    //println!("ParsedHeader: {}", parsed.encode_hex::<String>());
-    println!(
-        "Body (decoded):\n{}",
-        String::from_utf8_lossy(&body).replace('\0', "\n")
-    );
-    println!(
-        "ParsedBody (decoded):\n{}",
-        String::from_utf8_lossy(&parsed.data).replace('\0', "\n")
-    );
+    let chunks = builder.build(&cfg)?;
+    assert_eq!(chunks.len(), 1, "login request must be a single chunk");
+    let (_hdr, body) = &chunks[0];
 
     let left: BTreeSet<_> = body.split(|&b| b == 0).filter(|s| !s.is_empty()).collect();
     let right: BTreeSet<_> = parsed
@@ -80,7 +73,8 @@ fn test_login_request() -> Result<()> {
         .split(|&b| b == 0)
         .filter(|s| !s.is_empty())
         .collect();
-    assert_eq!(left, right);
+    assert_eq!(left, right, "data segment key set differs");
+
     Ok(())
 }
 
@@ -90,18 +84,17 @@ fn test_login_response_echo() -> Result<()> {
         .and_then(Config::load_from_file)
         .context("failed to resolve or load config")?;
 
-    let hex_str = fs::read_to_string("tests/fixtures/login_response.hex")?
-        .trim()
-        .replace(char::is_whitespace, "");
-    let resp_bytes: Vec<u8> =
-        Vec::from_hex(&hex_str).context("failed to decode login_response.hex")?;
+    let resp_bytes = load_fixture("tests/fixtures/login_response.hex")?;
 
-    let parsed = LoginResponse::parse(&resp_bytes)?;
+    let resp_hdr = LoginResponse::from_bhs_bytes(&resp_bytes[..HEADER_LEN])?;
+    let parsed =
+        PDUWithData::<LoginResponse>::parse(resp_hdr, &resp_bytes, false, false)?;
+
     assert!(!parsed.data.is_empty());
     assert!(parsed.header_digest.is_none());
     assert!(parsed.data_digest.is_none());
 
-    let mut builder = LoginRequestBuilder::new(ISID, 0)
+    let builder = LoginRequestBuilder::new(ISID, 0)
         .transit()
         .csg(Stage::Operational)
         .nsg(Stage::FullFeature)
@@ -111,18 +104,15 @@ fn test_login_response_echo() -> Result<()> {
             cfg.login.negotiation.version_max,
         );
 
-    for key in cfg.login.to_login_keys().into_iter() {
-        builder = builder.append_data(key.into_bytes());
-    }
-
     assert_eq!(
-        parsed.flags.bits(),
+        parsed.header.version_max, builder.header.version_max,
+        "version_max should match what we sent"
+    );
+    assert_eq!(
+        parsed.header.flags.bits(),
         builder.header.flags.bits(),
         "flags should match what we sent"
     );
-    assert_eq!(
-        parsed.version_max, builder.header.version_max,
-        "version_max should match what we sent"
-    );
+
     Ok(())
 }

@@ -6,9 +6,11 @@ use tracing::info;
 use crate::{
     client::client::Connection,
     models::{
-        common::BasicHeaderSegment,
-        nop::{request::NopOutRequestBuilder, response::NopInResponse},
-        parse::Pdu,
+        data_fromat::PDUWithData,
+        nop::{
+            request::{NopOutRequest, NopOutRequestBuilder},
+            response::NopInResponse,
+        },
     },
 };
 
@@ -21,30 +23,27 @@ pub async fn send_nop(
     target_task_tag: u32,
     cmd_sn: &AtomicU32,
     exp_stat_sn: &AtomicU32,
-) -> Result<NopInResponse> {
+) -> Result<PDUWithData<NopInResponse>> {
     let sn = cmd_sn.load(Ordering::SeqCst);
     let esn = exp_stat_sn.fetch_add(1, Ordering::SeqCst);
     let itt = initiator_task_tag.fetch_add(1, Ordering::SeqCst);
 
-    let builder = NopOutRequestBuilder::new()
+    let header = NopOutRequestBuilder::new()
         .cmd_sn(sn)
         .lun(&lun)
         .initiator_task_tag(itt)
         .target_task_tag(target_task_tag)
         .exp_stat_sn(esn)
-        .ping();
+        .immediate();
+
+    let builder: PDUWithData<NopOutRequest> = PDUWithData::from_header(header.header);
 
     info!("NOP-Out hdr={:?}", builder.header);
 
-    let itt = builder.header.get_initiator_task_tag();
-
     conn.send_request(itt, builder).await?;
 
-    match conn.read_response(itt).await? {
-        Pdu::NopInResponse(rsp) => {
-            exp_stat_sn.store(rsp.stat_sn.wrapping_add(1), Ordering::SeqCst);
-            Ok(rsp)
-        },
-        other => bail!("got unexpected PDU: {:?}", other.get_opcode()),
+    match conn.read_response::<NopInResponse>(itt).await {
+        Ok(rsp) => Ok(rsp),
+        Err(other) => bail!("got unexpected PDU: {:?}", other.to_string()),
     }
 }

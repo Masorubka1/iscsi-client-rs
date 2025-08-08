@@ -1,9 +1,11 @@
-use anyhow::{Context, Result, bail};
+use anyhow::{Result, bail};
+use tracing::warn;
 
 use crate::{
     client::pdu_connection::FromBytes,
     models::{
-        common::BasicHeaderSegment, opcode::BhsOpcode,
+        common::{BasicHeaderSegment, HEADER_LEN, SendingData},
+        opcode::{BhsOpcode, Opcode},
         reject::reject_description::RejectReason,
     },
 };
@@ -26,20 +28,36 @@ pub struct RejectPdu {
     pub max_cmd_sn: u32,              // 32..36
     pub data_sn_or_r2_sn: u32,        // 36..40
     pub reserved5: [u8; 4 * 2],       // 40..48
-    pub header_digest: Option<u32>,   // 48..52
-
-    pub data: Vec<u8>,
-    pub data_digest: Option<u32>,
 }
 
 impl RejectPdu {
-    pub const HEADER_LEN: usize = 44;
+    pub fn to_bhs_bytes(&self) -> [u8; HEADER_LEN] {
+        let mut buf = [0u8; HEADER_LEN];
+        buf[0] = (&self.opcode).into();
+        buf[1] = self.reserved1;
+        buf[2] = (&self.reason).into();
+        buf[3] = self.reserved2;
+        buf[4] = self.total_ahs_length;
+        buf[5..8].copy_from_slice(&self.data_segment_length);
+        buf[8..16].copy_from_slice(&self.reserved3);
+        buf[16..20].copy_from_slice(&self.initiator_task_tag.to_be_bytes());
+        buf[20..24].copy_from_slice(&self.reserved4);
+        buf[24..28].copy_from_slice(&self.stat_sn.to_be_bytes());
+        buf[28..32].copy_from_slice(&self.exp_cmd_sn.to_be_bytes());
+        buf[32..36].copy_from_slice(&self.max_cmd_sn.to_be_bytes());
+        buf[36..40].copy_from_slice(&self.data_sn_or_r2_sn.to_be_bytes());
+        //buf[40..48].copy_from_slice(&self.reserved5);
+        buf
+    }
 
     pub fn from_bhs_bytes(buf: &[u8]) -> Result<Self> {
-        if buf.len() < Self::HEADER_LEN {
+        if buf.len() < HEADER_LEN {
             bail!("buffer too small");
         }
         let opcode = BhsOpcode::try_from(buf[0])?;
+        if opcode.opcode != Opcode::Reject {
+            bail!("Reject invalid opcode: {:?}", opcode.opcode);
+        }
         let reserved1 = buf[1];
         let reason = RejectReason::try_from(buf[2])?;
         let reserved2 = buf[3];
@@ -54,10 +72,6 @@ impl RejectPdu {
         let exp_cmd_sn = u32::from_be_bytes(buf[28..32].try_into()?);
         let max_cmd_sn = u32::from_be_bytes(buf[32..36].try_into()?);
         let data_sn_or_r2_sn = u32::from_be_bytes(buf[36..40].try_into()?);
-        //let mut reserved5 = [0u8; 4 * 2];
-        //reserved5.copy_from_slice(&buf[40..48]);
-        // TODO: fix header_diggest
-        //let header_diggest = u32::from_be_bytes(buf[48..52].try_into()?);
 
         Ok(RejectPdu {
             opcode,
@@ -74,74 +88,69 @@ impl RejectPdu {
             max_cmd_sn,
             data_sn_or_r2_sn,
             reserved5: [0u8; 8],
-            header_digest: None,
-            data: vec![],
-            data_digest: None,
         })
     }
 
-    pub fn to_bhs_bytes(&self) -> [u8; Self::HEADER_LEN] {
-        let mut buf = [0u8; Self::HEADER_LEN];
-        buf[0] = (&self.opcode).into();
-        buf[1] = self.reserved1;
-        buf[2] = (&self.reason).into();
-        buf[3] = self.reserved2;
-        buf[4] = self.total_ahs_length;
-        buf[5..8].copy_from_slice(&self.data_segment_length);
-        buf[8..16].copy_from_slice(&self.reserved3);
-        buf[16..20].copy_from_slice(&self.initiator_task_tag.to_be_bytes());
-        buf[20..24].copy_from_slice(&self.reserved4);
-        buf[24..28].copy_from_slice(&self.stat_sn.to_be_bytes());
-        buf[28..32].copy_from_slice(&self.exp_cmd_sn.to_be_bytes());
-        buf[32..36].copy_from_slice(&self.max_cmd_sn.to_be_bytes());
-        buf[36..40].copy_from_slice(&self.data_sn_or_r2_sn.to_be_bytes());
-        //buf[40..44].copy_from_slice(&self.reserved5);
-        // TODO: fix header_diggest
-        // buf[48..52].copy_from_slice(&self.header_diggest.to_be_bytes());
-        buf
+    pub fn get_opcode(&self) -> &BhsOpcode {
+        &self.opcode
     }
 
-    /// Parsing PDU with DataSegment and Digest
-    pub fn parse(buf: &[u8]) -> Result<Self> {
-        if buf.len() < Self::HEADER_LEN {
-            bail!(
-                "Buffer {} too small for ScsiCommandResponse BHS {}",
-                buf.len(),
-                Self::HEADER_LEN
-            );
-        }
-        let mut response = Self::from_bhs_bytes(&buf[..Self::HEADER_LEN])?;
+    pub fn get_initiator_task_tag(&self) -> u32 {
+        self.initiator_task_tag
+    }
 
-        let ahs_len = response.ahs_length_bytes();
-        let data_len = response.data_length_bytes();
-        let mut offset = Self::HEADER_LEN + ahs_len;
+    pub fn get_ahs_length_bytes(&self) -> usize {
+        (self.total_ahs_length as usize) * 4
+    }
 
-        if buf.len() < offset + data_len {
-            bail!(
-                "NopInResponse Buffer {} too small for DataSegment {}",
-                buf.len(),
-                offset + data_len
-            );
-        }
-        response.data = buf[offset..offset + data_len].to_vec();
-        offset += data_len;
+    pub fn set_ahs_length_bytes(&mut self, len: u8) {
+        self.total_ahs_length = len >> 2;
+    }
 
-        response.header_digest = if buf.len() >= offset + 4 {
-            println!("HEADER DIGEST {}, {}", buf.len(), offset + 4);
-            Some(u32::from_be_bytes(
-                buf[offset..offset + 4]
-                    .try_into()
-                    .context("Failed to get offset from buf")?,
-            ))
-        } else {
-            None
-        };
+    pub fn get_data_length_bytes(&self) -> usize {
+        u32::from_be_bytes([
+            0,
+            self.data_segment_length[0],
+            self.data_segment_length[1],
+            self.data_segment_length[2],
+        ]) as usize
+    }
 
-        Ok(response)
+    pub fn set_data_length_bytes(&mut self, len: u32) {
+        let be = len.to_be_bytes();
+        self.data_segment_length = [be[1], be[2], be[3]];
+    }
+}
+
+impl SendingData for RejectPdu {
+    fn get_final_bit(&self) -> bool {
+        true
+    }
+
+    fn set_final_bit(&mut self) {
+        warn!("RejectPdu Response cannot be marked as Final");
+    }
+
+    fn get_continue_bit(&self) -> bool {
+        false
+    }
+
+    fn set_continue_bit(&mut self) {
+        warn!("RejectPdu Response cannot be marked as Contine");
+    }
+}
+
+impl FromBytes for RejectPdu {
+    fn from_bhs_bytes(bytes: &[u8]) -> Result<Self> {
+        Self::from_bhs_bytes(bytes)
     }
 }
 
 impl BasicHeaderSegment for RejectPdu {
+    fn to_bhs_bytes(&self) -> Result<[u8; HEADER_LEN]> {
+        Ok(self.to_bhs_bytes())
+    }
+
     fn get_opcode(&self) -> &BhsOpcode {
         &self.opcode
     }
@@ -150,31 +159,25 @@ impl BasicHeaderSegment for RejectPdu {
         self.initiator_task_tag
     }
 
-    fn ahs_length_bytes(&self) -> usize {
+    fn get_ahs_length_bytes(&self) -> usize {
         (self.total_ahs_length as usize) * 4
     }
 
-    fn data_length_bytes(&self) -> usize {
-        let data_size = u32::from_be_bytes([
+    fn set_ahs_length_bytes(&mut self, len: u8) {
+        self.total_ahs_length = len >> 2;
+    }
+
+    fn get_data_length_bytes(&self) -> usize {
+        u32::from_be_bytes([
             0,
             self.data_segment_length[0],
             self.data_segment_length[1],
             self.data_segment_length[2],
-        ]) as usize;
-
-        let pad = (4 - (data_size % 4)) % 4;
-        data_size + pad
+        ]) as usize
     }
 
-    fn total_length_bytes(&self) -> usize {
-        Self::HEADER_LEN + self.ahs_length_bytes() + self.data_length_bytes()
-    }
-}
-
-impl FromBytes for RejectPdu {
-    const HEADER_LEN: usize = Self::HEADER_LEN;
-
-    fn from_bytes(buf: &[u8]) -> Result<Self> {
-        Self::parse(buf)
+    fn set_data_length_bytes(&mut self, len: u32) {
+        let be = len.to_be_bytes();
+        self.data_segment_length = [be[1], be[2], be[3]];
     }
 }

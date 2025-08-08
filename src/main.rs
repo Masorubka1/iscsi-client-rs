@@ -11,7 +11,7 @@ use iscsi_client_rs::{
         login_simple::login_plain,
         nop_handler::send_nop,
         simple_scsi_command::{
-            build_read16, build_write16, send_scsi_read, send_scsi_write,
+            build_read10, build_write10, send_scsi_read, send_scsi_write,
         },
     },
     models::nop::request::NopOutRequest,
@@ -41,8 +41,8 @@ async fn main() -> Result<()> {
     time::sleep(Duration::from_millis(2000)).await;
 
     // seed our three counters:
-    let cmd_sn = AtomicU32::new(login_rsp.exp_cmd_sn);
-    let exp_stat_sn = AtomicU32::new(login_rsp.stat_sn.wrapping_add(1));
+    let cmd_sn = AtomicU32::new(login_rsp.header.exp_cmd_sn);
+    let exp_stat_sn = AtomicU32::new(login_rsp.header.stat_sn.wrapping_add(1));
     let itt_counter = AtomicU32::new(1);
     let lun = [0, 1, 0, 0, 0, 0, 0, 0];
 
@@ -61,15 +61,15 @@ async fn main() -> Result<()> {
     time::sleep(Duration::from_millis(100)).await;
 
     // —————— NOP #2 ——————
-    /*match send_nop(&conn, [0u8; 8], &itt_counter, ttt, &cmd_sn, &exp_stat_sn).await {
-        Ok((hdr, data, _)) => {
-            info!("[NOP2] hdr={hdr:?} data={data:?}");
+    match send_nop(&conn, [0u8; 8], &itt_counter, ttt, &cmd_sn, &exp_stat_sn).await {
+        Ok(res) => {
+            info!("[NOP2] data={res:?}");
         },
         Err(e) => {
             eprintln!("[NOP2] rejected or failed: {e}");
             return Err(e);
         },
-    }*/
+    }
 
     // —————— TEXT ——————
     /*match send_text(&conn, [0u8; 8], &itt_counter, ttt, &cmd_sn, &exp_stat_sn).await {
@@ -84,9 +84,13 @@ async fn main() -> Result<()> {
 
     // —————— WRITE ——————
     {
+        let sector_size = 512u32;
+
+        let blocks = 1u16;
+        let payload = vec![0x01; (blocks as u32 * sector_size) as usize];
+
         let mut cdb = [0u8; 16];
-        build_write16(&mut cdb, 0x1234, 0, 0, 1);
-        let write_buf = vec![0x01; 512];
+        build_write10(&mut cdb, 0x1234, blocks, 0, 0);
 
         match send_scsi_write(
             &conn,
@@ -95,7 +99,7 @@ async fn main() -> Result<()> {
             &cmd_sn,
             &exp_stat_sn,
             &cdb,
-            write_buf,
+            payload,
         )
         .await
         {
@@ -104,7 +108,6 @@ async fn main() -> Result<()> {
             },
             Err(e) => {
                 eprintln!("[WRITE] rejected or failed: {e}");
-                //return Err(e);
             },
         };
     }
@@ -112,7 +115,7 @@ async fn main() -> Result<()> {
     // READ
     {
         let mut cdb_read = [0u8; 16];
-        build_read16(&mut cdb_read, 0x1234, 16, 0, 0);
+        build_read10(&mut cdb_read, 0x1234, 1, 0, 0);
         match send_scsi_read(
             &conn,
             lun,
@@ -135,36 +138,3 @@ async fn main() -> Result<()> {
 
     Ok(())
 }
-
-// 4) Heartbeat-таск: NOP-Out / NOP-In каждую секунду
-/*let hb_conn = conn.clone();
-let hb_handle = tokio::spawn(async move {
-    loop {
-        let sn = cmd_sn_hb.fetch_add(1, Ordering::SeqCst);
-        let esn = exp_stat_sn_hb.load(Ordering::SeqCst);
-        let itag = itag_hb.fetch_add(1, Ordering::SeqCst);
-        match send_nop(
-            &hb_conn,
-            [0u8; 8],
-            itag,
-            NopOutRequest::DEFAULT_TAG,
-            sn,
-            esn,
-            true,
-        )
-        .await
-        {
-            Ok((hdr, data, _)) => {
-                println!("[HEARTBEAT] NOP-In: hdr={hdr:?}, data={data:?}");
-                exp_stat_sn_hb
-                    .store(hdr.exp_cmd_sn.wrapping_add(1), Ordering::SeqCst);
-            },
-            Err(e) => {
-                eprintln!("[HEARTBEAT] error: {e}");
-            },
-        }
-        time::sleep(Duration::from_secs(1)).await;
-    }
-});*/
-
-//time::sleep(Duration::from_secs(5)).await;

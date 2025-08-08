@@ -1,43 +1,39 @@
 use anyhow::{Result, bail};
 
 use crate::{
-    cfg::config::Config,
+    client::pdu_connection::FromBytes,
     models::{
-        common::{BasicHeaderSegment, Builder},
+        common::{BasicHeaderSegment, HEADER_LEN, SendingData},
         opcode::{BhsOpcode, IfFlags, Opcode},
+        text::common::StageFlags,
     },
 };
 
 /// BHS for NopOutRequest PDU
 #[repr(C)]
-#[derive(Debug, Default, PartialEq)]
+#[derive(Default, Debug, PartialEq)]
 pub struct TextRequest {
-    pub opcode: BhsOpcode,            // 0
-    reserved1: [u8; 3],               // 1..4
-    pub total_ahs_length: u8,         // 4
-    pub data_segment_length: [u8; 3], // 5..8
-    pub lun: [u8; 8],                 // 8..16
-    pub initiator_task_tag: u32,      // 16..20
-    pub target_task_tag: u32,         // 20..24
-    pub cmd_sn: u32,                  // 24..28
-    pub exp_stat_sn: u32,             // 28..32
-    reserved2: [u8; 16],              // 32..48
-    pub header_digest: Option<u32>,   // 48..52
-
-    pub data: Vec<u8>,
-    pub data_digest: Option<u32>,
+    pub opcode: BhsOpcode,            // byte 0 (I + 0x04)
+    pub flags: StageFlags,            // byte 1 (F/C)
+    reserved1: [u8; 2],               // bytes 2..3
+    pub total_ahs_length: u8,         // byte 4
+    pub data_segment_length: [u8; 3], // bytes 5..7
+    pub lun: [u8; 8],                 // bytes 8..15
+    pub initiator_task_tag: u32,      // bytes 16..19
+    pub target_task_tag: u32,         // bytes 20..23
+    pub cmd_sn: u32,                  // bytes 24..27
+    pub exp_stat_sn: u32,             // bytes 28..31
+    reserved2: [u8; 16],              // bytes 32..47
 }
 
 impl TextRequest {
-    pub const DEFAULT_TAG: u32 = 0xffffffff_u32;
-    pub const HEADER_LEN: usize = 48;
+    pub const DEFAULT_TAG: u32 = 0xFFFF_FFFF;
 
-    /// Serialize BHS in 48 bytes
-    pub fn to_bhs_bytes(&self) -> [u8; Self::HEADER_LEN] {
-        let mut buf = [0u8; Self::HEADER_LEN];
+    pub fn to_bhs_bytes(&self) -> [u8; HEADER_LEN] {
+        let mut buf = [0u8; HEADER_LEN];
         buf[0] = (&self.opcode).into();
-        // final bit && continue bit
-        buf[1..4].copy_from_slice(&self.reserved1);
+        buf[1] = self.flags.bits();
+        buf[2..4].copy_from_slice(&self.reserved1);
         buf[4] = self.total_ahs_length;
         buf[5..8].copy_from_slice(&self.data_segment_length);
         buf[8..16].copy_from_slice(&self.lun);
@@ -45,121 +41,43 @@ impl TextRequest {
         buf[20..24].copy_from_slice(&self.target_task_tag.to_be_bytes());
         buf[24..28].copy_from_slice(&self.cmd_sn.to_be_bytes());
         buf[28..32].copy_from_slice(&self.exp_stat_sn.to_be_bytes());
-        // buf[32..48] -- reserved
-        //buf[48..52].copy_from_slice(&self.header_digest.to_be_bytes());
+        // 32..48 reserved
         buf
     }
 
-    pub fn from_bhs_bytes(buf: &[u8]) -> Result<Self, anyhow::Error> {
-        if buf.len() < Self::HEADER_LEN {
+    pub fn from_bhs_bytes(buf: &[u8]) -> Result<Self> {
+        if buf.len() < HEADER_LEN {
             bail!("buffer too small");
         }
         let opcode = BhsOpcode::try_from(buf[0])?;
-        // buf[1..4] -- reserved
-        // TODO: add support flag continious
-        let mut reserved1 = [0u8; 3];
-        reserved1.clone_from_slice(&buf[1..4]);
+        if opcode.opcode != Opcode::TextReq {
+            bail!("TextReq invalid opcode: {:?}", opcode.opcode);
+        }
+        let flags = StageFlags::try_from(buf[1])?;
+        let mut reserved1 = [0u8; 2];
+        reserved1.copy_from_slice(&buf[2..4]);
         let total_ahs_length = buf[4];
         let data_segment_length = [buf[5], buf[6], buf[7]];
         let mut lun = [0u8; 8];
-        lun.clone_from_slice(&buf[8..16]);
+        lun.copy_from_slice(&buf[8..16]);
         let initiator_task_tag = u32::from_be_bytes(buf[16..20].try_into()?);
         let target_task_tag = u32::from_be_bytes(buf[20..24].try_into()?);
         let cmd_sn = u32::from_be_bytes(buf[24..28].try_into()?);
         let exp_stat_sn = u32::from_be_bytes(buf[28..32].try_into()?);
-        // buf[32..44] -- reserved
-        // let header_digest = u32::from_be_bytes(buf[44..48].try_into()?);
+
         Ok(TextRequest {
             opcode,
+            flags,
             reserved1,
             total_ahs_length,
-            lun,
             data_segment_length,
+            lun,
             initiator_task_tag,
             target_task_tag,
             cmd_sn,
             exp_stat_sn,
             reserved2: [0u8; 16],
-            header_digest: None,
-            data: vec![],
-            data_digest: None,
         })
-    }
-
-    /// Parsing PDU with DataSegment and Digest
-    pub fn parse(buf: &[u8]) -> Result<Self> {
-        if buf.len() < Self::HEADER_LEN {
-            bail!(
-                "Buffer {} too small for TextRequest BHS {}",
-                buf.len(),
-                Self::HEADER_LEN
-            );
-        }
-
-        let mut bhs = [0u8; Self::HEADER_LEN];
-        bhs.copy_from_slice(&buf[..Self::HEADER_LEN]);
-        let mut request = Self::from_bhs_bytes(&bhs)?;
-
-        let ahs_len = request.ahs_length_bytes();
-        let data_len = request.data_length_bytes();
-        let offset = Self::HEADER_LEN + ahs_len;
-
-        if buf.len() < offset + data_len {
-            bail!(
-                "TextRequest Buffer {} too small for DataSegment {}",
-                buf.len(),
-                offset + data_len
-            );
-        }
-        request.data = buf[offset..offset + data_len].to_vec();
-        /*offset += data_len;
-
-        request.header_digest = if buf.len() >= offset + 4 {
-            Some(u32::from_be_bytes(
-                buf[offset..offset + 4]
-                    .try_into()
-                    .context("Failed to get offset from buf")?,
-            ))
-        } else {
-            None
-        };*/
-
-        Ok(request)
-    }
-
-    pub fn encode(&self) -> Result<(Vec<u8>, Vec<u8>)> {
-        let pad = (4 - (self.data.len() % 4)) % 4;
-        let mut body = self.data.clone();
-        body.extend(std::iter::repeat_n(0, pad));
-
-        Ok((self.to_bhs_bytes().to_vec(), body))
-    }
-}
-
-impl BasicHeaderSegment for TextRequest {
-    fn get_opcode(&self) -> &BhsOpcode {
-        &self.opcode
-    }
-
-    fn get_initiator_task_tag(&self) -> u32 {
-        self.initiator_task_tag
-    }
-
-    fn ahs_length_bytes(&self) -> usize {
-        (self.total_ahs_length as usize) * 4
-    }
-
-    fn data_length_bytes(&self) -> usize {
-        u32::from_be_bytes([
-            0,
-            self.data_segment_length[0],
-            self.data_segment_length[1],
-            self.data_segment_length[2],
-        ]) as usize
-    }
-
-    fn total_length_bytes(&self) -> usize {
-        Self::HEADER_LEN + self.ahs_length_bytes() + self.data_length_bytes()
     }
 }
 
@@ -179,11 +97,8 @@ impl TextRequestBuilder {
                     flags: IfFlags::empty(),
                     opcode: Opcode::TextReq,
                 },
-                reserved1: {
-                    let mut tmp = [0; 3];
-                    tmp[0] = IfFlags::I.bits();
-                    tmp
-                },
+                flags: StageFlags::FINAL,
+                reserved1: [0u8; 2],
                 cmd_sn: 1,
                 ..Default::default()
             },
@@ -192,21 +107,9 @@ impl TextRequestBuilder {
         }
     }
 
-    /// Set Ping bit (Ping = bit6)
-    pub fn ping(mut self) -> Self {
-        self.header.opcode.flags.insert(IfFlags::F);
-        self
-    }
-
-    /// Set Final bit
-    pub fn final_bit(mut self) -> Self {
-        self.header.data_segment_length[0] |= IfFlags::I.bits();
-        self
-    }
-
-    /// Set Continue bit
-    pub fn continiue_bit(mut self) -> Self {
-        self.header.data_segment_length[0] |= IfFlags::F.bits();
+    /// Set Immediate bit (Immediate = bit6)
+    pub fn immediate(mut self) -> Self {
+        self.header.opcode.flags.insert(IfFlags::I);
         self
     }
 
@@ -253,32 +156,66 @@ impl TextRequestBuilder {
     }
 }
 
-impl Builder for TextRequestBuilder {
-    type Header = Vec<u8>;
-
-    /// Appends raw bytes to the Data Segment and updates its length field.
-    fn append_data(mut self, more: Vec<u8>) -> Self {
-        self.header.data.extend_from_slice(&more);
-        let len = self.header.data.len() as u32;
-        let be = len.to_be_bytes();
-        self.header.data_segment_length = [be[1], be[2], be[3]];
-
-        self
+impl SendingData for TextRequest {
+    fn get_final_bit(&self) -> bool {
+        self.flags.contains(StageFlags::FINAL)
     }
 
-    /// Build finnal PDU (BHS + DataSegment)
-    fn build(self, cfg: &Config) -> Result<(Self::Header, Vec<u8>)> {
-        let encoded = TextRequest::encode(&self.header)?;
+    fn set_final_bit(&mut self) {
+        // F ← 1,  C ← 0
+        self.flags.remove(StageFlags::CONTINUE);
+        self.flags.insert(StageFlags::FINAL);
+    }
 
-        if (cfg.login.negotiation.max_recv_data_segment_length as usize) < encoded.1.len()
-        {
-            bail!(
-                "ScsiCommandRequest data size: {} reached out of limit {}",
-                encoded.1.len(),
-                cfg.login.negotiation.max_recv_data_segment_length
-            );
-        }
+    fn get_continue_bit(&self) -> bool {
+        self.flags.contains(StageFlags::CONTINUE)
+    }
 
-        Ok(encoded)
+    fn set_continue_bit(&mut self) {
+        // C ← 1,  F ← 0
+        self.flags.remove(StageFlags::FINAL);
+        self.flags.insert(StageFlags::CONTINUE);
+    }
+}
+
+impl FromBytes for TextRequest {
+    fn from_bhs_bytes(bytes: &[u8]) -> Result<Self> {
+        Self::from_bhs_bytes(bytes)
+    }
+}
+
+impl BasicHeaderSegment for TextRequest {
+    fn to_bhs_bytes(&self) -> Result<[u8; HEADER_LEN]> {
+        Ok(self.to_bhs_bytes())
+    }
+
+    fn get_opcode(&self) -> &BhsOpcode {
+        &self.opcode
+    }
+
+    fn get_initiator_task_tag(&self) -> u32 {
+        self.initiator_task_tag
+    }
+
+    fn get_ahs_length_bytes(&self) -> usize {
+        (self.total_ahs_length as usize) * 4
+    }
+
+    fn set_ahs_length_bytes(&mut self, len: u8) {
+        self.total_ahs_length = len >> 2;
+    }
+
+    fn get_data_length_bytes(&self) -> usize {
+        u32::from_be_bytes([
+            0,
+            self.data_segment_length[0],
+            self.data_segment_length[1],
+            self.data_segment_length[2],
+        ]) as usize
+    }
+
+    fn set_data_length_bytes(&mut self, len: u32) {
+        let be = len.to_be_bytes();
+        self.data_segment_length = [be[1], be[2], be[3]];
     }
 }

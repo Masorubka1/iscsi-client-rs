@@ -1,7 +1,7 @@
 use std::fmt;
 
 bitflags::bitflags! {
-    #[derive(Default, Clone, PartialEq)]
+    #[derive(Default, PartialEq)]
     pub struct LoginFlags: u8 {
         /// Transit bit (next stage)
         const TRANSIT = 0x80;
