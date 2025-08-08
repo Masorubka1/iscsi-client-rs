@@ -5,7 +5,7 @@ use crate::{
     client::pdu_connection::FromBytes,
     models::{
         common::{BasicHeaderSegment, HEADER_LEN, SendingData},
-        opcode::BhsOpcode,
+        opcode::{BhsOpcode, Opcode},
         reject::reject_description::RejectReason,
     },
 };
@@ -31,11 +31,33 @@ pub struct RejectPdu {
 }
 
 impl RejectPdu {
+    pub fn to_bhs_bytes(&self) -> [u8; HEADER_LEN] {
+        let mut buf = [0u8; HEADER_LEN];
+        buf[0] = (&self.opcode).into();
+        buf[1] = self.reserved1;
+        buf[2] = (&self.reason).into();
+        buf[3] = self.reserved2;
+        buf[4] = self.total_ahs_length;
+        buf[5..8].copy_from_slice(&self.data_segment_length);
+        buf[8..16].copy_from_slice(&self.reserved3);
+        buf[16..20].copy_from_slice(&self.initiator_task_tag.to_be_bytes());
+        buf[20..24].copy_from_slice(&self.reserved4);
+        buf[24..28].copy_from_slice(&self.stat_sn.to_be_bytes());
+        buf[28..32].copy_from_slice(&self.exp_cmd_sn.to_be_bytes());
+        buf[32..36].copy_from_slice(&self.max_cmd_sn.to_be_bytes());
+        buf[36..40].copy_from_slice(&self.data_sn_or_r2_sn.to_be_bytes());
+        //buf[40..48].copy_from_slice(&self.reserved5);
+        buf
+    }
+
     pub fn from_bhs_bytes(buf: &[u8]) -> Result<Self> {
         if buf.len() < HEADER_LEN {
             bail!("buffer too small");
         }
         let opcode = BhsOpcode::try_from(buf[0])?;
+        if opcode.opcode != Opcode::Reject {
+            bail!("Reject invalid opcode: {:?}", opcode.opcode);
+        }
         let reserved1 = buf[1];
         let reason = RejectReason::try_from(buf[2])?;
         let reserved2 = buf[3];
@@ -67,25 +89,6 @@ impl RejectPdu {
             data_sn_or_r2_sn,
             reserved5: [0u8; 8],
         })
-    }
-
-    pub fn to_bhs_bytes(&self) -> [u8; HEADER_LEN] {
-        let mut buf = [0u8; HEADER_LEN];
-        buf[0] = (&self.opcode).into();
-        buf[1] = self.reserved1;
-        buf[2] = (&self.reason).into();
-        buf[3] = self.reserved2;
-        buf[4] = self.total_ahs_length;
-        buf[5..8].copy_from_slice(&self.data_segment_length);
-        buf[8..16].copy_from_slice(&self.reserved3);
-        buf[16..20].copy_from_slice(&self.initiator_task_tag.to_be_bytes());
-        buf[20..24].copy_from_slice(&self.reserved4);
-        buf[24..28].copy_from_slice(&self.stat_sn.to_be_bytes());
-        buf[28..32].copy_from_slice(&self.exp_cmd_sn.to_be_bytes());
-        buf[32..36].copy_from_slice(&self.max_cmd_sn.to_be_bytes());
-        buf[36..40].copy_from_slice(&self.data_sn_or_r2_sn.to_be_bytes());
-        //buf[40..48].copy_from_slice(&self.reserved5);
-        buf
     }
 
     pub fn get_opcode(&self) -> &BhsOpcode {

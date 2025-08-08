@@ -4,7 +4,7 @@ use crate::{
     client::pdu_connection::FromBytes,
     models::{
         common::{BasicHeaderSegment, HEADER_LEN, SendingData},
-        opcode::BhsOpcode,
+        opcode::{BhsOpcode, Opcode},
         text::common::StageFlags,
     },
 };
@@ -51,6 +51,9 @@ impl TextResponse {
             bail!("buffer too small");
         }
         let opcode = BhsOpcode::try_from(buf[0])?;
+        if opcode.opcode != Opcode::TextResp {
+            bail!("TextResp invalid opcode: {:?}", opcode.opcode);
+        }
         let flags = StageFlags::try_from(buf[1])?;
         let total_ahs_length = buf[4];
         let data_segment_length = [buf[5], buf[6], buf[7]];

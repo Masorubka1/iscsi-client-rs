@@ -1,11 +1,11 @@
-use anyhow::{Result, anyhow};
+use anyhow::{Result, anyhow, bail};
 use bitflags::bitflags;
 
 use crate::{
     client::pdu_connection::FromBytes,
     models::{
         common::{BasicHeaderSegment, HEADER_LEN, SendingData},
-        opcode::BhsOpcode,
+        opcode::{BhsOpcode, Opcode},
     },
 };
 
@@ -25,8 +25,14 @@ impl TryFrom<u8> for DataInFlags {
     type Error = anyhow::Error;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
-        DataInFlags::from_bits(value)
-            .ok_or_else(|| anyhow::anyhow!("invalid DataOutFlags: {:#08b}", value))
+        let tmp = DataInFlags::from_bits(value)
+            .ok_or_else(|| anyhow!("invalid DataOutFlags: {:#08b}", value))?;
+
+        if tmp.contains(DataInFlags::U) && tmp.contains(DataInFlags::O) {
+            bail!("Protocol error cause U && O both presented")
+        }
+
+        Ok(tmp)
     }
 }
 
@@ -119,7 +125,10 @@ impl ScsiDataIn {
         if b.len() < HEADER_LEN {
             return Err(anyhow!("buffer too small for SCSI Data-In BHS"));
         }
-        let opcode: BhsOpcode = b[0].try_into()?;
+        let opcode = BhsOpcode::try_from(b[0])?;
+        if opcode.opcode != Opcode::ScsiDataIn {
+            bail!("ScsiDataIn invalid opcode: {:?}", opcode.opcode);
+        }
         let flags = DataInFlags::try_from(b[1])?;
         let reserved2 = b[2];
         let status_or_rsvd = b[3];

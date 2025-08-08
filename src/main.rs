@@ -115,7 +115,7 @@ async fn main() -> Result<()> {
     // READ
     {
         let mut cdb_read = [0u8; 16];
-        build_read10(&mut cdb_read, 0x1234, 16, 0, 0);
+        build_read10(&mut cdb_read, 0x1234, 1, 0, 0);
         match send_scsi_read(
             &conn,
             lun,

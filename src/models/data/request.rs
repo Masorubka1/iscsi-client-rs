@@ -1,4 +1,4 @@
-use anyhow::{Result, anyhow};
+use anyhow::{Result, anyhow, bail};
 use bitflags::bitflags;
 
 use crate::{
@@ -70,8 +70,10 @@ impl ScsiDataOut {
         if b.len() < HEADER_LEN {
             return Err(anyhow!("buffer too small for SCSI Data-Out BHS"));
         }
-        let opcode: BhsOpcode = b[0].try_into()?;
-
+        let opcode: BhsOpcode = BhsOpcode::try_from(b[0])?;
+        if opcode.opcode != Opcode::ScsiDataOut {
+            bail!("ScsiDataOut invalid opcode: {:?}", opcode.opcode);
+        }
         let flags = DataOutFlags::try_from(b[1])?;
         let mut reserved2 = [0u8; 2];
         reserved2.copy_from_slice(&b[2..4]);

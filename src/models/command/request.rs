@@ -51,6 +51,9 @@ impl ScsiCommandRequest {
             bail!("buffer too small");
         }
         let opcode = BhsOpcode::try_from(buf[0])?;
+        if opcode.opcode != Opcode::ScsiCommandReq {
+            bail!("ScsiCommandReq invalid opcode: {:?}", opcode.opcode);
+        }
         let flags = ScsiCommandRequestFlags::try_from(buf[1])?;
         let total_ahs_length = buf[4];
         let data_segment_length = [buf[5], buf[6], buf[7]];

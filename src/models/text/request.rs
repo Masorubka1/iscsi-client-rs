@@ -50,6 +50,9 @@ impl TextRequest {
             bail!("buffer too small");
         }
         let opcode = BhsOpcode::try_from(buf[0])?;
+        if opcode.opcode != Opcode::TextReq {
+            bail!("TextReq invalid opcode: {:?}", opcode.opcode);
+        }
         let flags = StageFlags::try_from(buf[1])?;
         let mut reserved1 = [0u8; 2];
         reserved1.copy_from_slice(&buf[2..4]);

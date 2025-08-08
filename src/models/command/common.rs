@@ -1,5 +1,6 @@
 use std::{fmt, ptr};
 
+use anyhow::bail;
 use thiserror::Error;
 
 bitflags::bitflags! {
@@ -122,8 +123,18 @@ impl TryFrom<u8> for ScsiCommandResponseFlags {
     type Error = anyhow::Error;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
-        ScsiCommandResponseFlags::from_bits(value)
-            .ok_or_else(|| anyhow::anyhow!("invalid ScsiCommandFlags: {:#08b}", value))
+        let tmp = ScsiCommandResponseFlags::from_bits(value)
+            .ok_or_else(|| anyhow::anyhow!("invalid ScsiCommandFlags: {:#08b}", value))?;
+
+        if (tmp.contains(ScsiCommandResponseFlags::U_BIG)
+            && tmp.contains(ScsiCommandResponseFlags::O_BIG))
+            || (tmp.contains(ScsiCommandResponseFlags::U_SMALL)
+                && tmp.contains(ScsiCommandResponseFlags::O_SMALL))
+        {
+            bail!("Protocol error cause U && O both presented")
+        }
+
+        Ok(tmp)
     }
 }
 

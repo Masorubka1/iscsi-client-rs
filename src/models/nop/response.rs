@@ -5,7 +5,7 @@ use crate::{
     client::pdu_connection::FromBytes,
     models::{
         common::{BasicHeaderSegment, HEADER_LEN, SendingData},
-        opcode::{BhsOpcode, IfFlags},
+        opcode::{BhsOpcode, Opcode},
     },
 };
 
@@ -51,10 +51,13 @@ impl NopInResponse {
             bail!("buffer too small");
         }
         let opcode = BhsOpcode::try_from(buf[0])?;
+        if opcode.opcode != Opcode::NopIn {
+            bail!("NopIn invalid opcode: {:?}", opcode.opcode);
+        }
         // buf[1..4] -- reserved
         let reserved1 = {
             let mut tmp = [0u8; 3];
-            tmp[0] = IfFlags::I.bits();
+            tmp[0] = 0b0100_0000;
             tmp
         };
         let total_ahs_length = buf[4];

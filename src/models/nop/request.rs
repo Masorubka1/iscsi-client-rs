@@ -49,6 +49,9 @@ impl NopOutRequest {
             bail!("buffer too small");
         }
         let opcode = BhsOpcode::try_from(buf[0])?;
+        if opcode.opcode != Opcode::NopOut {
+            bail!("NopOut invalid opcode: {:?}", opcode.opcode);
+        }
         let reserved1 = {
             let mut tmp = [0u8; 3];
             tmp[0] = 0b1000_0000;

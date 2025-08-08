@@ -6,7 +6,7 @@ use crate::{
     models::{
         command::common::{ResponseCode, ScsiCommandResponseFlags, ScsiStatus},
         common::{BasicHeaderSegment, HEADER_LEN, SendingData},
-        opcode::BhsOpcode,
+        opcode::{BhsOpcode, Opcode},
     },
 };
 
@@ -60,6 +60,9 @@ impl ScsiCommandResponse {
         }
 
         let opcode = BhsOpcode::try_from(buf[0])?;
+        if opcode.opcode != Opcode::ScsiCommandResp {
+            bail!("ScsiCommandResp invalid opcode: {:?}", opcode.opcode);
+        }
         let flags = ScsiCommandResponseFlags::try_from(buf[1])?;
         let response = ResponseCode::try_from(buf[2])?;
         let status = ScsiStatus::try_from(buf[3])?;

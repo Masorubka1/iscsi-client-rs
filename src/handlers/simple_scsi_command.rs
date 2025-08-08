@@ -158,7 +158,11 @@ pub async fn send_scsi_write(
     if hdr.status != ScsiStatus::Good {
         let sense = SenseData::parse(&rsp.data)
             .map_err(|e| anyhow!("failed parsing sense data: {}", e))?;
-        bail!("SCSI WRITE failed: ({:?})", sense);
+        bail!(
+            "SCSI WRITE failed {:?}\nInfo from sense: ({:?})",
+            hdr,
+            sense
+        );
     }
 
     Ok(rsp)

@@ -8,7 +8,7 @@ use crate::{
             common::LoginFlags,
             status::{StatusClass, StatusDetail},
         },
-        opcode::BhsOpcode,
+        opcode::{BhsOpcode, Opcode},
     },
 };
 
@@ -43,6 +43,11 @@ impl LoginResponse {
         if buf.len() < HEADER_LEN {
             bail!("buffer too small");
         }
+        let opcode = BhsOpcode::try_from(buf[0])?;
+        if opcode.opcode != Opcode::LoginResp {
+            bail!("LoginResp invalid opcode: {:?}", opcode.opcode);
+        }
+
         let raw_flags = buf[1];
         let flags = LoginFlags::from_bits(raw_flags)
             .ok_or_else(|| anyhow!("invalid LoginFlags: {}", raw_flags))?;
@@ -60,7 +65,7 @@ impl LoginResponse {
             })?;
 
         Ok(LoginResponse {
-            opcode: buf[0].try_into()?,
+            opcode,
             flags,
             version_max: buf[2],
             version_active: buf[3],

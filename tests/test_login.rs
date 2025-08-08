@@ -84,7 +84,7 @@ fn test_login_response_echo() -> Result<()> {
         .and_then(Config::load_from_file)
         .context("failed to resolve or load config")?;
 
-    let resp_bytes = load_fixture("tests/fixtures/login_request.hex")?;
+    let resp_bytes = load_fixture("tests/fixtures/login_response.hex")?;
 
     let resp_hdr = LoginResponse::from_bhs_bytes(&resp_bytes[..HEADER_LEN])?;
     let parsed =

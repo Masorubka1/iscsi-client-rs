@@ -1,4 +1,4 @@
-use anyhow::{Result, anyhow};
+use anyhow::{Result, anyhow, bail};
 
 use crate::{
     client::pdu_connection::FromBytes,
@@ -54,7 +54,11 @@ impl LoginRequest {
         if buf.len() < HEADER_LEN {
             return Err(anyhow!("buffer too small"));
         }
-        let opcode = buf[0].try_into()?;
+        let opcode = BhsOpcode::try_from(buf[0])?;
+        if opcode.opcode != Opcode::LoginReq {
+            bail!("LoginReq invalid opcode: {:?}", opcode.opcode);
+        }
+
         let flags = LoginFlags::try_from(buf[1])?;
         let version_max = buf[2];
         let version_min = buf[3];
