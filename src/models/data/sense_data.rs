@@ -1,66 +1,103 @@
-use std::fmt;
-
 use anyhow::{Context, Result, anyhow};
 
-/// Sense data must be ≥ 18 bytes for fixed format.
 pub const FIXED_MIN_LEN: usize = 18;
 
-/// SPC-4 Table 43 — Fixed format sense-data byte layout
 #[repr(C)]
 #[derive(Default, PartialEq)]
 pub struct SenseData {
-    pub valid: bool,        // bit7 of byte0
-    pub response_code: u8,  // low-7 bits of byte0
-    pub sense_key: u8,      // high-4 bits of byte2
-    pub ili: bool,          // bit1 of byte2
-    pub eom: bool,          // bit2 of byte2
-    pub filemark: bool,     // bit7 of byte2
-    pub information: u32,   // bytes 3-6
-    pub additional_len: u8, // byte7
-    pub cmd_specific: u32,  // bytes 8-11
-    pub asc: u8,            // Additional Sense Code
-    pub ascq: u8,           /* Additional Sense Code Qualifier
-                             * -- the remaining bytes (fru, sks…) are rarely used; add
-                             * when needed */
+    pub valid: bool,
+    pub response_code: u8,
+    pub sense_key: u8,
+    pub ili: bool,
+    pub eom: bool,
+    pub filemark: bool,
+    pub information: u32,
+    pub additional_len: u8,
+    pub cmd_specific: u32,
+    pub asc: u8,
+    pub ascq: u8,
 }
 
 impl SenseData {
-    /// Parse *fixed-format* sense-data (SPC-4 § 4.5.3).
-    ///
-    /// The buffer must be at least 18 bytes long.
+    /// Парсим sense, допускаем 2-байтовый BE-префикс длины: [len_hi,len_lo] +
+    /// sense...
     pub fn parse(buf: &[u8]) -> Result<Self> {
         if buf.len() < FIXED_MIN_LEN {
+            return Err(anyhow!("sense buffer too small: {}", buf.len()));
+        }
+
+        let sense = if buf.len() >= 3 {
+            let maybe_len = u16::from_be_bytes([buf[0], buf[1]]) as usize;
+            let rc = buf[2] & 0x7F;
+            if maybe_len + 2 == buf.len() && matches!(rc, 0x70..=0x73) {
+                &buf[2..]
+            } else {
+                buf
+            }
+        } else {
+            buf
+        };
+
+        if sense.len() < FIXED_MIN_LEN {
             return Err(anyhow!(
-                "sense buffer too small: {} < {FIXED_MIN_LEN}",
-                buf.len()
+                "sense payload too small after prefix stripping: {}",
+                sense.len()
             ));
         }
 
-        let valid = buf[0] & 0x80 != 0;
-        let response_code = buf[0] & 0x7F;
-        let filemark = buf[2] & 0x80 != 0;
-        let eom = buf[2] & 0x40 != 0;
-        let ili = buf[2] & 0x20 != 0;
-        let sense_key = buf[2] & 0x0F;
+        let response_code = sense[0] & 0x7F;
+
+        match response_code {
+            0x70 | 0x71 => Self::parse_fixed(sense),
+            0x72 | 0x73 => Err(anyhow!(
+                "descriptor-format sense (0x{:02x}) is not supported yet",
+                response_code
+            )),
+            other => Err(anyhow!("unknown sense response code 0x{:02x}", other)),
+        }
+    }
+
+    fn parse_fixed(sense: &[u8]) -> Result<Self> {
+        if sense.len() < FIXED_MIN_LEN {
+            return Err(anyhow!("fixed sense too small: {}", sense.len()));
+        }
+
+        let valid = sense[0] & 0x80 != 0;
+        let response_code = sense[0] & 0x7F;
+
+        let filemark = sense[2] & 0x80 != 0;
+        let eom = sense[2] & 0x40 != 0;
+        let ili = sense[2] & 0x20 != 0;
+        let sense_key = sense[2] & 0x0F;
 
         let information = u32::from_be_bytes(
-            buf[3..7]
+            sense[3..7]
                 .try_into()
-                .context("failed to read Information field (bytes 3‥6)")?,
+                .context("failed to read Information (3..6)")?,
         );
 
-        let additional_len = buf[7];
+        let additional_len = sense[7];
+
+        let needed = 8usize + (additional_len as usize);
+        if sense.len() < needed {
+            return Err(anyhow!(
+                "sense length mismatch: have {}, need at least {} (additional_len={})",
+                sense.len(),
+                needed,
+                additional_len
+            ));
+        }
 
         let cmd_specific = u32::from_be_bytes(
-            buf[8..12]
+            sense[8..12]
                 .try_into()
-                .context("failed to read Cmd-specific field (bytes 8‥11)")?,
+                .context("failed to read Cmd-specific (8..11)")?,
         );
 
-        let asc = buf[12];
-        let ascq = buf[13];
+        let asc = sense[12];
+        let ascq = sense[13];
 
-        Ok(Self {
+        Ok(SenseData {
             valid,
             response_code,
             sense_key,
@@ -76,8 +113,8 @@ impl SenseData {
     }
 }
 
-impl fmt::Debug for SenseData {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl core::fmt::Debug for SenseData {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("SenseData")
             .field("valid", &self.valid)
             .field(
@@ -116,6 +153,7 @@ fn hot_table(asc: u8, ascq: u8) -> Option<&'static str> {
         (0x05, 0x20) => "Illegal request – invalid command information field",
         (0x24, 0x00) => "Illegal request – invalid field in CDB",
         (0x25, 0x00) => "Illegal request – logical unit not supported",
+        (0x29, 0x00) => "Unit attention – power on, reset, or bus device reset occurred",
         (0x3A, 0x00) => "Medium not present",
         (0x40, 0x00) => "Data integrity error",
         _ => return None,

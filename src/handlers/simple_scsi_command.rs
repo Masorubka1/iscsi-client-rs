@@ -1,7 +1,6 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use anyhow::{Result, anyhow, bail};
-use tracing::info;
 
 use crate::{
     client::client::Connection,
@@ -11,7 +10,6 @@ use crate::{
             request::{ScsiCommandRequest, ScsiCommandRequestBuilder},
             response::ScsiCommandResponse,
         },
-        common::Builder,
         data::{response::ScsiDataIn, sense_data::SenseData},
         data_fromat::PDUWithData,
     },
@@ -64,13 +62,12 @@ pub async fn send_scsi_read(
         .expected_data_transfer_length(read_length)
         .scsi_descriptor_block(cdb)
         .read()
-        .immediate()
         .task_attribute(TaskAttribute::Simple);
 
     let builder: PDUWithData<ScsiCommandRequest> =
         PDUWithData::from_header(header.header);
 
-    info!("{:?}, {}", builder.header, hex::encode(&builder.data));
+    //info!("{:?}, {}", builder.header, hex::encode(&builder.data));
 
     conn.send_request(itt, builder).await?;
 
@@ -131,12 +128,12 @@ pub async fn send_scsi_write(
         .write()
         .task_attribute(TaskAttribute::Simple);
 
-    let mut builder: PDUWithData<ScsiCommandRequest> =
+    let builder: PDUWithData<ScsiCommandRequest> =
         PDUWithData::from_header(header.header);
 
-    builder.append_data(write_data.clone());
+    //builder.append_data(write_data.clone());
 
-    info!("{:?}, {}", builder.header, hex::encode(&builder.data));
+    //info!("{:?}, {}", builder.header, hex::encode(&builder.data));
 
     conn.send_request(itt, builder).await?;
 

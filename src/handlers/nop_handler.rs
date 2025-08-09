@@ -1,7 +1,6 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use anyhow::{Result, bail};
-use tracing::info;
 
 use crate::{
     client::client::Connection,
@@ -37,8 +36,6 @@ pub async fn send_nop(
         .immediate();
 
     let builder: PDUWithData<NopOutRequest> = PDUWithData::from_header(header.header);
-
-    info!("NOP-Out hdr={:?}", builder.header);
 
     conn.send_request(itt, builder).await?;
 

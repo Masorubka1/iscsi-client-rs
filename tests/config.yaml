@@ -37,8 +37,8 @@ extra_data:
     IFMarker: "No" # IFMarker=No\x00
     OFMarker: "No" # OFMarker=No\x00
   r2t:
-    initial_r2t: "No" # InitialR2T=No\x00
-    immediate_data: "Yes" # ImmediateData=Yes\x00
+    initial_r2t: "Yes" # InitialR2T=No\x00
+    immediate_data: "No" # ImmediateData=Yes\x00
     max_outstanding_r2t: 1 # MaxOutstandingR2T=1\x00
     default_time2wait: 2 # DefaultTime2Wait (секунды)
     default_time2retain: 0 # DefaultTime2Retain (секунды)

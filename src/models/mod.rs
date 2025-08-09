@@ -6,5 +6,6 @@ pub mod login;
 pub mod nop;
 pub mod opcode;
 pub mod parse;
+pub mod ready_2_transfer;
 pub mod reject;
 pub mod text;

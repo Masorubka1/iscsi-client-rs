@@ -1,7 +1,6 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use anyhow::{Result, bail};
-use tracing::info;
 
 use crate::{
     client::client::Connection,
@@ -40,11 +39,11 @@ pub async fn send_text(
 
     builder.append_data(b"ErrorRecoveryLevel=0".to_vec());
 
-    info!(
+    /*info!(
         "TextRequest hdr={:?} data={}",
         builder.header,
         hex::encode(&builder.data)
-    );
+    );*/
 
     let itt = builder.header.get_initiator_task_tag();
 
