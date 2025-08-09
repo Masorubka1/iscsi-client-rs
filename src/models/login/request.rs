@@ -92,7 +92,8 @@ impl LoginRequest {
     }
 }
 
-/// Builder for an iSCSI **Login Request** PDU (opcode `LoginReq` / BHS byte0 = I|0x03).
+/// Builder for an iSCSI **Login Request** PDU (opcode `LoginReq` / BHS byte0 =
+/// I|0x03).
 ///
 /// This helper constructs the 48-byte Login BHS and lets you set the
 /// connection stage flags, version fields, and sequence counters. The actual
@@ -101,13 +102,15 @@ impl LoginRequest {
 /// `PDUWithData::append_data(...)`.
 ///
 /// # What it sets
-/// - **Opcode/Immediate**: `new()` creates a LoginReq with the **I** (Immediate) bit set.
+/// - **Opcode/Immediate**: `new()` creates a LoginReq with the **I**
+///   (Immediate) bit set.
 /// - **Transit/Stages**:
 ///   - `transit()` sets the **T** bit (request a stage transition).
 ///   - `csg(Stage)` selects the **current stage** (CSG bits).
 ///   - `nsg(Stage)` selects the **next stage** (NSG bits).
 /// - **Versions**: `versions(max, min)` set *VersionMax*/*VersionMin*.
-/// - **Session/Conn IDs**: `initiator_task_tag(…)`, `connection_id(…)`, `isid(…)`.
+/// - **Session/Conn IDs**: `initiator_task_tag(…)`, `connection_id(…)`,
+///   `isid(…)`.
 /// - **Sequencing**: `cmd_sn(…)`, `exp_stat_sn(…)`.
 ///
 /// # Typical flow

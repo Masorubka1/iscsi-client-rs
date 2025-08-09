@@ -1,4 +1,3 @@
-
 pub enum Transition<S, R> {
     Next(S, R),
     Stay(R),

@@ -95,10 +95,11 @@ impl NopOutRequest {
 /// - **Initiator/Target Task Tags**:
 ///   - `initiator_task_tag(..)` sets **ITT** (used to match the reply).
 ///   - `target_task_tag(..)` sets **TTT**:
-///     - For a *solicited ping*, use `NopOutRequest::DEFAULT_TAG` (`0xFFFF_FFFF`)
-///       to ask the target to generate a NOP-In.
+///     - For a *solicited ping*, use `NopOutRequest::DEFAULT_TAG`
+///       (`0xFFFF_FFFF`) to ask the target to generate a NOP-In.
 ///     - For a *response to a target’s NOP-In*, copy the TTT you received.
-/// - **Sequencing**: `cmd_sn(..)` and `exp_stat_sn(..)` as usual for the session.
+/// - **Sequencing**: `cmd_sn(..)` and `exp_stat_sn(..)` as usual for the
+///   session.
 /// - **LUN**: `lun(..)` accepts an 8-byte encoded LUN (often zero for NOPs).
 /// - **Digests**: `with_header_digest()` / `with_data_digest()` opt into
 ///   including CRC32C digests when your connection logic honors negotiated

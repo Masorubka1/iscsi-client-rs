@@ -182,8 +182,8 @@ impl BasicHeaderSegment for ScsiDataOut {
 /// - **DataSegmentLength** equal to the current chunk size (without padding).
 ///
 /// Target Transfer Tag (**TTT**) semantics:
-/// - For **unsolicited / initial burst** Data-Out PDUs, use
-///   `DEFAULT_TTT = 0xFFFF_FFFF`.
+/// - For **unsolicited / initial burst** Data-Out PDUs, use `DEFAULT_TTT =
+///   0xFFFF_FFFF`.
 /// - For **R2T-driven** transfers, set the TTT received in the R2T PDU.
 ///
 /// You can also request HeaderDigest and/or DataDigest emission; these

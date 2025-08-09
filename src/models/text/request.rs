@@ -92,7 +92,8 @@ impl TextRequest {
 ///
 /// # What you can set
 /// - **Immediate bit**: `immediate()` sets the *I* flag in byte 0.
-/// - **Sequencing**: `cmd_sn(..)` and `exp_stat_sn(..)` as usual for the session.
+/// - **Sequencing**: `cmd_sn(..)` and `exp_stat_sn(..)` as usual for the
+///   session.
 /// - **Tags**: `initiator_task_tag(..)` and `target_task_tag(..)`.
 /// - **LUN**: `lun(..)` accepts an 8-byte encoded LUN (often zero for TEXT).
 /// - **Digests**: `with_header_digest()` / `with_data_digest()` opt into

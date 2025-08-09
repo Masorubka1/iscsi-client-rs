@@ -90,8 +90,8 @@ impl ScsiCommandRequest {
 /// and, when needed, request header/data digests for serialization.
 ///
 /// Notes & conventions:
-/// - The 16-byte **CDB** is copied verbatim into the header. For READ(10)
-///   or WRITE(10) you typically pad your 10-byte CDB to 16 bytes.
+/// - The 16-byte **CDB** is copied verbatim into the header. For READ(10) or
+///   WRITE(10) you typically pad your 10-byte CDB to 16 bytes.
 /// - **expected_data_transfer_length** is the total payload you expect to move:
 ///   * For **Data-Out** (WRITE) it should match the number of bytes you will
 ///     actually send in subsequent Data-Out PDUs (unsolicited or per R2T).
@@ -99,8 +99,8 @@ impl ScsiCommandRequest {
 ///     and is used for residual accounting by the target.
 /// - **Immediate (I)** sets bit 6 in the opcode byte. Whether the target
 ///   processes immediate commands depends on negotiated parameters.
-/// - **TaskAttribute** encodes SIMPLE/ORDERED/HEAD_OF_QUEUE/ACA into the
-///   low bits of the flags field (per SPC/SAM).
+/// - **TaskAttribute** encodes SIMPLE/ORDERED/HEAD_OF_QUEUE/ACA into the low
+///   bits of the flags field (per SPC/SAM).
 /// - Enabling **Header/Data Digest** here only toggles intent for the
 ///   serialization layer; it does not modify BHS fields directly.
 #[derive(Debug, Default, PartialEq)]
