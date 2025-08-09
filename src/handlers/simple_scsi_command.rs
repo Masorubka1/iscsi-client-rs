@@ -26,16 +26,10 @@ use crate::{
 ///
 /// The first 10 bytes follow SPC-4 §6.13; the remaining six bytes are
 /// zero-padding because iSCSI always carries a 16-byte CDB field.
-pub fn build_read10(
-    cdb: &mut [u8; 16],
-    lba: u32,
-    blocks: u16, // 16-bit per the READ(10) spec
-    flags: u8,
-    control: u8,
-) {
-    cdb.fill(0); // zero-pad bytes 10-15 up-front
+pub fn build_read10(cdb: &mut [u8; 16], lba: u32, blocks: u16, flags: u8, control: u8) {
+    cdb.fill(0);
     cdb[0] = 0x28; // READ(10) opcode
-    cdb[1] = flags; // RDPROTECT / DPO / FUA
+    cdb[1] = flags;
     cdb[2..6].copy_from_slice(&lba.to_be_bytes());
     cdb[6] = 0; // Group Number (usually 0)
     cdb[7..9].copy_from_slice(&blocks.to_be_bytes());
@@ -93,11 +87,11 @@ pub async fn send_scsi_read(
 /// Build a padded 16-byte SCSI WRITE(10) CDB.
 ///
 /// * `lba`     – 32-bit Logical-Block Address
-/// * `blocks`  – число последовательных блоков (u16)
-/// * `flags`   – WRPROTECT/DPO/FUA (биты 6:4,3,1)
-/// * `control` – байт управления
+/// * `blocks`  – amount sequenced numbers (u16)
+/// * `flags`   – WRPROTECT/DPO/FUA (bits 6:4,3,1)
+/// * `control` – control bit
 pub fn build_write10(cdb: &mut [u8; 16], lba: u32, blocks: u16, flags: u8, control: u8) {
-    cdb.fill(0); // обнуляем хвост (байты 10-15)
+    cdb.fill(0);
     cdb[0] = 0x2A; // WRITE(10)
     cdb[1] = flags;
     cdb[2..6].copy_from_slice(&lba.to_be_bytes());
@@ -123,7 +117,6 @@ pub async fn send_scsi_write(
     cdb: &[u8; 16],
     write_data: Vec<u8>,
 ) -> Result<PDUWithData<ScsiCommandResponse>> {
-    // pull our sequence numbers
     let cmd_sn1 = cmd_sn.fetch_add(1, Ordering::SeqCst);
     let exp_stat_sn1 = exp_stat_sn.load(Ordering::SeqCst);
     let itt = initiator_task_tag.fetch_add(1, Ordering::SeqCst);
@@ -154,7 +147,6 @@ pub async fn send_scsi_write(
     if hdr.response != ResponseCode::CommandCompleted {
         bail!("SCSI WRITE failed: response code = {:?}", hdr.response);
     }
-    // only if status==GOOD do we succeed
     if hdr.status != ScsiStatus::Good {
         let sense = SenseData::parse(&rsp.data)
             .map_err(|e| anyhow!("failed parsing sense data: {}", e))?;

@@ -54,6 +54,7 @@ impl ScsiCommandResponse {
         buf
     }
 
+    /// Deserialize BHS from 48 bytes
     pub fn from_bhs_bytes(buf: &[u8]) -> Result<Self> {
         if buf.len() < HEADER_LEN {
             bail!("buffer too small: {} < {}", buf.len(), HEADER_LEN);

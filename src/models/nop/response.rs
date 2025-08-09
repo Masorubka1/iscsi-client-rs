@@ -54,7 +54,6 @@ impl NopInResponse {
         if opcode.opcode != Opcode::NopIn {
             bail!("NopIn invalid opcode: {:?}", opcode.opcode);
         }
-        // buf[1..4] -- reserved
         let reserved1 = {
             let mut tmp = [0u8; 3];
             tmp[0] = 0b0100_0000;

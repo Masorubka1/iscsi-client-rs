@@ -34,6 +34,7 @@ where F: Future<Output = std::io::Result<T>> {
     }
 }
 
+#[derive(Debug)]
 struct Pending {
     first_hdr: [u8; HEADER_LEN],
     data: Vec<u8>,
@@ -43,6 +44,7 @@ struct Pending {
 ///
 /// Manages sending requests (PDUs) and receiving responses by
 /// framing based on header information.
+#[derive(Debug)]
 pub struct Connection {
     reader: Mutex<OwnedReadHalf>,
     writer: Mutex<OwnedWriteHalf>,

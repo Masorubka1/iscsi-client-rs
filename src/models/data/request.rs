@@ -12,8 +12,7 @@ use crate::{
 bitflags! {
     #[derive(Default, Debug, PartialEq)]
     pub struct DataOutFlags: u8 {
-        const FINAL = 1 << 7; // Final
-        // bits 6..0 зарезервированы (0)
+        const FINAL = 0b1000_0000;
     }
 }
 
@@ -26,7 +25,7 @@ impl TryFrom<u8> for DataOutFlags {
     }
 }
 
-/// BHS для SCSI Data-Out (opcode 0x26)
+/// BHS for SCSI Data-Out (opcode 0x26)
 #[repr(C)]
 #[derive(Debug, Default, PartialEq)]
 pub struct ScsiDataOut {
@@ -168,14 +167,28 @@ impl BasicHeaderSegment for ScsiDataOut {
     }
 }
 
-/// Билдер для SCSI Data-Out (opcode 0x26).
+/// Builder for **SCSI Data-Out** PDUs (opcode `0x26`).
 ///
-/// Делит payload на чанки по MaxRecvDataSegmentLength (MRDSL) и для каждого
-/// чанка:
-/// - выставляет F=1 только на последнем чанке,
-/// - задаёт DataSN по порядку (start_data_sn + i),
-/// - ставит BufferOffset как суммарный размер уже отправленных чанков,
-/// - DataSegmentLength = размер текущего чанка (без padding).
+/// This helper prepares the Basic Header Segment (BHS) for Data-Out and
+/// lets the higher layer stream an arbitrary payload split into chunks
+/// that respect the negotiated **MaxRecvDataSegmentLength (MRDSL)**.
+///
+/// When the payload is later converted into wire frames (by your
+/// `ToBytes`/`Builder` implementation), each chunk will be emitted as a
+/// separate Data-Out PDU with:
+/// - **F (Final) = 1** only on the **last** chunk,
+/// - **DataSN** increasing sequentially per PDU,
+/// - **BufferOffset** set to the cumulative number of bytes already sent,
+/// - **DataSegmentLength** equal to the current chunk size (without padding).
+///
+/// Target Transfer Tag (**TTT**) semantics:
+/// - For **unsolicited / initial burst** Data-Out PDUs, use `DEFAULT_TTT =
+///   0xFFFF_FFFF`.
+/// - For **R2T-driven** transfers, set the TTT received in the R2T PDU.
+///
+/// You can also request HeaderDigest and/or DataDigest emission; these
+/// flags only affect how the final frames are serialized (they do not
+/// modify the BHS fields directly).
 #[derive(Debug, Default)]
 pub struct ScsiDataOutBuilder {
     pub header: ScsiDataOut,
@@ -185,6 +198,7 @@ pub struct ScsiDataOutBuilder {
 }
 
 impl ScsiDataOutBuilder {
+    /// Default Target Transfer Tag for unsolicited/initial-burst Data-Out.
     pub const DEFAULT_TTT: u32 = 0xFFFF_FFFF;
 
     pub fn new() -> Self {
@@ -201,33 +215,38 @@ impl ScsiDataOutBuilder {
         }
     }
 
+    /// Set the 8-byte LUN to which data is written.
     pub fn lun(mut self, lun: &[u8; 8]) -> Self {
         self.header.lun.copy_from_slice(lun);
         self
     }
 
+    /// Set Initiator Task Tag (ITT) identifying this stream.
     pub fn initiator_task_tag(mut self, itt: u32) -> Self {
         self.header.initiator_task_tag = itt;
         self
     }
 
-    /// Для unsolicited/initial burst — обычно 0xFFFF_FFFF.
-    /// Для R2T — ставим TTT из R2T.
+    /// Set Target Transfer Tag (TTT). Use `DEFAULT_TTT` for unsolicited
+    /// bursts, or the TTT provided in an R2T for solicited transfers.
     pub fn target_transfer_tag(mut self, ttt: u32) -> Self {
         self.header.target_transfer_tag = ttt;
         self
     }
 
+    /// Set the expected StatusSN (ExpStatSN).
     pub fn exp_stat_sn(mut self, sn: u32) -> Self {
         self.header.exp_stat_sn = sn;
         self
     }
 
+    /// Request emission of a HeaderDigest (e.g., CRC32C) after the header.
     pub fn with_header_digest(mut self) -> Self {
         self.enable_header_digest = true;
         self
     }
 
+    /// Request emission of a DataDigest after each Data Segment.
     pub fn with_data_digest(mut self) -> Self {
         self.enable_data_digest = true;
         self

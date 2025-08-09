@@ -92,7 +92,31 @@ impl LoginRequest {
     }
 }
 
-/// Builder Login Request
+/// Builder for an iSCSI **Login Request** PDU (opcode `LoginReq` / BHS byte0 =
+/// I|0x03).
+///
+/// This helper constructs the 48-byte Login BHS and lets you set the
+/// connection stage flags, version fields, and sequence counters. The actual
+/// login key–value pairs (e.g. `AuthMethod=…\0`, `HeaderDigest=…\0`, …) go
+/// into the **Data Segment** and should be appended separately via
+/// `PDUWithData::append_data(...)`.
+///
+/// # What it sets
+/// - **Opcode/Immediate**: `new()` creates a LoginReq with the **I**
+///   (Immediate) bit set.
+/// - **Transit/Stages**:
+///   - `transit()` sets the **T** bit (request a stage transition).
+///   - `csg(Stage)` selects the **current stage** (CSG bits).
+///   - `nsg(Stage)` selects the **next stage** (NSG bits).
+/// - **Versions**: `versions(max, min)` set *VersionMax*/*VersionMin*.
+/// - **Session/Conn IDs**: `initiator_task_tag(…)`, `connection_id(…)`,
+///   `isid(…)`.
+/// - **Sequencing**: `cmd_sn(…)`, `exp_stat_sn(…)`.
+///
+/// # Typical flow
+/// 1. **Security → Operational** with authentication keys in Data Segment
+/// 2. (Optionally continue within Security for CHAP exchange)
+/// 3. **Operational → FullFeature** to finish login
 #[derive(Debug)]
 pub struct LoginRequestBuilder {
     pub header: LoginRequest,
