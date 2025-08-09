@@ -8,6 +8,7 @@ use crate::models::{
     login::{request::LoginRequest, response::LoginResponse},
     nop::{request::NopOutRequest, response::NopInResponse},
     opcode::{BhsOpcode, Opcode},
+    ready_2_transfer::response::ReadyToTransfer,
     reject::response::RejectPdu,
     text::{request::TextRequest, response::TextResponse},
 };
@@ -25,6 +26,7 @@ pub enum Pdu {
     LoginResponse,
     ScsiDataIn,
     RejectPdu,
+    ReadyToTransfer,
 }
 
 impl Pdu {
@@ -71,6 +73,10 @@ impl Pdu {
             Opcode::ScsiDataIn => {
                 let req = ScsiDataIn::from_bhs_bytes(bytes)?;
                 Ok(Pdu::ScsiDataIn(req))
+            },
+            Opcode::ReadyToTransfer => {
+                let req = ReadyToTransfer::from_bhs_bytes(bytes)?;
+                Ok(Pdu::ReadyToTransfer(req))
             },
             other => bail!("unsupported opcode: {:?}", other),
         }

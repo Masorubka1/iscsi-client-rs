@@ -1,5 +1,4 @@
 use anyhow::{Result, bail};
-use tracing::info;
 
 use crate::{
     cfg::config::{Config, ToLoginKeys},
@@ -38,7 +37,7 @@ pub async fn login_plain(
         builder.append_data(key.into_bytes());
     }
 
-    info!("{:?}", builder.header);
+    //info!("{:?}", builder.header);
 
     let itt = builder.header.get_initiator_task_tag();
 

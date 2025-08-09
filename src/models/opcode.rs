@@ -67,6 +67,7 @@ pub enum Opcode {
     TextResp = 0x24,
     ScsiDataIn = 0x25,
     LogoutResp = 0x26,
+    ReadyToTransfer = 0x31,
     /* 0x27–0x3E reserved */
     Reject = 0x3F,
 }
@@ -111,6 +112,7 @@ impl TryFrom<u8> for BhsOpcode {
             0x25 => Opcode::ScsiDataIn,
             0x26 => Opcode::LogoutResp,
             0x3F => Opcode::Reject,
+            0x31 => Opcode::ReadyToTransfer,
             other => return Err(UnknownOpcode(other)),
         };
         Ok(Self { flags, opcode })

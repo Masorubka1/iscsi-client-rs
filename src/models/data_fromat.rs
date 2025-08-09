@@ -1,14 +1,17 @@
-use std::any::type_name;
+use std::{any::type_name, fmt};
 
 use anyhow::{Context, Result, bail};
 
 use crate::{
     cfg::config::Config,
     client::pdu_connection::FromBytes,
-    models::common::{BasicHeaderSegment, Builder, SendingData},
+    models::{
+        common::{BasicHeaderSegment, Builder, SendingData},
+        data::sense_data::SenseData,
+        opcode::Opcode,
+    },
 };
 
-#[derive(Debug)]
 pub struct PDUWithData<T> {
     pub header: T,
     pub aditional_heder: Vec<u8>,
@@ -199,5 +202,73 @@ where T: BasicHeaderSegment + FromBytes
             data,
             data_digest,
         })
+    }
+}
+
+struct HexPreview<'a>(&'a [u8]);
+
+impl<'a> fmt::Debug for HexPreview<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        const MAX: usize = 128;
+        let slice = if self.0.len() > MAX {
+            &self.0[..MAX]
+        } else {
+            self.0
+        };
+        let mut first = true;
+        write!(f, "\"")?;
+        for b in slice {
+            if !first {
+                write!(f, " ")?;
+            }
+            write!(f, "{b:02x}")?;
+            first = false;
+        }
+        if self.0.len() > MAX {
+            write!(f, " ... (+{} bytes)", self.0.len() - MAX)?;
+        }
+        write!(f, "\"")
+    }
+}
+
+impl<T> fmt::Debug for PDUWithData<T>
+where T: BasicHeaderSegment + SendingData + FromBytes + fmt::Debug
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut ds = f.debug_struct("PDUWithData");
+        ds.field("header", &self.header);
+
+        let hdr_data_len = self.header.get_data_length_bytes();
+        ds.field("data_len_hdr", &hdr_data_len)
+            .field("data_len", &self.data.len());
+
+        match self.header_digest {
+            Some(hd) => ds.field("header_digest", &format_args!("{hd:#010x}")),
+            None => ds.field("header_digest", &r"None"),
+        };
+
+        match self.data_digest {
+            Some(dd) => ds.field("data_digest", &format_args!("{dd:#010x}")),
+            None => ds.field("data_digest", &r"None"),
+        };
+
+        if self.header.get_opcode().opcode == Opcode::ScsiCommandResp
+            && !self.data.is_empty()
+        {
+            match SenseData::parse(&self.data) {
+                Ok(sense) => {
+                    ds.field("sense", &sense);
+                },
+                Err(_e) => {
+                    ds.field("data_preview", &HexPreview(&self.data));
+                },
+            }
+        } else if !self.data.is_empty() {
+            ds.field("data_preview", &HexPreview(&self.data));
+        } else {
+            ds.field("data", &r"[]");
+        }
+
+        ds.finish()
     }
 }

@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::{fmt::Debug, sync::Arc, time::Duration};
 
 use anyhow::{Result, anyhow, bail};
 use dashmap::{DashMap, Entry};
@@ -23,7 +23,7 @@ use crate::{
     },
 };
 
-const IO_TIMEOUT: Duration = Duration::from_secs(3);
+const IO_TIMEOUT: Duration = Duration::from_secs(10);
 
 async fn io_with_timeout<F, T>(label: &'static str, fut: F) -> Result<T>
 where F: Future<Output = std::io::Result<T>> {
@@ -100,7 +100,7 @@ impl Connection {
     pub async fn send_request(
         &self,
         initiator_task_tag: u32,
-        req: impl ToBytes<Header = Vec<u8>>,
+        req: impl ToBytes<Header = Vec<u8>> + Debug,
     ) -> Result<()> {
         if self.sending.contains_key(&initiator_task_tag) {
             bail!(
@@ -112,7 +112,7 @@ impl Connection {
         let (tx, rx) = oneshot::channel();
         self.sending.insert(initiator_task_tag, tx);
         self.reciver.insert(initiator_task_tag, rx);
-
+        info!("{req:?}");
         if let Err(e) = self.write(req).await {
             let _ = self.sending.remove(&initiator_task_tag);
             let _ = self.reciver.remove(&initiator_task_tag);
@@ -122,7 +122,7 @@ impl Connection {
         Ok(())
     }
 
-    pub async fn read_response<T: BasicHeaderSegment + FromBytes>(
+    pub async fn read_response<T: BasicHeaderSegment + FromBytes + Debug>(
         &self,
         initiator_task_tag: u32,
     ) -> Result<PDUWithData<T>> {
@@ -136,7 +136,9 @@ impl Connection {
         })?;
 
         let pdu_header = T::from_bhs_bytes(&first_hdr)?;
-        PDUWithData::<T>::parse(pdu_header, data.as_slice(), false, false)
+        let tmp = PDUWithData::<T>::parse(pdu_header, data.as_slice(), false, false);
+        info!("{tmp:?}");
+        tmp
     }
 
     async fn read_loop(self: Arc<Self>) -> Result<()> {

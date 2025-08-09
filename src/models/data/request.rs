@@ -45,7 +45,6 @@ pub struct ScsiDataOut {
 }
 
 impl ScsiDataOut {
-    #[inline]
     pub fn to_bhs_bytes(&self) -> [u8; HEADER_LEN] {
         let mut buf = [0u8; HEADER_LEN];
         buf[0] = (&self.opcode).into();
@@ -237,6 +236,19 @@ impl ScsiDataOutBuilder {
     /// Set the expected StatusSN (ExpStatSN).
     pub fn exp_stat_sn(mut self, sn: u32) -> Self {
         self.header.exp_stat_sn = sn;
+        self
+    }
+
+    /// Set the **DataSN** for this Data-Out PDU.
+    pub fn data_sn(mut self, data_sn: u32) -> Self {
+        self.header.data_sn = data_sn;
+        self
+    }
+
+    /// Set the **BufferOffset** (in **bytes**) of the first byte carried by
+    /// this Data-Out PDU within the overall WRITE command payload.
+    pub fn buffer_offset(mut self, buffer_offset: u32) -> Self {
+        self.header.buffer_offset = buffer_offset;
         self
     }
 

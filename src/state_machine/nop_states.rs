@@ -7,7 +7,6 @@ use std::{
 };
 
 use anyhow::{Result, bail};
-use tracing::info;
 
 use crate::{
     client::client::Connection,
@@ -71,7 +70,6 @@ impl<'a> NopCtx<'a> {
             .immediate();
 
         let builder: PDUWithData<NopOutRequest> = PDUWithData::from_header(header.header);
-        info!("[NopOut]: {builder:?}");
         self.conn.send_request(itt, builder).await?;
         Ok(NopStatus {
             itt,
@@ -87,10 +85,7 @@ impl<'a> NopCtx<'a> {
             exp_stat_sn: _,
         } = exp_status;
         match self.conn.read_response::<NopInResponse>(itt).await {
-            Ok(rsp) => {
-                info!("[NopIn]: {rsp:?}");
-                Ok(())
-            },
+            Ok(_rsp) => Ok(()),
             Err(other) => bail!("got unexpected PDU: {:?}", other.to_string()),
         }
     }

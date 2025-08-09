@@ -46,7 +46,6 @@ fn test_read_pdu_build() -> Result<()> {
         .expected_data_transfer_length(512u32)
         .scsi_descriptor_block(&cdb_read)
         .read()
-        .immediate()
         .task_attribute(TaskAttribute::Simple);
 
     let mut builder =

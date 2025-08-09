@@ -9,12 +9,13 @@ use iscsi_client_rs::{
     client::client::Connection,
     handlers::{
         login_simple::login_plain,
-        simple_scsi_command::{
-            build_read10, build_write10, send_scsi_read, send_scsi_write,
-        },
+        simple_scsi_command::{build_read10, build_write10, send_scsi_read},
     },
     models::nop::request::NopOutRequest,
-    state_machine::nop_states::{Idle, NopCtx, NopStates, run_nop},
+    state_machine::{
+        nop_states::{Idle, NopCtx, NopStates, run_nop},
+        write_states::{IssueCmd, WriteCtx, WriteStates, run_write},
+    },
     utils::generate_isid,
 };
 use tokio::{main, time};
@@ -36,7 +37,6 @@ async fn main() -> Result<()> {
     let isid = [0, 2, 61, 0, 0, 14];
 
     let login_rsp = login_plain(&conn, &config, isid).await?;
-    info!("Res1: {login_rsp:?}");
 
     time::sleep(Duration::from_millis(2000)).await;
 
@@ -50,7 +50,7 @@ async fn main() -> Result<()> {
 
     let mut ctx = NopCtx::new(conn.clone(), lun, &itt, &cmd_sn, &exp_stat_sn, ttt);
 
-    while itt.load(Ordering::SeqCst) != 10 {
+    while itt.load(Ordering::SeqCst) != 2 {
         run_nop(NopStates::Idle(Idle), &mut ctx).await?;
     }
 
@@ -67,24 +67,105 @@ async fn main() -> Result<()> {
 
     // —————— WRITE ——————
     {
-        let sector_size = 512u32;
-
-        let blocks = 1u16;
-        let payload = vec![0x01; (blocks as u32 * sector_size) as usize];
-
         let mut cdb = [0u8; 16];
-        build_write10(&mut cdb, 0x1234, blocks, 0, 0);
+        let lba: u32 = 0x1234;
+        let blocks: u16 = 1;
+        build_write10(&mut cdb, lba, blocks, 0, 0);
 
-        match send_scsi_write(&conn, lun, &itt, &cmd_sn, &exp_stat_sn, &cdb, payload)
+        let sector_size = 512usize;
+        let payload = vec![0x04; blocks as usize * sector_size];
+
+        let mut ctx = WriteCtx {
+            conn: conn.clone(),
+            lun,
+            itt: &itt,
+            cmd_sn: &cmd_sn,
+            exp_stat_sn: &exp_stat_sn,
+
+            initial_r2t: false,
+            immediate_data: false,
+
+            cdb,
+            payload: payload.clone(),
+        };
+
+        time::sleep(Duration::from_millis(100)).await;
+
+        let status = run_write(WriteStates::IssueCmd(IssueCmd), &mut ctx).await;
+        info!("First state machine write expected Failed: {status:?}");
+
+        let mut ctx = WriteCtx {
+            conn: conn.clone(),
+            lun,
+            itt: &itt,
+            cmd_sn: &cmd_sn,
+            exp_stat_sn: &exp_stat_sn,
+
+            initial_r2t: false,
+            immediate_data: false,
+
+            cdb,
+            payload: payload.clone(),
+        };
+
+        time::sleep(Duration::from_millis(100)).await;
+
+        let status = run_write(WriteStates::IssueCmd(IssueCmd), &mut ctx).await?;
+        println!(
+            "Second WRITE done: itt={}, bytes_sent={}/{} next_data_sn={}",
+            status.itt, status.sent_bytes, status.total_bytes, status.next_data_sn
+        );
+
+        time::sleep(Duration::from_millis(100)).await;
+    }
+
+    // READ
+    {
+        let mut cdb_read = [0u8; 16];
+        build_read10(&mut cdb_read, 0x1234, 1, 0, 0);
+        match send_scsi_read(&conn, lun, &itt, &cmd_sn, &exp_stat_sn, 512, &cdb_read)
             .await
         {
             Ok(resp) => {
-                info!("[WRITE] resp={resp:?}");
+                println!("[IO] READ completed: resp={resp:?}");
             },
             Err(e) => {
-                eprintln!("[WRITE] rejected or failed: {e}");
+                eprintln!("[IO] READ failed: {e}");
             },
+        }
+        time::sleep(Duration::from_millis(100)).await;
+    }
+
+    {
+        let mut cdb = [0u8; 16];
+        let lba: u32 = 0x1234;
+        let blocks: u16 = 1;
+        build_write10(&mut cdb, lba, blocks, 0, 0);
+
+        let sector_size = 512usize;
+        let payload = vec![0x05; blocks as usize * sector_size];
+
+        let mut ctx = WriteCtx {
+            conn: conn.clone(),
+            lun,
+            itt: &itt,
+            cmd_sn: &cmd_sn,
+            exp_stat_sn: &exp_stat_sn,
+
+            initial_r2t: false,
+            immediate_data: false,
+
+            cdb,
+            payload: payload.clone(),
         };
+
+        time::sleep(Duration::from_millis(100)).await;
+
+        let status = run_write(WriteStates::IssueCmd(IssueCmd), &mut ctx).await?;
+        println!(
+            "Third WRITE done: itt={}, bytes_sent={}/{} next_data_sn={}",
+            status.itt, status.sent_bytes, status.total_bytes, status.next_data_sn
+        );
     }
 
     // READ
