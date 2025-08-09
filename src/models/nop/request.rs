@@ -80,7 +80,36 @@ impl NopOutRequest {
     }
 }
 
-/// Builder Login Request
+/// Builder for an iSCSI **NOP-Out** PDU (opcode `NopOut`).
+///
+/// NOP-Out is a lightweight “ping/keep-alive” PDU used to verify liveness,
+/// measure round-trip time, or provoke a NOP-In from the target. It carries
+/// no SCSI semantics and **does not use F/C (Final/Continue) bits**.
+///
+/// This builder prepares the 48-byte BHS; if you want to attach an optional
+/// data segment (rare for NOPs), wrap the header with `PDUWithData` and call
+/// `append_data(...)`.
+///
+/// # What you can set
+/// - **Immediate bit**: `immediate()` sets the *I* flag in byte 0.
+/// - **Initiator/Target Task Tags**:
+///   - `initiator_task_tag(..)` sets **ITT** (used to match the reply).
+///   - `target_task_tag(..)` sets **TTT**:
+///     - For a *solicited ping*, use `NopOutRequest::DEFAULT_TAG` (`0xFFFF_FFFF`)
+///       to ask the target to generate a NOP-In.
+///     - For a *response to a target’s NOP-In*, copy the TTT you received.
+/// - **Sequencing**: `cmd_sn(..)` and `exp_stat_sn(..)` as usual for the session.
+/// - **LUN**: `lun(..)` accepts an 8-byte encoded LUN (often zero for NOPs).
+/// - **Digests**: `with_header_digest()` / `with_data_digest()` opt into
+///   including CRC32C digests when your connection logic honors negotiated
+///   `HeaderDigest` / `DataDigest` settings.
+///
+/// # Typical patterns
+/// - **Initiator ping** (solicit a NOP-In):
+///   - Set `TTT = 0xFFFF_FFFF`, pick a fresh ITT, send NOP-Out, wait for NOP-In
+///     with the same ITT.
+/// - **Reply to target’s NOP-In**:
+///   - Echo back the **TTT** you received in NOP-In, send NOP-Out.
 #[derive(Debug, Default)]
 pub struct NopOutRequestBuilder {
     pub header: NopOutRequest,

@@ -40,22 +40,21 @@ impl TryFrom<u8> for DataInFlags {
 #[repr(C)]
 #[derive(Debug, Default, PartialEq)]
 pub struct ScsiDataIn {
-    pub opcode: BhsOpcode,            // byte 0  (должен быть 0x25)
-    pub flags: DataInFlags,           // byte 1  (F,A,0,0,0,O,U,S)
-    pub reserved2: u8,                // byte 2  (reserved)
-    pub status_or_rsvd: u8,           // byte 3  (SCSI Status, если S=1; иначе 0)
-    pub total_ahs_length: u8,         // byte 4  (кол-во 4-байтных слов AHS)
-    pub data_segment_length: [u8; 3], // bytes 5..7
-    pub lun: [u8; 8],                 /* bytes 8..15  (LUN или reserved; при A=1
-                                       * обязателен) */
-    pub initiator_task_tag: u32,  // bytes 16..19
-    pub target_transfer_tag: u32, // bytes 20..23 (TTT или 0xffffffff)
-    pub stat_sn_or_rsvd: u32,     // bytes 24..27 (StatSN, если S=1; иначе 0)
-    pub exp_cmd_sn: u32,          // bytes 28..31
-    pub max_cmd_sn: u32,          // bytes 32..35
-    pub data_sn: u32,             // bytes 36..39
-    pub buffer_offset: u32,       // bytes 40..43
-    pub residual_count: u32,      // bytes 44..47 (валиден только при S=1; иначе 0)
+    pub opcode: BhsOpcode,            // 0  (0x25)
+    pub flags: DataInFlags,           // 1  (F,A,0,0,0,O,U,S)
+    pub reserved2: u8,                // 2  (reserved)
+    pub status_or_rsvd: u8,           // 3  (SCSI Status, if S=1; else 0)
+    pub total_ahs_length: u8,         // 4
+    pub data_segment_length: [u8; 3], // 5..7
+    pub lun: [u8; 8],                 // 8..15  (LUN or reserved; if A=1 must present)
+    pub initiator_task_tag: u32,      // 16..19
+    pub target_transfer_tag: u32,     // 20..23 (TTT or 0xffffffff)
+    pub stat_sn_or_rsvd: u32,         // 24..27 (StatSN, if S=1; else 0)
+    pub exp_cmd_sn: u32,              // 28..31
+    pub max_cmd_sn: u32,              // 32..35
+    pub data_sn: u32,                 // 36..39
+    pub buffer_offset: u32,           // 40..43
+    pub residual_count: u32,          // 44..47 (valid only if S=1; else 0)
 }
 
 impl ScsiDataIn {
@@ -171,17 +170,19 @@ impl SendingData for ScsiDataIn {
     }
 
     fn set_final_bit(&mut self) {
-        // S => F, но F можно ставить и без S
+        // S ⇒ F, but F may be set without S.
         self.flags.insert(DataInFlags::FINAL);
     }
 
     fn get_continue_bit(&self) -> bool {
+        // "Continue" is represented by the absence of the Final bit.
         !self.flags.contains(DataInFlags::FINAL)
     }
 
     fn set_continue_bit(&mut self) {
-        // снимаем Final; если был Status-present, его тоже надо убрать,
-        // потому что «S=1 ⇒ F=1» (RFC 7143 §11.8.1)
+        // Clear Final. If S (status present) was set, clear it as well,
+        // because the spec requires S=1 ⇒ F=1. Keeping S while clearing F
+        // would violate RFC 7143 §11.8.1.
         self.flags.remove(DataInFlags::FINAL);
         self.flags.remove(DataInFlags::S);
     }

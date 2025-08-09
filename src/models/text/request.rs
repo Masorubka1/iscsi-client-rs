@@ -81,7 +81,29 @@ impl TextRequest {
     }
 }
 
-/// Builder Login Request
+/// Builder for an iSCSI **Text Request** PDU (`Opcode::TextReq`).
+///
+/// Text PDUs carry key–value negotiation (e.g., `HeaderDigest=None`,
+/// `MaxRecvDataSegmentLength=…`) and other textual exchanges defined by the
+/// iSCSI spec. This builder initializes a 48-byte BHS with sensible defaults
+/// (opcode set to `TextReq`, `StageFlags::FINAL` by default, `CmdSN = 1`),
+/// and lets you fill in the sequence numbers, tags, LUN, and (optionally)
+/// enable digests.
+///
+/// # What you can set
+/// - **Immediate bit**: `immediate()` sets the *I* flag in byte 0.
+/// - **Sequencing**: `cmd_sn(..)` and `exp_stat_sn(..)` as usual for the session.
+/// - **Tags**: `initiator_task_tag(..)` and `target_task_tag(..)`.
+/// - **LUN**: `lun(..)` accepts an 8-byte encoded LUN (often zero for TEXT).
+/// - **Digests**: `with_header_digest()` / `with_data_digest()` opt into
+///   including CRC32C digests when your connection logic honors negotiated
+///   `HeaderDigest` / `DataDigest`.
+///
+/// # F/C (Final/Continue)
+/// By default the builder sets `StageFlags::FINAL`, meaning the message is
+/// complete. If you intend to split a long key/value payload across multiple
+/// Text PDUs, toggle the stage flags on `header.flags` (see `StageFlags`) so
+/// that intermediate PDUs have **CONTINUE** set and the last one has **FINAL**.
 #[derive(Debug, Default)]
 pub struct TextRequestBuilder {
     pub header: TextRequest,

@@ -65,9 +65,7 @@ impl ScsiCommandRequest {
         let exp_stat_sn = u32::from_be_bytes(buf[28..32].try_into()?);
         let mut scsi_descriptor_block = [0u8; 16];
         scsi_descriptor_block.clone_from_slice(&buf[32..48]);
-        // TODO: fix header_diggest
-        // TODO: fix additional_header_segment copy
-        // let header_digest = u32::from_be_bytes(buf[48..52].try_into()?);
+
         Ok(ScsiCommandRequest {
             opcode,
             flags,
@@ -84,7 +82,27 @@ impl ScsiCommandRequest {
     }
 }
 
-/// Builder Login Request
+/// Builder for **SCSI Command** PDUs (opcode `0x01`).
+///
+/// This helper constructs the Basic Header Segment (BHS) for a SCSI command
+/// sent over iSCSI. It lets you set the common fields (LUN, ITT, CmdSN,
+/// ExpStatSN, 16-byte CDB, task attributes, and READ/WRITE/Immediate flags)
+/// and, when needed, request header/data digests for serialization.
+///
+/// Notes & conventions:
+/// - The 16-byte **CDB** is copied verbatim into the header. For READ(10)
+///   or WRITE(10) you typically pad your 10-byte CDB to 16 bytes.
+/// - **expected_data_transfer_length** is the total payload you expect to move:
+///   * For **Data-Out** (WRITE) it should match the number of bytes you will
+///     actually send in subsequent Data-Out PDUs (unsolicited or per R2T).
+///   * For **Data-In** (READ) it announces how many bytes you expect to receive
+///     and is used for residual accounting by the target.
+/// - **Immediate (I)** sets bit 6 in the opcode byte. Whether the target
+///   processes immediate commands depends on negotiated parameters.
+/// - **TaskAttribute** encodes SIMPLE/ORDERED/HEAD_OF_QUEUE/ACA into the
+///   low bits of the flags field (per SPC/SAM).
+/// - Enabling **Header/Data Digest** here only toggles intent for the
+///   serialization layer; it does not modify BHS fields directly.
 #[derive(Debug, Default, PartialEq)]
 pub struct ScsiCommandRequestBuilder {
     pub header: ScsiCommandRequest,

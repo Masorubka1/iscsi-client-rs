@@ -1,5 +1,5 @@
 use std::{
-    sync::{Arc, atomic::AtomicU32},
+    sync::atomic::{AtomicU32, Ordering},
     time::Duration,
 };
 
@@ -9,12 +9,12 @@ use iscsi_client_rs::{
     client::client::Connection,
     handlers::{
         login_simple::login_plain,
-        nop_handler::send_nop,
         simple_scsi_command::{
             build_read10, build_write10, send_scsi_read, send_scsi_write,
         },
     },
     models::nop::request::NopOutRequest,
+    state_machine::nop_states::{Idle, NopCtx, NopStates, run_nop},
     utils::generate_isid,
 };
 use tokio::{main, time};
@@ -28,7 +28,7 @@ async fn main() -> Result<()> {
         .and_then(Config::load_from_file)
         .context("failed to resolve or load config")?;
 
-    let conn = Arc::new(Connection::connect(config.clone()).await?);
+    let conn = Connection::connect(config.clone()).await?;
     info!("Connected to target");
 
     let (_isid, _isid_str) = generate_isid();
@@ -43,32 +43,15 @@ async fn main() -> Result<()> {
     // seed our three counters:
     let cmd_sn = AtomicU32::new(login_rsp.header.exp_cmd_sn);
     let exp_stat_sn = AtomicU32::new(login_rsp.header.stat_sn.wrapping_add(1));
-    let itt_counter = AtomicU32::new(1);
+    let itt = AtomicU32::new(1);
     let lun = [0, 1, 0, 0, 0, 0, 0, 0];
 
     let ttt = NopOutRequest::DEFAULT_TAG;
-    // —————— NOP #1 ——————
-    match send_nop(&conn, [0u8; 8], &itt_counter, ttt, &cmd_sn, &exp_stat_sn).await {
-        Ok(resp) => {
-            info!("[NOP1] resp={resp:?}");
-        },
-        Err(e) => {
-            eprintln!("[NOP1] rejected or failed: {e}");
-            return Err(e);
-        },
-    }
 
-    time::sleep(Duration::from_millis(100)).await;
+    let mut ctx = NopCtx::new(conn.clone(), lun, &itt, &cmd_sn, &exp_stat_sn, ttt);
 
-    // —————— NOP #2 ——————
-    match send_nop(&conn, [0u8; 8], &itt_counter, ttt, &cmd_sn, &exp_stat_sn).await {
-        Ok(res) => {
-            info!("[NOP2] data={res:?}");
-        },
-        Err(e) => {
-            eprintln!("[NOP2] rejected or failed: {e}");
-            return Err(e);
-        },
+    while itt.load(Ordering::SeqCst) != 10 {
+        run_nop(NopStates::Idle(Idle), &mut ctx).await?;
     }
 
     // —————— TEXT ——————
@@ -92,16 +75,8 @@ async fn main() -> Result<()> {
         let mut cdb = [0u8; 16];
         build_write10(&mut cdb, 0x1234, blocks, 0, 0);
 
-        match send_scsi_write(
-            &conn,
-            lun,
-            &itt_counter,
-            &cmd_sn,
-            &exp_stat_sn,
-            &cdb,
-            payload,
-        )
-        .await
+        match send_scsi_write(&conn, lun, &itt, &cmd_sn, &exp_stat_sn, &cdb, payload)
+            .await
         {
             Ok(resp) => {
                 info!("[WRITE] resp={resp:?}");
@@ -116,16 +91,8 @@ async fn main() -> Result<()> {
     {
         let mut cdb_read = [0u8; 16];
         build_read10(&mut cdb_read, 0x1234, 1, 0, 0);
-        match send_scsi_read(
-            &conn,
-            lun,
-            &itt_counter,
-            &cmd_sn,
-            &exp_stat_sn,
-            512,
-            &cdb_read,
-        )
-        .await
+        match send_scsi_read(&conn, lun, &itt, &cmd_sn, &exp_stat_sn, 512, &cdb_read)
+            .await
         {
             Ok(resp) => {
                 println!("[IO] READ completed: resp={resp:?}");
