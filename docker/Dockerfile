@@ -12,6 +12,12 @@ ENV TGT_IQN=iqn.2025-08.example:disk0 \
     TGT_LUN=1 \
     TGT_PGT=1
 
+# CHAP (optional). Leave empty to disable auth.
+ENV TGT_CHAP_USER= \
+    TGT_CHAP_PASS= \
+    TGT_MUTUAL_USER= \
+    TGT_MUTUAL_PASS=
+
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 

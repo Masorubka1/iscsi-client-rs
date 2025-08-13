@@ -27,7 +27,7 @@ fn test_nop_out_minimal() -> Result<()> {
     let cfg =
         resolve_config_path("tests/config.yaml").and_then(Config::load_from_file)?;
 
-    let bytes = load_fixture("tests/fixtures/nop_out_request.hex")?;
+    let bytes = load_fixture("tests/fixtures/nop/nop_out_request.hex")?;
     let parsed_header = NopOutRequest::from_bhs_bytes(&bytes)?;
     let parsed =
         PDUWithData::<NopOutRequest>::parse(parsed_header, &bytes, false, false)?;
@@ -67,7 +67,7 @@ fn test_nop_out_minimal() -> Result<()> {
 
 #[test]
 fn test_nop_in_parse() -> Result<()> {
-    let bytes = load_fixture("tests/fixtures/nop_in_response.hex")?;
+    let bytes = load_fixture("tests/fixtures/nop/nop_in_response.hex")?;
     assert!(bytes.len() >= HEADER_LEN);
 
     let hdr = NopInResponse::from_bhs_bytes(&bytes[..HEADER_LEN])?;

@@ -83,14 +83,18 @@ impl Connection {
     /// Helper to serialize and write a PDU to the socket.
     async fn write(&self, mut req: impl ToBytes<Header = Vec<u8>>) -> Result<()> {
         let mut w = self.writer.lock().await;
-        for (out_header, out_data) in req.to_bytes(&self.cfg)? {
+        for (mut out_header, out_data) in req.to_bytes(&self.cfg)? {
             info!(
                 "Size_header: {} Size_data: {}",
                 out_header.len(),
                 out_data.len()
             );
-            io_with_timeout("write header", w.write_all(&out_header)).await?;
-            if !out_data.is_empty() {
+            if out_data.is_empty() || self.cfg.extra_data.r2t.immediate_data == "Yes" {
+                out_header.extend_from_slice(&out_data);
+                io_with_timeout("write header and data", w.write_all(&out_header))
+                    .await?;
+            } else {
+                io_with_timeout("write header", w.write_all(&out_header)).await?;
                 io_with_timeout("write data", w.write_all(&out_data)).await?;
             }
         }
