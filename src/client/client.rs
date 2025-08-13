@@ -26,9 +26,7 @@ use crate::{
 const IO_TIMEOUT: Duration = Duration::from_secs(10);
 
 async fn io_with_timeout<F, T>(label: &'static str, fut: F) -> Result<T>
-where
-    F: Future<Output = std::io::Result<T>>,
-{
+where F: Future<Output = std::io::Result<T>> {
     match timeout(IO_TIMEOUT, fut).await {
         Ok(Ok(v)) => Ok(v),
         Ok(Err(e)) => Err(e.into()),

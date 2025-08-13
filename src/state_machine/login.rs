@@ -109,7 +109,8 @@ impl From<&PDUWithData<LoginResponse>> for LastHdr {
 
 /* -------------------- helpers (CHAP) -------------------- */
 
-/// CHAP_R = MD5( one-octet CHAP_ID || secret || challenge ), HEX uppercase with prefix 0x
+/// CHAP_R = MD5( one-octet CHAP_ID || secret || challenge ), HEX uppercase with
+/// prefix 0x
 fn calc_chap_r_hex(id: u8, secret: &[u8], challenge: &[u8]) -> String {
     let mut h = Md5::new();
     h.update([id]);

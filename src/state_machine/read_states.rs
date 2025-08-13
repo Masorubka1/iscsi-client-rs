@@ -7,6 +7,8 @@ use std::{
     },
 };
 
+use anyhow::{Result, anyhow};
+
 use crate::{
     client::client::Connection,
     models::{
@@ -19,7 +21,6 @@ use crate::{
     },
     state_machine::common::{StateMachine, Transition},
 };
-use anyhow::{Result, anyhow};
 
 #[derive(Debug)]
 pub struct ReadCtx<'a> {
