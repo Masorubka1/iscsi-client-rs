@@ -14,7 +14,9 @@ login:
     target_address: "127.0.0.1:3260" # TargetAddress
 
   auth:
-    method: "none"
+    method: "chap"
+    username: "testuser"
+    secret: "secretpass"
 
   # 2) Operational Parameter Negotiation
   negotiation:

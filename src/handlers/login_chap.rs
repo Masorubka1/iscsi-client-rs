@@ -1,179 +1,179 @@
-//! CHAP login helper (RFC 1994) for the new PDU / connection layer.
-
 use anyhow::{Context, Result, bail};
-use hmac::{Hmac, Mac};
-use md5::Md5;
+use md5::{Digest, Md5};
 
 use crate::{
-    cfg::config::{AuthConfig, Config, ToLoginKeys},
+    cfg::config::{
+        AuthConfig, Config, login_keys_chap_response, login_keys_operational,
+        login_keys_security,
+    },
     client::client::Connection,
     models::{
-        common::{Builder as _, SendingData},
+        common::Builder as _,
         data_fromat::PDUWithData,
         login::{common::Stage, request::LoginRequestBuilder, response::LoginResponse},
     },
 };
 
-type HmacMd5 = Hmac<Md5>;
+fn calc_chap_r_hex(id: u8, secret: &[u8], challenge: &[u8]) -> String {
+    let mut hasher = Md5::new();
+    hasher.update([id]);
+    hasher.update(secret);
+    hasher.update(challenge);
+    let d = hasher.finalize();
+    let mut s = String::with_capacity(2 + d.len() * 2);
+    s.push_str("0x");
+    for b in d {
+        use core::fmt::Write;
+        write!(&mut s, "{b:02X}").unwrap();
+    }
+    s
+}
 
-/// ---------------------------------------------------------------------------
-/// Helper – parse the target’s CHAP challenge
-/// ---------------------------------------------------------------------------
-fn parse_chap_challenge(challenge_data: &[u8]) -> Result<(u8, Vec<u8>)> {
-    let txt = String::from_utf8(challenge_data.to_vec())?;
+fn parse_chap_challenge(txt_bytes: &[u8]) -> Result<(u8, Vec<u8>)> {
+    let txt = String::from_utf8(txt_bytes.to_vec())?;
+    let mut chap_i: Option<u8> = None;
+    let mut chap_c_hex: Option<String> = None;
 
-    let mut chap_i = None;
-    let mut chap_c = None; // ← **C**, not Cyrillic «С»
-
-    for kv in txt.split('\x00') {
+    for kv in txt.split_terminator('\x00') {
         let mut parts = kv.splitn(2, '=');
         match (parts.next(), parts.next()) {
-            (Some("CHAP_I"), Some(v)) => chap_i = Some(v.parse()?),
-            (Some("CHAP_C"), Some(hex)) => chap_c = Some(hex::decode(hex)?),
+            (Some("CHAP_I"), Some(v)) => chap_i = Some(v.trim().parse()?),
+            (Some("CHAP_C"), Some(s)) => {
+                let s = s.trim();
+                let s = s
+                    .strip_prefix("0x")
+                    .or_else(|| s.strip_prefix("0X"))
+                    .unwrap_or(s);
+                chap_c_hex = Some(s.to_string());
+            },
             _ => {},
         }
     }
 
-    Ok((
-        chap_i.context("missing CHAP_I")?,
-        chap_c.context("missing CHAP_C")?,
-    ))
+    let id = chap_i.context("missing CHAP_I")?;
+    let hex = chap_c_hex.context("missing CHAP_C")?;
+    if hex.len() % 2 != 0 {
+        bail!("CHAP_C hex length must be even, got {}", hex.len());
+    }
+    let chal =
+        hex::decode(&hex).with_context(|| format!("failed to decode CHAP_C: {hex}"))?;
+    Ok((id, chal))
 }
 
-/// ---------------------------------------------------------------------------
-/// Step 1 – request a CHAP challenge
-/// ---------------------------------------------------------------------------
-async fn chap_step1(
+async fn step_security(
     conn: &Connection,
     cfg: &Config,
     isid: [u8; 6],
-    tsih: u16,
-    task_tag: u32,
-    cmd_sn: u32,
-    exp_stat_sn: u32,
-) -> Result<(LoginResponse, Vec<u8>)> {
-    // --- build PDU ----------------------------------------------------------
-    let log_req = LoginRequestBuilder::new(isid, tsih)
+    itt: u32,
+    cid: u16,
+) -> Result<PDUWithData<LoginResponse>> {
+    let req = LoginRequestBuilder::new(isid, 0)
+        .csg(Stage::Security)
+        .nsg(Stage::Security)
+        .initiator_task_tag(itt)
+        .connection_id(cid)
+        .cmd_sn(0)
+        .exp_stat_sn(0)
+        .header;
+
+    let mut pdu = PDUWithData::from_header(req);
+    pdu.append_data(login_keys_security(cfg));
+    conn.send_request(itt, pdu).await?;
+    conn.read_response::<LoginResponse>(itt).await
+}
+
+async fn step_chap_a(
+    conn: &Connection,
+    isid: [u8; 6],
+    prev: &PDUWithData<LoginResponse>,
+    cid: u16,
+) -> Result<PDUWithData<LoginResponse>> {
+    let req = LoginRequestBuilder::new(isid, prev.header.tsih)
+        .csg(Stage::Security)
+        .nsg(Stage::Security)
+        .initiator_task_tag(prev.header.initiator_task_tag)
+        .connection_id(cid)
+        .cmd_sn(prev.header.exp_cmd_sn)
+        .exp_stat_sn(prev.header.stat_sn.wrapping_add(1))
+        .header;
+
+    let mut pdu = PDUWithData::from_header(req);
+    pdu.append_data(b"CHAP_A=5\x00".to_vec());
+    conn.send_request(prev.header.initiator_task_tag, pdu)
+        .await?;
+    conn.read_response::<LoginResponse>(prev.header.initiator_task_tag)
+        .await
+}
+
+async fn step_chap_answer(
+    conn: &Connection,
+    cfg: &Config,
+    isid: [u8; 6],
+    prev: &PDUWithData<LoginResponse>,
+    cid: u16,
+) -> Result<PDUWithData<LoginResponse>> {
+    let (id, chal) = parse_chap_challenge(&prev.data)?;
+    let (user, secret) = match &cfg.login.auth {
+        AuthConfig::Chap(c) => (c.username.as_str(), c.secret.as_bytes()),
+        AuthConfig::None => bail!("Target requires CHAP but config has no credentials"),
+    };
+    let chap_r = calc_chap_r_hex(id, secret, &chal);
+
+    let req = LoginRequestBuilder::new(isid, prev.header.tsih)
         .transit()
         .csg(Stage::Security)
         .nsg(Stage::Operational)
-        .initiator_task_tag(task_tag)
-        .connection_id(1)
-        .cmd_sn(cmd_sn)
-        .exp_stat_sn(exp_stat_sn)
+        .initiator_task_tag(prev.header.initiator_task_tag)
+        .connection_id(cid)
+        .cmd_sn(prev.header.exp_cmd_sn)
+        .exp_stat_sn(prev.header.stat_sn.wrapping_add(1))
         .header;
 
-    let mut pdu = PDUWithData::from_header(log_req);
-    pdu.append_data(b"AuthMethod=CHAP,None\x00".to_vec());
-
-    for key in cfg
-        .login
-        .to_login_keys()
-        .into_iter()
-        .chain(cfg.extra_data.to_login_keys())
-    {
-        pdu.append_data(key.into_bytes());
-    }
-
-    // --- send / receive -----------------------------------------------------
-    conn.send_request(task_tag, pdu).await?;
-    let rsp = conn.read_response::<LoginResponse>(task_tag).await?;
-
-    Ok((rsp.header, rsp.data))
+    let mut pdu = PDUWithData::from_header(req);
+    pdu.append_data(login_keys_chap_response(user, &chap_r));
+    conn.send_request(prev.header.initiator_task_tag, pdu)
+        .await?;
+    conn.read_response::<LoginResponse>(prev.header.initiator_task_tag)
+        .await
 }
 
-/// ---------------------------------------------------------------------------
-/// Step 2 – send the CHAP challenge response
-/// ---------------------------------------------------------------------------
-async fn chap_step2(
+async fn step_operational_to_ff(
     conn: &Connection,
     cfg: &Config,
     isid: [u8; 6],
-    hdr1: &LoginResponse,
-    chap_i: u8,
-    chap_c: &[u8],
-) -> Result<LoginResponse> {
-    // --- prepare CHAP_R -----------------------------------------------------
-    let (secret_key, username) = match &cfg.login.auth {
-        AuthConfig::Chap(chap) => (chap.secret.as_bytes(), chap.username.clone()),
-        AuthConfig::None => bail!("CHAP authentication required but not configured"),
-    };
-
-    let mut mac = HmacMd5::new_from_slice(secret_key)?;
-    mac.update(&[chap_i]);
-    mac.update(chap_c);
-    let chap_r = mac.finalize().into_bytes();
-
-    // --- build PDU ----------------------------------------------------------
-    let mut log_req = LoginRequestBuilder::new(isid, hdr1.tsih)
-        .csg(Stage::Security)
-        .nsg(Stage::Operational)
-        .initiator_task_tag(hdr1.initiator_task_tag)
-        .connection_id(1)
-        .cmd_sn(hdr1.max_cmd_sn)
-        .exp_stat_sn(hdr1.exp_cmd_sn)
-        .header;
-
-    log_req.set_continue_bit();
-
-    let mut pdu = PDUWithData::from_header(log_req);
-    pdu.append_data(b"CHAP_A=5\x00".to_vec());
-    pdu.append_data(format!("CHAP_N={username}\x00").into_bytes());
-    pdu.append_data(format!("CHAP_R={}\x00", hex::encode(chap_r)).into_bytes());
-
-    // --- send / receive -----------------------------------------------------
-    conn.send_request(hdr1.initiator_task_tag, pdu).await?;
-    let rsp = conn
-        .read_response::<LoginResponse>(hdr1.initiator_task_tag)
-        .await?;
-    Ok(rsp.header)
-}
-
-/// ---------------------------------------------------------------------------
-/// Step 3 – transition to Full-Feature phase
-/// ---------------------------------------------------------------------------
-async fn chap_step3(
-    conn: &Connection,
-    isid: [u8; 6],
-    hdr2: &LoginResponse,
-) -> Result<LoginResponse> {
-    let log_req = LoginRequestBuilder::new(isid, hdr2.tsih)
+    cid: u16,
+    prev: &PDUWithData<LoginResponse>,
+) -> Result<PDUWithData<LoginResponse>> {
+    let req = LoginRequestBuilder::new(isid, prev.header.tsih)
         .transit()
         .csg(Stage::Operational)
         .nsg(Stage::FullFeature)
-        .versions(hdr2.version_max, hdr2.version_active)
-        .initiator_task_tag(hdr2.initiator_task_tag)
-        .connection_id(1)
-        .cmd_sn(hdr2.exp_cmd_sn)
-        .exp_stat_sn(hdr2.max_cmd_sn)
+        .versions(prev.header.version_max, prev.header.version_active)
+        .initiator_task_tag(prev.header.initiator_task_tag)
+        .connection_id(cid)
+        .cmd_sn(prev.header.exp_cmd_sn)
+        .exp_stat_sn(prev.header.stat_sn.wrapping_add(1))
         .header;
 
-    let pdu = PDUWithData::from_header(log_req);
-
-    conn.send_request(hdr2.initiator_task_tag, pdu).await?;
-    let rsp = conn
-        .read_response::<LoginResponse>(hdr2.initiator_task_tag)
+    let mut pdu = PDUWithData::from_header(req);
+    pdu.append_data(login_keys_operational(cfg));
+    conn.send_request(prev.header.initiator_task_tag, pdu)
         .await?;
-    Ok(rsp.header)
+    conn.read_response::<LoginResponse>(prev.header.initiator_task_tag)
+        .await
 }
 
-/// ---------------------------------------------------------------------------
-/// Public helper – full CHAP login flow
-/// ---------------------------------------------------------------------------
 pub async fn login_chap(
     conn: &Connection,
     cfg: &Config,
     isid: [u8; 6],
-) -> Result<LoginResponse> {
-    // ---- Step 1 ------------------------------------------------------------
-    let (hdr1, raw1) = chap_step1(conn, cfg, isid, 0, 0, 0, 0).await?;
+) -> Result<PDUWithData<LoginResponse>> {
+    let itt = 0u32;
+    let cid = 1u16;
 
-    // ---- extract I/C from the target’s challenge --------------------------
-    let (chap_i, chap_c) = parse_chap_challenge(&raw1)?;
-
-    // ---- Step 2 ------------------------------------------------------------
-    let hdr2 = chap_step2(conn, cfg, isid, &hdr1, chap_i, &chap_c).await?;
-
-    // ---- Step 3 ------------------------------------------------------------
-    chap_step3(conn, isid, &hdr2).await
+    let r1 = step_security(conn, cfg, isid, itt, cid).await?;
+    let r1b = step_chap_a(conn, isid, &r1, cid).await?;
+    let r2 = step_chap_answer(conn, cfg, isid, &r1b, cid).await?;
+    let r4 = step_operational_to_ff(conn, cfg, isid, cid, &r2).await?;
+    Ok(r4)
 }

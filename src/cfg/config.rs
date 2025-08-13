@@ -159,13 +159,6 @@ impl ToLoginKeys for LoginConfig {
             neg.error_recovery_level
         ));
 
-        // Auth
-        let auth = &self.auth;
-        match auth {
-            AuthConfig::None => {},
-            AuthConfig::Chap(_) => keys.push("AuthMethod=CHAP, None\x00".to_string()),
-        }
-
         keys.sort();
         keys
     }
@@ -209,4 +202,84 @@ impl ToLoginKeys for Config {
         keys.sort();
         keys
     }
+}
+
+#[inline]
+fn kvz(k: &str, v: impl AsRef<str>) -> String {
+    // key=value\0
+    let mut s = String::with_capacity(k.len() + 1 + v.as_ref().len() + 1);
+    s.push_str(k);
+    s.push('=');
+    s.push_str(v.as_ref());
+    s.push('\0');
+    s
+}
+
+fn join_bytes(keys: &[String]) -> Vec<u8> {
+    keys.iter().flat_map(|s| s.as_bytes()).copied().collect()
+}
+
+pub fn login_keys_security(cfg: &Config) -> Vec<u8> {
+    let sec = &cfg.login.security;
+
+    let mut keys = vec![
+        kvz("SessionType", &sec.session_type),
+        kvz("InitiatorName", &sec.initiator_name),
+        kvz("TargetName", &sec.target_name),
+    ];
+
+    match cfg.login.auth {
+        AuthConfig::None => keys.push(kvz("AuthMethod", "None")),
+        AuthConfig::Chap(_) => {
+            keys.push(kvz("AuthMethod", "CHAP,None"));
+        },
+    }
+
+    join_bytes(&keys)
+}
+
+/// response on CHAP: CHAP_N/CHAP_R
+pub fn login_keys_chap_response(user: &str, chap_r_upper_hex_with_0x: &str) -> Vec<u8> {
+    let keys = vec![kvz("CHAP_N", user), kvz("CHAP_R", chap_r_upper_hex_with_0x)];
+    join_bytes(&keys)
+}
+
+/// OperationalNegotiation
+pub fn login_keys_operational(cfg: &Config) -> Vec<u8> {
+    let n = &cfg.login.negotiation;
+    let e = &cfg.extra_data;
+
+    let mut keys = vec![
+        // Digest
+        kvz("HeaderDigest", &n.header_digest),
+        kvz("DataDigest", &n.data_digest),
+        // Order/ERL
+        kvz("DataPDUInOrder", &n.data_pdu_in_order),
+        kvz("DataSequenceInOrder", &n.data_sequence_in_order),
+        kvz("ErrorRecoveryLevel", n.error_recovery_level.to_string()),
+        // Limits / sizes
+        kvz(
+            "MaxRecvDataSegmentLength",
+            n.max_recv_data_segment_length.to_string(),
+        ),
+        kvz("MaxBurstLength", n.max_burst_length.to_string()),
+        kvz("FirstBurstLength", n.first_burst_length.to_string()),
+        // Markers
+        kvz("IFMarker", &e.markers.if_marker),
+        kvz("OFMarker", &e.markers.of_marker),
+        // R2T / Immediate
+        kvz("InitialR2T", &e.r2t.initial_r2t),
+        kvz("ImmediateData", &e.r2t.immediate_data),
+        kvz("MaxOutstandingR2T", e.r2t.max_outstanding_r2t.to_string()),
+        kvz("DefaultTime2Wait", e.r2t.default_time2wait.to_string()),
+        kvz("DefaultTime2Retain", e.r2t.default_time2retain.to_string()),
+        // Connections
+        kvz("MaxConnections", e.connections.max_connections.to_string()),
+    ];
+
+    for (k, v) in &e.custom {
+        keys.push(kvz(k, v));
+    }
+
+    join_bytes(&keys)
 }

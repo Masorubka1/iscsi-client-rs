@@ -12,6 +12,7 @@ use crate::{
     },
 };
 
+#[derive(PartialEq)]
 pub struct PDUWithData<T> {
     pub header: T,
     pub aditional_heder: Vec<u8>,

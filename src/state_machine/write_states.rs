@@ -298,13 +298,11 @@ impl<'ctx> StateMachine<WriteCtx<'ctx>, WriteStep> for SendWindow {
             st.sent_bytes = st.sent_bytes.saturating_add(sent);
 
             if st.sent_bytes >= st.total_bytes {
-                // Everything transmitted for this command → wait for SCSI Response
                 Transition::Next(
                     WriteStates::WaitResp(WaitResp { st: st.clone() }),
                     Ok(st),
                 )
             } else {
-                // More data expected → wait for the next R2T
                 Transition::Next(WriteStates::WaitR2T(WaitR2T { st: st.clone() }), Ok(st))
             }
         })
