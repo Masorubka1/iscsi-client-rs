@@ -12,10 +12,11 @@ use iscsi_client_rs::{
     },
     client::client::Connection,
     handlers::simple_scsi_command::{build_read10, build_write10, send_scsi_read},
-    models::nop::request::NopOutRequest,
+    models::{logout::request::LogoutReason, nop::request::NopOutRequest},
     state_machine::{
-        login::{LoginCtx, LoginStates, run_login, start_chap, start_plain},
-        nop_states::{Idle, NopCtx, NopStates, run_nop},
+        login_states::{LoginCtx, LoginStates, run_login, start_chap, start_plain},
+        logout_states::{self, LogoutCtx, LogoutStates, run_logout},
+        nop_states::{self, NopCtx, NopStates, run_nop},
         read_states::{ReadCtx, ReadStart, ReadStates, run_read},
         write_states::{IssueCmd, WriteCtx, WriteStates, run_write},
     },
@@ -28,7 +29,7 @@ use tracing::info;
 async fn main() -> Result<()> {
     let _init_logger = init_logger("tests/config_logger.yaml")?;
 
-    let config = resolve_config_path("tests/config_chap.yaml")
+    let config = resolve_config_path("tests/config.yaml")
         .and_then(Config::load_from_file)
         .context("failed to resolve or load config")?;
 
@@ -61,7 +62,7 @@ async fn main() -> Result<()> {
     let mut ctx = NopCtx::new(conn.clone(), lun, &itt, &cmd_sn, &exp_stat_sn, ttt);
 
     while itt.load(Ordering::SeqCst) != 2 {
-        run_nop(NopStates::Idle(Idle), &mut ctx).await?;
+        run_nop(NopStates::Idle(nop_states::Idle), &mut ctx).await?;
     }
 
     // —————— TEXT ——————
@@ -197,6 +198,22 @@ async fn main() -> Result<()> {
                 eprintln!("[IO] READ failed: {e}");
             },
         }
+    }
+
+    // LOGOUT — close the whole session
+    {
+        let cid = 0u16;
+        let reason = LogoutReason::CloseSession;
+
+        let mut lctx =
+            LogoutCtx::new(conn.clone(), &itt, &cmd_sn, &exp_stat_sn, cid, reason);
+
+        let status =
+            run_logout(LogoutStates::Idle(logout_states::Idle), &mut lctx).await?;
+        info!(
+            "LOGOUT done: itt={} cmd_sn={} exp_stat_sn={}",
+            status.itt, status.cmd_sn, status.exp_stat_sn
+        );
     }
 
     Ok(())
