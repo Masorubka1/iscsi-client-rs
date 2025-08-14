@@ -11,14 +11,11 @@ use iscsi_client_rs::{
         logger::init_logger,
     },
     client::client::Connection,
-    handlers::simple_scsi_command::{build_read10, build_write10, send_scsi_read},
     models::{logout::request::LogoutReason, nop::request::NopOutRequest},
     state_machine::{
         login_states::{LoginCtx, LoginStates, run_login, start_chap, start_plain},
         logout_states::{self, LogoutCtx, LogoutStates, run_logout},
         nop_states::{self, NopCtx, NopStates, run_nop},
-        read_states::{ReadCtx, ReadStart, ReadStates, run_read},
-        write_states::{IssueCmd, WriteCtx, WriteStates, run_write},
     },
     utils::generate_isid,
 };
@@ -75,130 +72,6 @@ async fn main() -> Result<()> {
             return Err(e);
         },
     }*/
-
-    // —————— WRITE ——————
-    {
-        let mut cdb = [0u8; 16];
-        let lba: u32 = 0x1234;
-        let blocks: u16 = 1;
-        build_write10(&mut cdb, lba, blocks, 0, 0);
-        let sector_size = 512usize;
-        let payload = vec![0x04; blocks as usize * sector_size];
-
-        let mut ctx = WriteCtx {
-            conn: conn.clone(),
-            lun,
-            itt: &itt,
-            cmd_sn: &cmd_sn,
-            exp_stat_sn: &exp_stat_sn,
-
-            initial_r2t: false,
-            immediate_data: false,
-
-            cdb,
-            payload: payload.clone(),
-        };
-
-        time::sleep(Duration::from_millis(100)).await;
-
-        let status = run_write(WriteStates::IssueCmd(IssueCmd), &mut ctx).await;
-        info!("First state machine write expected Failed: {status:?}");
-
-        let mut ctx = WriteCtx {
-            conn: conn.clone(),
-            lun,
-            itt: &itt,
-            cmd_sn: &cmd_sn,
-            exp_stat_sn: &exp_stat_sn,
-
-            initial_r2t: false,
-            immediate_data: false,
-
-            cdb,
-            payload: payload.clone(),
-        };
-
-        time::sleep(Duration::from_millis(100)).await;
-
-        let status = run_write(WriteStates::IssueCmd(IssueCmd), &mut ctx).await?;
-        println!(
-            "Second WRITE done: itt={}, bytes_sent={}/{} next_data_sn={}",
-            status.itt, status.sent_bytes, status.total_bytes, status.next_data_sn
-        );
-
-        time::sleep(Duration::from_millis(100)).await;
-    }
-
-    // READ
-    {
-        let mut cdb = [0u8; 16];
-        let lba: u32 = 0x1234;
-        let blocks: u16 = 1;
-        let sector_size = 512u32;
-        build_read10(&mut cdb, lba, blocks, 0, 0);
-
-        let mut rctx = ReadCtx::new(
-            conn.clone(),
-            lun,
-            &itt,
-            &cmd_sn,
-            &exp_stat_sn,
-            blocks as u32 * sector_size,
-            cdb,
-        );
-
-        let result = run_read(ReadStates::Start(ReadStart), &mut rctx).await?;
-        assert_eq!(result.data.len(), (blocks as u32 * sector_size) as usize);
-        time::sleep(Duration::from_millis(100)).await;
-    }
-
-    {
-        let mut cdb = [0u8; 16];
-        let lba: u32 = 0x1234;
-        let blocks: u16 = 1;
-        build_write10(&mut cdb, lba, blocks, 0, 0);
-
-        let sector_size = 512usize;
-        let payload = vec![0x05; blocks as usize * sector_size];
-
-        let mut ctx = WriteCtx {
-            conn: conn.clone(),
-            lun,
-            itt: &itt,
-            cmd_sn: &cmd_sn,
-            exp_stat_sn: &exp_stat_sn,
-
-            initial_r2t: false,
-            immediate_data: false,
-
-            cdb,
-            payload: payload.clone(),
-        };
-
-        time::sleep(Duration::from_millis(100)).await;
-
-        let status = run_write(WriteStates::IssueCmd(IssueCmd), &mut ctx).await?;
-        println!(
-            "Third WRITE done: itt={}, bytes_sent={}/{} next_data_sn={}",
-            status.itt, status.sent_bytes, status.total_bytes, status.next_data_sn
-        );
-    }
-
-    // READ
-    {
-        let mut cdb_read = [0u8; 16];
-        build_read10(&mut cdb_read, 0x1234, 1, 0, 0);
-        match send_scsi_read(&conn, lun, &itt, &cmd_sn, &exp_stat_sn, 512, &cdb_read)
-            .await
-        {
-            Ok(resp) => {
-                println!("[IO] READ completed: resp={resp:?}");
-            },
-            Err(e) => {
-                eprintln!("[IO] READ failed: {e}");
-            },
-        }
-    }
 
     // LOGOUT — close the whole session
     {

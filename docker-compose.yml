@@ -1,0 +1,37 @@
+services:
+  iscsi-target:
+    build:
+      context: ./docker
+      dockerfile: Dockerfile
+    container_name: iscsi-target
+    ports:
+      - "3260:3260/tcp"
+    environment:
+      TGT_IQN: ${TGT_IQN:-iqn.2025-08.example:disk0}
+      TGT_SIZE_MB: ${TGT_SIZE_MB:-200}
+      TGT_LUN: ${TGT_LUN:-1}
+      TGT_PGT: ${TGT_PGT:-1}
+
+      # CHAP (optional)
+      TGT_CHAP_USER: ${TGT_CHAP_USER:-}
+      TGT_CHAP_PASS: ${TGT_CHAP_PASS:-}
+
+      # Mutual‑CHAP
+      TGT_MUTUAL_USER: ${TGT_MUTUAL_USER:-}
+      TGT_MUTUAL_PASS: ${TGT_MUTUAL_PASS:-}
+
+    restart: unless-stopped
+
+    # readiness/health
+    healthcheck:
+      test: ["CMD", "test", "-S", "/run/tgtd/socket.0"]
+      interval: 1s
+      timeout: 1s
+      retries: 60
+      start_period: 2s
+
+    tmpfs:
+      - /run/tgtd
+
+    labels:
+      com.iscsi.role: "target"

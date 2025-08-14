@@ -22,6 +22,7 @@ A pure‑Rust iSCSI initiator **library** (with example CLI) for interacting wit
   * **NOP** (Nop-Out / Nop-In)
   * **SCSI READ(10)** (Data-In)
   * **SCSI WRITE(10)** (Data-Out; ImmediateData path)
+  * **Logout**
 * Zero C dependencies
 
 ---
@@ -253,7 +254,7 @@ An example CLI demonstrates discovery/login and simple I/O using the same librar
 
 ## Roadmap
 
-**Protocol & features**
+**Protocol & features:**
 	* Header/Data digests (CRC32C) with optional NIC offload
 	* Multi-connection sessions (MC/S), connection reinstatement, session recovery
 	* Error Recovery Levels (ERL1/ERL2): SNACKs, data retransmit, CmdSN/StatSN windowing
@@ -264,24 +265,24 @@ An example CLI demonstrates discovery/login and simple I/O using the same librar
 	* Asynchronous Event Notification (AEN) / Unit Attention flow
 	* IPv6, jumbo frames; optional TLS/TCP (where supported by targets)
 
-**Performance**
+**Performance:**
 	* Zero-copy buffers for PDU build/parse, fewer allocations
 	* Pipelining / outstanding command windows, auto-tuning of MaxBurstLength, FirstBurstLength, ImmediateData
 	* Scatter-gather for large Data-Out
 	* Benchmarks suite (throughput, latency) with reproducible network profiles
 
-**API & ergonomics**
+**API & ergonomics:**
 	* Unified state_machine API for Login, NOP, READ/WRITE, TMFs (cancel/timeout/cancellation tokens)
 	* Pluggable allocators/ITT strategies, wrap-around handling
 	* Structured errors with retry hints; back-pressure & graceful shutdown
 
-**Testing & CI**
+**Testing & CI:**
 	* Matrix with multiple targets (tgt, LIO/targetcli, SCST, FreeBSD ctld)
 	* Deterministic packet capture & byte-for-byte fixtures for every login hop
 	* Fuzzing (cargo-fuzz/proptest) for PDUs and text-key parsing
 	* Long-haul stability tests (hours-long READ/WRITE with keepalives)
 
-**Docs & examples**
+**Docs & examples:**
 	* End-to-end examples: plain login, CHAP, READ/WRITE, TMFs
 	* Migration guide, troubleshooting (Auth failures, digests, ERL)
 	* RFC alignment notes (7143/7144/SPC/SAM) and conformance checklist
@@ -297,17 +298,6 @@ cargo fmt --all
 cargo clippy --tests --examples --benches -- -D warnings
 cargo test
 ```
-
----
-
-## License
-
-Licensed under either of
-
-* Apache License, Version 2.0
-* MIT license
-
-at your option.
 
 ---
 

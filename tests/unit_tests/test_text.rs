@@ -28,7 +28,7 @@ fn test_text_request() -> Result<()> {
     let cfg =
         resolve_config_path("tests/config.yaml").and_then(Config::load_from_file)?;
 
-    let bytes = load_fixture("tests/fixtures/text/text_request.hex")?;
+    let bytes = load_fixture("tests/unit_tests/fixtures/text/text_request.hex")?;
     assert!(bytes.len() > HEADER_LEN);
 
     let header_parsed = TextRequest::from_bhs_bytes(&bytes[..HEADER_LEN])?;
@@ -87,7 +87,7 @@ fn test_text_request() -> Result<()> {
 
 #[test]
 fn test_text_response() -> Result<()> {
-    let bytes = load_fixture("tests/fixtures/text/text_response.hex")?;
+    let bytes = load_fixture("tests/unit_tests/fixtures/text/text_response.hex")?;
     assert!(bytes.len() >= HEADER_LEN);
 
     let hdr_only = TextResponse::from_bhs_bytes(&bytes[..HEADER_LEN])?;

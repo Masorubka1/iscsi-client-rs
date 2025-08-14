@@ -10,6 +10,16 @@ homepage = "https://github.com/Masorubka1/iscsI-client-rs.git"
 documentation = "https://docs.rs/iscsi-client-rs"
 keywords = ["iscsi", "initiator", "client", "storage", "async"]
 
+[[test]]
+name = "unit"
+path = "tests/_unit_entry.rs"
+harness = true
+
+[[test]]
+name = "integration"
+path = "tests/_integration_entry.rs"
+harness = true
+
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1.0.219", features = ["derive", "serde_derive"] }
