@@ -3,6 +3,7 @@ pub mod common;
 pub mod data;
 pub mod data_fromat;
 pub mod login;
+pub mod logout;
 pub mod nop;
 pub mod opcode;
 pub mod parse;
