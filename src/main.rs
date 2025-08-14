@@ -12,10 +12,7 @@ use iscsi_client_rs::{
     },
     client::client::Connection,
     handlers::simple_scsi_command::{build_read10, build_write10, send_scsi_read},
-    models::{
-        logout::request::LogoutReason,
-        nop::request::NopOutRequest,
-    },
+    models::{logout::request::LogoutReason, nop::request::NopOutRequest},
     state_machine::{
         login_states::{LoginCtx, LoginStates, run_login, start_chap, start_plain},
         logout_states::{self, LogoutCtx, LogoutStates, run_logout},
