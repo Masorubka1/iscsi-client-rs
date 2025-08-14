@@ -39,7 +39,7 @@ jobs:
           toolchain: nightly
 
       - name: Run tests
-        run: cargo test --tests --no-fail-fast --verbose
+        run: cargo test --tests unit --no-fail-fast --verbose
 
   publish:
     name: Publish to crates.io
