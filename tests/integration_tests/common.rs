@@ -1,0 +1,33 @@
+use std::{path::PathBuf, sync::Arc};
+
+use anyhow::{Context, Result};
+use iscsi_client_rs::{
+    cfg::config::Config, client::client::Connection, utils::generate_isid,
+};
+
+pub fn test_path() -> String {
+    std::env::var("TEST_CONFIG").unwrap_or_else(|_| "tests/config.yaml".into())
+}
+
+pub fn load_config() -> Result<Config> {
+    let path = test_path();
+    let pb = PathBuf::from(path);
+    let cfg = Config::load_from_file(&pb)
+        .with_context(|| format!("failed to load {:?}", pb))?;
+    Ok(cfg)
+}
+
+pub async fn connect_cfg(cfg: &Config) -> Result<Arc<Connection>> {
+    Connection::connect(cfg.clone()).await
+}
+
+pub fn test_isid() -> [u8; 6] {
+    generate_isid().0
+}
+
+/// LUN -> 8 байт (для LUN=1 tgt обычно понимает [0,1,0..])
+pub fn lun8(lun: u8) -> [u8; 8] {
+    let mut a = [0u8; 8];
+    a[1] = lun;
+    a
+}

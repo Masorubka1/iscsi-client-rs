@@ -37,7 +37,6 @@ pub struct WriteCtx<'a> {
     pub exp_stat_sn: &'a AtomicU32,
 
     pub initial_r2t: bool,
-    pub immediate_data: bool,
 
     pub cdb: [u8; 16],
     pub payload: Vec<u8>,
@@ -52,6 +51,27 @@ pub struct WriteStatus {
 }
 
 impl<'a> WriteCtx<'a> {
+    pub fn new(
+        conn: Arc<Connection>,
+        lun: [u8; 8],
+        itt: &'a AtomicU32,
+        cmd_sn: &'a AtomicU32,
+        exp_stat_sn: &'a AtomicU32,
+        cdb: [u8; 16],
+        payload: impl Into<Vec<u8>>,
+    ) -> Self {
+        Self {
+            conn,
+            lun,
+            itt,
+            cmd_sn,
+            exp_stat_sn,
+            initial_r2t: false,
+            cdb,
+            payload: payload.into(),
+        }
+    }
+
     /// Send the SCSI Command (WRITE) with **no** data in the command PDU.
     async fn send_write_command(&self) -> Result<WriteStatus> {
         let itt = self.itt.fetch_add(1, Ordering::SeqCst);

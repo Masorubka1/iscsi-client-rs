@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use hex::FromHex;
 use iscsi_client_rs::{
     cfg::{cli::resolve_config_path, config::Config},
-    handlers::simple_scsi_command::build_read10,
+    control_block::common::build_read10,
     models::{
         command::{
             common::TaskAttribute,
