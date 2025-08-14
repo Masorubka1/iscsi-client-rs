@@ -23,7 +23,6 @@ use iscsi_client_rs::{
 
 const ISID: [u8; 6] = [0, 2, 61, 0, 0, 14];
 
-/// TLV-парсер CHAP_I/CHAP_C (локальная копия, чтобы не тащить видимость)
 fn parse_chap_challenge_tlv(tlv: &[u8]) -> Result<(u8, Vec<u8>)> {
     let s = String::from_utf8_lossy(tlv);
     let mut id: Option<u8> = None;
@@ -102,7 +101,7 @@ fn test_login_request() -> Result<()> {
         .and_then(Config::load_from_file)
         .context("failed to resolve or load config")?;
 
-    let bytes = load_fixture("tests/fixtures/login/login_request.hex")?;
+    let bytes = load_fixture("tests/unit_tests/fixtures/login/login_request.hex")?;
 
     let parsed = parse_req(&bytes)?;
     assert!(!parsed.data.is_empty());
@@ -143,7 +142,7 @@ fn test_login_response_echo() -> Result<()> {
         .and_then(Config::load_from_file)
         .context("failed to resolve or load config")?;
 
-    let resp_bytes = load_fixture("tests/fixtures/login/login_response.hex")?;
+    let resp_bytes = load_fixture("tests/unit_tests/fixtures/login/login_response.hex")?;
     let parsed = parse_resp(&resp_bytes)?;
 
     assert!(!parsed.data.is_empty());
@@ -173,15 +172,14 @@ fn test_login_response_echo() -> Result<()> {
     Ok(())
 }
 
-/// Шаг 1: Security→Security (без CHAP_A)
 #[test]
 fn chap_step1_security_only() -> Result<()> {
     let cfg = resolve_config_path("tests/config_chap.yaml")
         .and_then(Config::load_from_file)
         .context("failed to load tests/config_chap.yaml")?;
 
-    let req_exp = load_fixture("tests/fixtures/login/step1_req.hex")?;
-    let resp_bytes = load_fixture("tests/fixtures/login/step1_resp.hex")?;
+    let req_exp = load_fixture("tests/unit_tests/fixtures/login/step1_req.hex")?;
+    let resp_bytes = load_fixture("tests/unit_tests/fixtures/login/step1_resp.hex")?;
     let _r1 = parse_resp(&resp_bytes)?;
 
     let s1_hdr = LoginRequestBuilder::new(ISID, 0)
@@ -195,14 +193,13 @@ fn chap_step1_security_only() -> Result<()> {
         .header;
 
     let mut s1 = PDUWithData::<LoginRequest>::from_header(s1_hdr);
-    s1.append_data(login_keys_security(&cfg)); // без CHAP_A
+    s1.append_data(login_keys_security(&cfg));
 
     let chunks = s1.build(&cfg)?;
     let (hdr_bytes, data_bytes) = &chunks[0];
     let mut got = hdr_bytes.clone();
     got.extend_from_slice(data_bytes);
 
-    // сравним BHS и набор TLV (на случай другого порядка ключей)
     let exp_pdu = parse_req(&req_exp)?;
     let got_pdu = parse_req(&got)?;
     assert_eq!(got_pdu.header, exp_pdu.header, "step1 BHS differs");
@@ -214,15 +211,18 @@ fn chap_step1_security_only() -> Result<()> {
     Ok(())
 }
 
-/// Шаг 2: Security→Security, отдельный CHAP_A=5
 #[test]
 fn chap_step2_chap_a() -> Result<()> {
     let _cfg = resolve_config_path("tests/config_chap.yaml")
         .and_then(Config::load_from_file)
-        .context("failed to load tests/config_chap.yaml")?;
+        .context("failed to load tests/unit_tests/config_chap.yaml")?;
 
-    let r1 = parse_resp(&load_fixture("tests/fixtures/login/step1_resp.hex")?)?;
-    let req_exp = parse_req(&load_fixture("tests/fixtures/login/step2_req.hex")?)?;
+    let r1 = parse_resp(&load_fixture(
+        "tests/unit_tests/fixtures/login/step1_resp.hex",
+    )?)?;
+    let req_exp = parse_req(&load_fixture(
+        "tests/unit_tests/fixtures/login/step2_req.hex",
+    )?)?;
 
     let s2_hdr = LoginRequestBuilder::new(ISID, r1.header.tsih)
         .csg(Stage::Security)
@@ -244,15 +244,15 @@ fn chap_step2_chap_a() -> Result<()> {
     Ok(())
 }
 
-/// Шаг 3: Security→Security, CHAP_N/CHAP_R + Continue=1
 #[test]
 fn chap_step3_chap_response() -> Result<()> {
     let cfg = resolve_config_path("tests/config_chap.yaml")
         .and_then(Config::load_from_file)
         .context("failed to load tests/config_chap.yaml")?;
 
-    // берем CHAP_I/CHAP_C и индексы из ответа шага 2
-    let r2 = parse_resp(&load_fixture("tests/fixtures/login/step2_resp.hex")?)?;
+    let r2 = parse_resp(&load_fixture(
+        "tests/unit_tests/fixtures/login/step2_resp.hex",
+    )?)?;
     let (chap_i, chap_c) = parse_chap_challenge_tlv(&r2.data)?;
     let (user, secret) = match &cfg.login.auth {
         AuthConfig::Chap(c) => (c.username.as_str(), c.secret.as_bytes()),
@@ -260,7 +260,7 @@ fn chap_step3_chap_response() -> Result<()> {
     };
     let chap_r = calc_chap_r_hex(chap_i, secret, &chap_c);
 
-    let req_exp = load_fixture("tests/fixtures/login/step3_req.hex")?;
+    let req_exp = load_fixture("tests/unit_tests/fixtures/login/step3_req.hex")?;
 
     let s3_hdr = LoginRequestBuilder::new(ISID, r2.header.tsih)
         .transit()
@@ -291,15 +291,16 @@ fn chap_step3_chap_response() -> Result<()> {
     Ok(())
 }
 
-/// Шаг 4: TRANSIT Operational→FullFeature + опсы
 #[test]
 fn chap_step4_oper_to_ff_with_ops() -> Result<()> {
     let cfg = resolve_config_path("tests/config_chap.yaml")
         .and_then(Config::load_from_file)
         .context("failed to load tests/config_chap.yaml")?;
 
-    let r2 = parse_resp(&load_fixture("tests/fixtures/login/step3_resp.hex")?)?;
-    let req_exp = load_fixture("tests/fixtures/login/step4_req.hex")?;
+    let r2 = parse_resp(&load_fixture(
+        "tests/unit_tests/fixtures/login/step3_resp.hex",
+    )?)?;
+    let req_exp = load_fixture("tests/unit_tests/fixtures/login/step4_req.hex")?;
 
     let s4_hdr = LoginRequestBuilder::new(ISID, r2.header.tsih)
         .transit()

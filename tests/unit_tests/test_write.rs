@@ -28,7 +28,8 @@ fn test_write_pdu_build() -> Result<()> {
         .and_then(Config::load_from_file)
         .context("failed to resolve or load config")?;
 
-    let expected = load_fixture("tests/fixtures/scsi_commands/write_request.hex")?;
+    let expected =
+        load_fixture("tests/unit_tests/fixtures/scsi_commands/write_request.hex")?;
 
     let expected_hdr = ScsiCommandRequest::from_bhs_bytes(&expected[..HEADER_LEN])?;
 
@@ -76,7 +77,8 @@ fn test_write_pdu_build() -> Result<()> {
 
 #[test]
 fn test_write_response_parse() -> Result<()> {
-    let bytes = load_fixture("tests/fixtures/scsi_commands/write_response.hex")?;
+    let bytes =
+        load_fixture("tests/unit_tests/fixtures/scsi_commands/write_response.hex")?;
     assert!(bytes.len() >= HEADER_LEN);
 
     let hdr_only = ScsiCommandResponse::from_bhs_bytes(&bytes[..HEADER_LEN])?;
