@@ -1,7 +1,4 @@
-use std::{
-    sync::atomic::{AtomicU32, Ordering},
-    time::Duration,
-};
+use std::{sync::atomic::AtomicU32, time::Duration};
 
 use anyhow::{Context, Result};
 use iscsi_client_rs::{
@@ -10,12 +7,12 @@ use iscsi_client_rs::{
         config::{AuthConfig, Config},
         logger::init_logger,
     },
-    client::client::Connection,
+    client::client::ClientConnection,
+    handlers::text_request::send_text,
     models::{logout::request::LogoutReason, nop::request::NopOutRequest},
     state_machine::{
         login_states::{LoginCtx, LoginStates, run_login, start_chap, start_plain},
         logout_states::{self, LogoutCtx, LogoutStates, run_logout},
-        nop_states::{self, NopCtx, NopStates, run_nop},
     },
     utils::generate_isid,
 };
@@ -30,7 +27,7 @@ async fn main() -> Result<()> {
         .and_then(Config::load_from_file)
         .context("failed to resolve or load config")?;
 
-    let conn = Connection::connect(config.clone()).await?;
+    let conn = ClientConnection::connect(config.clone()).await?;
     info!("Connected to target");
 
     let (_isid, _isid_str) = generate_isid();
@@ -56,14 +53,14 @@ async fn main() -> Result<()> {
 
     let ttt = NopOutRequest::DEFAULT_TAG;
 
-    let mut ctx = NopCtx::new(conn.clone(), lun, &itt, &cmd_sn, &exp_stat_sn, ttt);
+    /*let mut ctx = NopCtx::new(conn.clone(), lun, &itt, &cmd_sn, &exp_stat_sn, ttt);
 
     while itt.load(Ordering::SeqCst) != 2 {
         run_nop(NopStates::Idle(nop_states::Idle), &mut ctx).await?;
-    }
+    }*/
 
     // —————— TEXT ——————
-    /*match send_text(&conn, [0u8; 8], &itt_counter, ttt, &cmd_sn, &exp_stat_sn).await {
+    match send_text(&conn, lun, &itt, ttt, &cmd_sn, &exp_stat_sn).await {
         Ok(resp) => {
             info!("[Text] resp={resp:?}");
         },
@@ -71,7 +68,7 @@ async fn main() -> Result<()> {
             eprintln!("[Text] rejected or failed: {e}");
             return Err(e);
         },
-    }*/
+    }
 
     // LOGOUT — close the whole session
     {

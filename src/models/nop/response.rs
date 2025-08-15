@@ -31,7 +31,6 @@ impl NopInResponse {
     pub fn to_bhs_bytes(&self) -> [u8; HEADER_LEN] {
         let mut buf = [0u8; HEADER_LEN];
         buf[0] = (&self.opcode).into();
-        // finnal bit
         buf[1..4].copy_from_slice(&self.reserved1);
         buf[4] = self.total_ahs_length;
         buf[5..8].copy_from_slice(&self.data_segment_length);
@@ -54,11 +53,7 @@ impl NopInResponse {
         if opcode.opcode != Opcode::NopIn {
             bail!("NopIn invalid opcode: {:?}", opcode.opcode);
         }
-        let reserved1 = {
-            let mut tmp = [0u8; 3];
-            tmp[0] = 0b0100_0000;
-            tmp
-        };
+        let reserved1 = buf[1..4].try_into()?;
         let total_ahs_length = buf[4];
         let data_segment_length = [buf[5], buf[6], buf[7]];
         let mut lun = [0u8; 8];

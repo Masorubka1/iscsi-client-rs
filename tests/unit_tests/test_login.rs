@@ -63,7 +63,7 @@ fn calc_chap_r_hex(id: u8, secret: &[u8], challenge: &[u8]) -> String {
     s.push_str("0x");
     for b in d {
         use core::fmt::Write;
-        write!(&mut s, "{b:02X}").unwrap();
+        write!(&mut s, "{b:02X}").expect("WTF");
     }
     s
 }

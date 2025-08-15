@@ -8,7 +8,7 @@ use crate::{
         AuthConfig, Config, ToLoginKeys, login_keys_chap_response,
         login_keys_operational, login_keys_security,
     },
-    client::client::Connection,
+    client::client::ClientConnection,
     models::{
         common::Builder as _,
         data_fromat::PDUWithData,
@@ -20,7 +20,7 @@ use crate::{
 /// Контекст логина (общий для plain/chap)
 #[derive(Debug)]
 pub struct LoginCtx<'a> {
-    pub conn: Arc<Connection>,
+    pub conn: Arc<ClientConnection>,
     pub cfg: &'a Config,
     pub isid: [u8; 6],
     pub cid: u16,
@@ -30,7 +30,7 @@ pub struct LoginCtx<'a> {
 
 impl<'a> LoginCtx<'a> {
     pub fn new(
-        conn: Arc<Connection>,
+        conn: Arc<ClientConnection>,
         cfg: &'a Config,
         isid: [u8; 6],
         cid: u16,
@@ -122,7 +122,7 @@ fn calc_chap_r_hex(id: u8, secret: &[u8], challenge: &[u8]) -> String {
     s.push_str("0x");
     for b in d {
         use core::fmt::Write;
-        write!(&mut s, "{b:02X}").unwrap();
+        write!(&mut s, "{b:02X}").expect("WTF");
     }
     s
 }

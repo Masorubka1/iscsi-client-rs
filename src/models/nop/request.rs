@@ -52,11 +52,7 @@ impl NopOutRequest {
         if opcode.opcode != Opcode::NopOut {
             bail!("NopOut invalid opcode: {:?}", opcode.opcode);
         }
-        let reserved1 = {
-            let mut tmp = [0u8; 3];
-            tmp[0] = 0b1000_0000;
-            tmp
-        };
+        let reserved1 = buf[1..4].try_into()?;
         let total_ahs_length = buf[4];
         let data_segment_length = [buf[5], buf[6], buf[7]];
         let mut lun = [0u8; 8];

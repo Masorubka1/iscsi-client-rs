@@ -9,7 +9,7 @@ use std::{
 use anyhow::{Result, bail};
 
 use crate::{
-    client::client::Connection,
+    client::client::ClientConnection,
     models::{
         data_fromat::PDUWithData,
         nop::{
@@ -22,7 +22,7 @@ use crate::{
 
 #[derive(Debug)]
 pub struct NopCtx<'a> {
-    pub conn: Arc<Connection>,
+    pub conn: Arc<ClientConnection>,
     pub lun: [u8; 8],
     pub itt: &'a AtomicU32,
     pub cmd_sn: &'a AtomicU32,
@@ -39,7 +39,7 @@ pub struct NopStatus {
 
 impl<'a> NopCtx<'a> {
     pub fn new(
-        conn: Arc<Connection>,
+        conn: Arc<ClientConnection>,
         lun: [u8; 8],
         itt: &'a AtomicU32,
         cmd_sn: &'a AtomicU32,

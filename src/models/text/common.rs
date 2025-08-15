@@ -1,8 +1,8 @@
 bitflags::bitflags! {
     #[derive(Default, Debug, PartialEq)]
     pub struct StageFlags: u8 {
-        const FINAL     = 0x80; // bit7
-        const CONTINUE  = 0x40; // bit6
+        const FINAL     = 0b1000_0000; // bit7
+        const CONTINUE  = 0b0100_0000; // bit6
     }
 }
 

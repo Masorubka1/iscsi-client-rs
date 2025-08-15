@@ -66,7 +66,7 @@ impl ReadyToTransfer {
 
         Ok(Self {
             opcode,
-            reserved1: [0u8; 3],
+            reserved1: b[1..4].try_into()?,
             total_ahs_length,
             data_segment_length,
             lun,
