@@ -40,13 +40,6 @@ iscsi-client-rs = "*"
 ### Connect + login (state machine)
 
 ```rust
-use std::sync::{Arc, atomic::{AtomicU32, Ordering}};
-use iscsi_client_rs::{
-    cfg::{cli::resolve_config_path, config::{Config, AuthConfig}},
-    client::client::Connection,
-    state_machine::login::{LoginCtx, start_plain, start_chap, run_login, LoginStates},
-};
-
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Load config
@@ -117,9 +110,6 @@ Two branches share a common context `LoginCtx` and output `LoginStatus`.
 APIs:
 
 ```rust
-// Pick a branch and run until Done
-pub fn start_plain() -> LoginStates;
-pub fn start_chap()  -> LoginStates;
 pub async fn run_login(state: LoginStates, ctx: &mut LoginCtx<'_>) -> anyhow::Result<LoginStatus>;
 ```
 
@@ -135,12 +125,8 @@ pub async fn run_login(state: LoginStates, ctx: &mut LoginCtx<'_>) -> anyhow::Re
 Ping the target and verify `ExpStatSN` handling.
 
 ```rust
-use iscsi_client_rs::state_machine::nop::{
-    NopCtx, NopStates, Idle, run_nop
-};
-
 let lun = [0,1,0,0,0,0,0,0];
-let ttt = iscsi_client_rs::models::nop::request::NopOutRequest::DEFAULT_TAG;
+let ttt = NopOutRequest::DEFAULT_TAG;
 let mut nctx = NopCtx::new(conn.clone(), lun, &itt_ctr, &cmd_sn, &exp_stat_sn, ttt);
 
 // one round trip
@@ -157,11 +143,6 @@ let _st = run_nop(NopStates::Idle(Idle), &mut nctx).await?;
 * `ReadWait`  — drains **all** `ScsiDataIn` fragments, appends data, updates `ExpStatSN` on the fragment that carries `stat_sn`, and returns the assembled buffer
 
 ```rust
-use iscsi_client_rs::scsi::{build_read10};
-use iscsi_client_rs::state_machine::read::{
-    ReadCtx, ReadStates, ReadStart, run_read
-};
-
 let mut cdb = [0u8; 16];
 build_read10(&mut cdb, /*lba=*/0, /*blocks=*/8, /*flags=*/0, /*control=*/0);
 
@@ -179,70 +160,67 @@ let rr = run_read(ReadStates::Start(ReadStart), &mut rctx).await?;
 println!("read {} bytes", rr.data.len());
 ```
 
-### WRITE(10) state machine (Data‑Out)
+### WRITE(10) state machine (Data-Out)
 
-Two paths:
+Both paths are supported:
 
-* **ImmediateData** (supported): if negotiated `ImmediateData=Yes` and payload ≤ `FirstBurstLength`, data is embedded into the `ScsiCommandRequest` and sent in one go; we then wait for `ScsiCommandResponse` and validate `ResponseCode`/`Status`.
-* **R2T** (WIP): if `ImmediateData=No` or payload is larger, the target may issue **R2T**. Full Data‑Out sequencing (respecting `MaxBurstLength` and `MaxRecvDataSegmentLength`) is on the roadmap. Currently returns an error: `R2T not implemented`.
+* **ImmediateData**: if `ImmediateData=Yes` **and** `data_len ≤ FirstBurstLength`, the payload is embedded in the `ScsiCommandRequest` (one PDU). We then wait for `ScsiCommandResponse` and validate `ResponseCode`/`Status`.
+
+* **R2T (Ready-To-Transfer)**: if the payload can’t fit in ImmediateData (or the target requires R2T), we honor each **R2T** by sending one or more `Data-Out` PDUs with the provided **TTT** and **BufferOffset**. Segmentation respects the negotiated **MaxRecvDataSegmentLength (MRDSL)** and **MaxBurstLength**; the last PDU in a burst has **Final=1**. (Assumes `DataPDUInOrder=Yes` and `DataSequenceInOrder=Yes` today.)
 
 ```rust
-use iscsi_client_rs::scsi::build_write10;
-use iscsi_client_rs::state_machine::write::{
-    WriteCtx, WriteStates, WriteStart, run_write
-};
-
 let mut cdb = [0u8; 16];
 build_write10(&mut cdb, /*lba=*/0, /*blocks=*/8, /*flags=*/0, /*control=*/0);
 
+// The state machine will choose ImmediateData or R2T based on negotiation
+// (ImmediateData, FirstBurstLength, MaxBurstLength, MRDSL).
 let mut wctx = WriteCtx {
     conn: conn.clone(),
     lun: [0,1,0,0,0,0,0,0],
     itt: &itt_ctr,
     cmd_sn: &cmd_sn,
     exp_stat_sn: &exp_stat_sn,
-    first_burst: 262_144,
-    immediate_ok: true,
     cdb,
     data: vec![0u8; 4096],
 };
 
 let ws = run_write(WriteStates::Start(WriteStart), &mut wctx).await?;
-println!("write ok: itt={} cmd_sn={} exp_stat_sn={}", ws.itt, ws.cmd_sn, ws.exp_stat_sn);
+println!(
+    "write ok: itt={} cmd_sn={} exp_stat_sn={}",
+    ws.itt, ws.cmd_sn, ws.exp_stat_sn
+);
 ```
+
+> Notes:
+>
+> * If `ImmediateData=No` or the payload exceeds `FirstBurstLength`, the flow switches to R2T.
+> * Each R2T defines the allowed window (offset/length); `Data-Out` PDUs are sliced to `min(MRDSL, remaining_in_burst)`.
 
 ---
 
-## Testing
-
-Fixture‑driven tests validate parsing and key ordering without mocks.
-
-**Current status (integration):**
-Right now we test by running the real client against a real target in Docker (typically tgt) and executing the main entrypoint. This gives us end-to-end coverage over TCP and exercises login (Plain/CHAP), NOP, and SCSI READ/WRITE.
-
-**Typical flow:**
-	*1.	Start a local iSCSI target in Docker (e.g., tgt) with a simple LUN and, if desired, CHAP enabled.
-	*2.	Run the client with your test config (plain or CHAP) and observe PDUs / traces.
-
-**Run unit tests:**
+# Testing via `just`
 
 ```bash
-cargo test --tests --no-fail-fast --verbose
+# List available libiscsi tests
+just cu-list
+
+# Bring up target + mapper and run a basic test (no CHAP)
+just cu TEST_PATTERN='SCSI.Read16'
+
+# Run the destructive CompareAndWrite suite
+just cu TEST_PATTERN='ALL.CompareAndWrite.*' CU_ARGS='--dataloss'
+
+# Run a test with CHAP enabled
+just cu-chap TEST_PATTERN='SCSI.Read16' CU_ARGS=''
+
+# Follow mapper logs
+just mapper-logs
+
+# Tear everything down
+just mapper-down && just down
 ```
 
-**Run inegrational tests:**
-
-```bash
-docker run -d --name my-tgt \
-    -p 3260:3260 \
-    -e TGT_IQN=iqn.2025-08.example:disk0 \
-    -e TGT_SIZE_MB=500 \
-    -e TGT_CHAP_USER=testuser \
-    -e TGT_CHAP_PASS=secretpass \
-    iscsi-tgtd
-
-cargo run
-```
+Tip: you can override addresses/ports and IQN via env vars used in your `justfile` (e.g., `MAPPER_ADDR`, `MAPPER_PORT`, `ISCSI_ADDR`, `ISCSI_PORT`, `TGT_IQN`, `TGT_LUN`).
 
 ---
 
@@ -252,40 +230,55 @@ An example CLI demonstrates discovery/login and simple I/O using the same librar
 
 ---
 
-## Roadmap
+# Roadmap
 
-**Protocol & features:**
-	* Header/Data digests (CRC32C) with optional NIC offload
-	* Multi-connection sessions (MC/S), connection reinstatement, session recovery
-	* Error Recovery Levels (ERL1/ERL2): SNACKs, data retransmit, CmdSN/StatSN windowing
-	* Mutual CHAP (bi-directional auth), CHAP key normalization & strict parsing
-	* Discovery: SendTargets (Text) and basic iSNS client
-	* Task Management: ABORT TASK, LOGICAL UNIT RESET, CLEAR TASK SET, etc.
-	* Common SCSI ops: REPORT LUNS, INQUIRY VPD, MODE SENSE/SELECT, UNMAP, WRITE SAME, COMPARE-AND-WRITE
-	* Asynchronous Event Notification (AEN) / Unit Attention flow
-	* IPv6, jumbo frames; optional TLS/TCP (where supported by targets)
+A high-level plan, trimmed for GitHub readability. We track delivery as **Now → Next → Later** with checkboxes.
 
-**Performance:**
-	* Zero-copy buffers for PDU build/parse, fewer allocations
-	* Pipelining / outstanding command windows, auto-tuning of MaxBurstLength, FirstBurstLength, ImmediateData
-	* Scatter-gather for large Data-Out
-	* Benchmarks suite (throughput, latency) with reproducible network profiles
+## Now
 
-**API & ergonomics:**
-	* Unified state_machine API for Login, NOP, READ/WRITE, TMFs (cancel/timeout/cancellation tokens)
-	* Pluggable allocators/ITT strategies, wrap-around handling
-	* Structured errors with retry hints; back-pressure & graceful shutdown
+* **Core protocol & plumbing**
 
-**Testing & CI:**
-	* Matrix with multiple targets (tgt, LIO/targetcli, SCST, FreeBSD ctld)
-	* Deterministic packet capture & byte-for-byte fixtures for every login hop
-	* Fuzzing (cargo-fuzz/proptest) for PDUs and text-key parsing
-	* Long-haul stability tests (hours-long READ/WRITE with keepalives)
+  * [ ] CRC32C digests (Header/Data; opt-in)
+  * [ ] Unified state machine (Login, NOP, READ/WRITE)
+  * [ ] Discovery: **SendTargets** (Text)
+* **Reliability & ergonomics**
 
-**Docs & examples:**
-	* End-to-end examples: plain login, CHAP, READ/WRITE, TMFs
-	* Migration guide, troubleshooting (Auth failures, digests, ERL)
-	* RFC alignment notes (7143/7144/SPC/SAM) and conformance checklist
+  * [ ] Structured errors with retry hints
+  * [ ] Timeouts & cancellation tokens
+  * [ ] Back-pressure & graceful shutdown
+* **Testing & CI**
+
+  * [ ] Multi-target matrix: **tgt**, **LIO/targetcli**, **SCST**
+  * [ ] Byte-exact fixtures for each login hop
+  * [ ] Fuzzing (cargo-fuzz / proptest) for PDUs & text keys
+
+## Next
+
+* **Sessions & recovery**
+
+  * [ ] Multi-connection sessions (MC/S)
+  * [ ] Reinstatement & session recovery
+  * [ ] ERL1/ERL2: SNACKs, retransmit, CmdSN/StatSN windowing
+* **Security**
+
+  * [ ] Mutual CHAP (bi-dir), strict key parsing/normalization
+  * [ ] Optional TLS/TCP (when target supports it)
+* **SCSI coverage**
+
+  * [ ] REPORT LUNS, INQUIRY VPD, MODE SENSE/SELECT
+  * [ ] UNMAP, WRITE SAME, COMPARE-AND-WRITE
+  * [ ] TMFs: ABORT TASK, LUN RESET, CLEAR TASK SET
+  * [ ] AEN / Unit Attention flow
+* **Performance**
+
+  * [ ] Zero-copy build/parse; fewer allocs
+  * [ ] Pipelining & outstanding-cmd windows
+  * [ ] Auto-tune: MaxBurstLength, FirstBurstLength
+  * [ ] Scatter-gather for large Data-Out
+  * [ ] Benchmarks (throughput/latency) with reproducible profiles
+
+**How we track:** create issues with labels `epic`, `proto`, `perf`, `api`, `testing`, `docs`. Link them here under the matching section as they’re planned.
+
 
 ---
 
