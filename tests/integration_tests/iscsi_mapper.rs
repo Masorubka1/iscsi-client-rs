@@ -177,11 +177,11 @@ fn try_update_negotiation_from_login_req(
     pdu: &PDUWithData<LoginRequest>,
 ) {
     let kv = parse_text_kv(&pdu.data);
-    if let Some(v) = kv.get("MaxRecvDataSegmentLength") {
-        if let Ok(n) = v.parse::<usize>() {
-            state.t2i.mrdsl = n.max(1);
-            debug!("neg: initiator MRDSL(t2i)={}", n);
-        }
+    if let Some(v) = kv.get("MaxRecvDataSegmentLength")
+        && let Ok(n) = v.parse::<usize>()
+    {
+        state.t2i.mrdsl = n.max(1);
+        debug!("neg: initiator MRDSL(t2i)={}", n);
     }
     if let Some(v) = kv.get("HeaderDigest") {
         state.t2i.header_digest = digest_yes(v);
@@ -200,11 +200,11 @@ fn try_update_negotiation_from_login_resp(
     pdu: &PDUWithData<LoginResponse>,
 ) {
     let kv = parse_text_kv(&pdu.data);
-    if let Some(v) = kv.get("MaxRecvDataSegmentLength") {
-        if let Ok(n) = v.parse::<usize>() {
-            state.i2t.mrdsl = n.max(1);
-            debug!("neg: target MRDSL(i2t)={}", n);
-        }
+    if let Some(v) = kv.get("MaxRecvDataSegmentLength")
+        && let Ok(n) = v.parse::<usize>()
+    {
+        state.i2t.mrdsl = n.max(1);
+        debug!("neg: target MRDSL(i2t)={}", n);
     }
     if let Some(v) = kv.get("HeaderDigest") {
         state.i2t.header_digest = digest_yes(v);
@@ -252,8 +252,6 @@ async fn build_and_send_i2t<T>(
 where
     T: BasicHeaderSegment + FromBytes + std::fmt::Debug,
 {
-    // Пишем в таргет через твой Connection.
-    // Он сам вызовет ToBytes/to_bytes(&cfg) внутри send_segment().
     conn.send_segment(pdu).await
 }
 
@@ -265,8 +263,6 @@ async fn build_and_send_t2i<T>(
 where
     T: BasicHeaderSegment + FromBytes,
 {
-    // как и раньше: собираем кадры для клиента и переписываем
-    // StatSN/ExpCmdSN/MaxCmdSN
     let cfg = load_config()?;
     let write_to = dur_env("MAPPER_WRITE_TIMEOUT_MS", 10_00);
 
@@ -328,11 +324,11 @@ async fn route_i2t(
             {
                 let mut st = state.lock().await;
                 let kv = parse_text_kv(&p.data);
-                if let Some(v) = kv.get("MaxRecvDataSegmentLength") {
-                    if let Ok(n) = v.parse::<usize>() {
-                        st.t2i.mrdsl = n.max(1);
-                        debug!("neg(Text): initiator MRDSL(t2i)={}", n);
-                    }
+                if let Some(v) = kv.get("MaxRecvDataSegmentLength")
+                    && let Ok(n) = v.parse::<usize>()
+                {
+                    st.t2i.mrdsl = n.max(1);
+                    debug!("neg(Text): initiator MRDSL(t2i)={}", n);
                 }
             }
             build_and_send_i2t(p, state, conn).await
@@ -389,7 +385,6 @@ async fn route_t2i(
     state: &Arc<Mutex<SessionState>>,
     w: &mut (impl AsyncWriteExt + Unpin),
 ) -> Result<()> {
-    // без изменений
     let bhs_fixed = bhs_fix_logout_reason(raw.last_hdr_with_updated_data);
     let (hd, dd, _mrdsl) = {
         let st = state.lock().await;
@@ -410,11 +405,11 @@ async fn route_t2i(
             {
                 let mut st = state.lock().await;
                 let kv = parse_text_kv(&p.data);
-                if let Some(v) = kv.get("MaxRecvDataSegmentLength") {
-                    if let Ok(n) = v.parse::<usize>() {
-                        st.i2t.mrdsl = n.max(1);
-                        debug!("neg(Text): target MRDSL(i2t)={}", n);
-                    }
+                if let Some(v) = kv.get("MaxRecvDataSegmentLength")
+                    && let Ok(n) = v.parse::<usize>()
+                {
+                    st.i2t.mrdsl = n.max(1);
+                    debug!("neg(Text): target MRDSL(i2t)={}", n);
                 }
             }
             build_and_send_t2i(p, state, w).await
@@ -531,7 +526,7 @@ async fn handle(cli: &mut TcpStream, srv: TcpStream) -> Result<()> {
                 Ok(Err(e)) => return Err(e),
                 Err(_) => bail!("T->I read timeout after {:?}", t2i_to),
             };
-            drop(r); // отпускаем reader
+            drop(r);
 
             if let Err(e) = route_t2i(raw, &st_dn, &mut *cw_dn.lock().await).await {
                 warn!("parse error T->I: {e:#}");
