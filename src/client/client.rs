@@ -168,30 +168,28 @@ impl ClientConnection {
             let cont_bit = pdu_hdr.get_continue_bit();
             let fin_bit = pdu_hdr.get_final_bit();
             let total = pdu_hdr.total_length_bytes();
-            let ahs = pdu_hdr.get_ahs_length_bytes();
 
-            let mut payload = Vec::with_capacity(total);
-            payload.extend_from_slice(&hdr);
-
-            if total > HEADER_LEN {
-                payload.resize(total, 0);
+            let mut payload = if total > HEADER_LEN {
+                let mut data = vec![0u8; total - HEADER_LEN];
                 let mut r = self.reader.lock().await;
-                io_with_timeout("read payload", r.read_exact(&mut payload[HEADER_LEN..]))
-                    .await?;
-            }
+                io_with_timeout("read payload", r.read_exact(&mut data)).await?;
+                data
+            } else {
+                vec![]
+            };
 
             // TODO: inplace support checking header_digest && data_digest
             match (cont_bit, fin_bit) {
                 (true, false) => match pending.entry(itt) {
                     Entry::Occupied(mut e) => {
                         let e = e.get_mut();
-                        e.data.extend_from_slice(&payload[HEADER_LEN..]);
+                        e.data.append(&mut payload);
                         e.last_hdr_with_updated_data = hdr;
                     },
                     Entry::Vacant(v) => {
                         v.insert(RawPdu {
                             last_hdr_with_updated_data: hdr,
-                            data: payload[ahs + HEADER_LEN..].to_vec(),
+                            data: payload,
                         });
                     },
                 },
@@ -199,10 +197,10 @@ impl ClientConnection {
                 (_, true) => {
                     let data_combined = if let Some((_, mut pend)) = pending.remove(&itt)
                     {
-                        pend.data.extend_from_slice(&payload[ahs + HEADER_LEN..]);
+                        pend.data.extend_from_slice(&payload);
                         pend.data
                     } else {
-                        payload[HEADER_LEN..].to_vec()
+                        payload
                     };
 
                     let mut fixed_hdr = hdr;
