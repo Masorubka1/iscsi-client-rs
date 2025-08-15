@@ -73,7 +73,8 @@ struct SpanFields(pub serde_json::Map<String, serde_json::Value>);
 struct CaptureSpanFieldsLayer;
 
 impl<S> Layer<S> for CaptureSpanFieldsLayer
-where S: Subscriber + for<'a> LookupSpan<'a>
+where
+    S: Subscriber + for<'a> LookupSpan<'a>,
 {
     fn on_new_span(
         &self,
@@ -118,34 +119,34 @@ where S: Subscriber + for<'a> LookupSpan<'a>
         values: &span::Record<'_>,
         ctx: tracing_subscriber::layer::Context<'_, S>,
     ) {
-        if let Some(span) = ctx.span(id) {
-            if let Some(fields) = span.extensions_mut().get_mut::<SpanFields>() {
-                struct V<'a>(&'a mut serde_json::Map<String, serde_json::Value>);
-                impl<'a> tracing::field::Visit for V<'a> {
-                    fn record_debug(&mut self, f: &tracing::field::Field, v: &dyn Debug) {
-                        self.0
-                            .insert(f.name().to_string(), json!(format!("{:?}", v)));
-                    }
-
-                    fn record_i64(&mut self, f: &tracing::field::Field, v: i64) {
-                        self.0.insert(f.name().to_string(), json!(v));
-                    }
-
-                    fn record_u64(&mut self, f: &tracing::field::Field, v: u64) {
-                        self.0.insert(f.name().to_string(), json!(v));
-                    }
-
-                    fn record_bool(&mut self, f: &tracing::field::Field, v: bool) {
-                        self.0.insert(f.name().to_string(), json!(v));
-                    }
-
-                    fn record_str(&mut self, f: &tracing::field::Field, v: &str) {
-                        self.0.insert(f.name().to_string(), json!(v));
-                    }
+        if let Some(span) = ctx.span(id)
+            && let Some(fields) = span.extensions_mut().get_mut::<SpanFields>()
+        {
+            struct V<'a>(&'a mut serde_json::Map<String, serde_json::Value>);
+            impl<'a> tracing::field::Visit for V<'a> {
+                fn record_debug(&mut self, f: &tracing::field::Field, v: &dyn Debug) {
+                    self.0
+                        .insert(f.name().to_string(), json!(format!("{:?}", v)));
                 }
-                let mut vis = V(&mut fields.0);
-                values.record(&mut vis);
+
+                fn record_i64(&mut self, f: &tracing::field::Field, v: i64) {
+                    self.0.insert(f.name().to_string(), json!(v));
+                }
+
+                fn record_u64(&mut self, f: &tracing::field::Field, v: u64) {
+                    self.0.insert(f.name().to_string(), json!(v));
+                }
+
+                fn record_bool(&mut self, f: &tracing::field::Field, v: bool) {
+                    self.0.insert(f.name().to_string(), json!(v));
+                }
+
+                fn record_str(&mut self, f: &tracing::field::Field, v: &str) {
+                    self.0.insert(f.name().to_string(), json!(v));
+                }
             }
+            let mut vis = V(&mut fields.0);
+            values.record(&mut vis);
         }
     }
 }
