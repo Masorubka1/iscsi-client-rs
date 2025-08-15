@@ -73,8 +73,7 @@ struct SpanFields(pub serde_json::Map<String, serde_json::Value>);
 struct CaptureSpanFieldsLayer;
 
 impl<S> Layer<S> for CaptureSpanFieldsLayer
-where
-    S: Subscriber + for<'a> LookupSpan<'a>,
+where S: Subscriber + for<'a> LookupSpan<'a>
 {
     fn on_new_span(
         &self,
