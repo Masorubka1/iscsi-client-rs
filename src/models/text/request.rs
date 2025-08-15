@@ -17,13 +17,13 @@ pub struct TextRequest {
     pub flags: StageFlags,            // byte 1 (F/C)
     reserved1: [u8; 2],               // bytes 2..3
     pub total_ahs_length: u8,         // byte 4
-    pub data_segment_length: [u8; 3], // bytes 5..7
-    pub lun: [u8; 8],                 // bytes 8..15
-    pub initiator_task_tag: u32,      // bytes 16..19
-    pub target_task_tag: u32,         // bytes 20..23
-    pub cmd_sn: u32,                  // bytes 24..27
-    pub exp_stat_sn: u32,             // bytes 28..31
-    reserved2: [u8; 16],              // bytes 32..47
+    pub data_segment_length: [u8; 3], // bytes 5..8
+    pub lun: [u8; 8],                 // bytes 8..16
+    pub initiator_task_tag: u32,      // bytes 16..20
+    pub target_task_tag: u32,         // bytes 20..24
+    pub cmd_sn: u32,                  // bytes 24..28
+    pub exp_stat_sn: u32,             // bytes 28..32
+    reserved2: [u8; 16],              // bytes 32..48
 }
 
 impl TextRequest {
@@ -120,9 +120,6 @@ impl TextRequestBuilder {
                     flags: IfFlags::empty(),
                     opcode: Opcode::TextReq,
                 },
-                flags: StageFlags::FINAL,
-                reserved1: [0u8; 2],
-                cmd_sn: 1,
                 ..Default::default()
             },
             enable_data_digest: false,

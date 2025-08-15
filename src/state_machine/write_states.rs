@@ -10,7 +10,7 @@ use anyhow::{Result, anyhow, bail};
 use tracing::info;
 
 use crate::{
-    client::client::Connection,
+    client::client::ClientConnection,
     models::{
         command::{
             common::{ResponseCode, ScsiStatus, TaskAttribute},
@@ -30,7 +30,7 @@ use crate::{
 
 #[derive(Debug)]
 pub struct WriteCtx<'a> {
-    pub conn: Arc<Connection>,
+    pub conn: Arc<ClientConnection>,
     pub lun: [u8; 8],
     pub itt: &'a AtomicU32,
     pub cmd_sn: &'a AtomicU32,
@@ -52,7 +52,7 @@ pub struct WriteStatus {
 
 impl<'a> WriteCtx<'a> {
     pub fn new(
-        conn: Arc<Connection>,
+        conn: Arc<ClientConnection>,
         lun: [u8; 8],
         itt: &'a AtomicU32,
         cmd_sn: &'a AtomicU32,

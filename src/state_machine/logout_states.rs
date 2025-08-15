@@ -9,7 +9,7 @@ use std::{
 use anyhow::{Result, bail};
 
 use crate::{
-    client::client::Connection,
+    client::client::ClientConnection,
     models::{
         data_fromat::PDUWithData,
         logout::{
@@ -22,7 +22,7 @@ use crate::{
 
 #[derive(Debug)]
 pub struct LogoutCtx<'a> {
-    pub conn: Arc<Connection>,
+    pub conn: Arc<ClientConnection>,
     pub itt: &'a AtomicU32,
     pub cmd_sn: &'a AtomicU32,
     pub exp_stat_sn: &'a AtomicU32,
@@ -32,7 +32,7 @@ pub struct LogoutCtx<'a> {
 
 impl<'a> LogoutCtx<'a> {
     pub fn new(
-        conn: Arc<Connection>,
+        conn: Arc<ClientConnection>,
         itt: &'a AtomicU32,
         cmd_sn: &'a AtomicU32,
         exp_stat_sn: &'a AtomicU32,

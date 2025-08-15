@@ -78,9 +78,7 @@ impl LoginResponse {
                     .try_into()
                     .context("failed to get initiator_task_tag")?,
             ),
-            reserved1: buf[20..24]
-                .try_into()
-                .context("failed to get reserved data")?,
+            reserved1: buf[20..24].try_into()?,
             stat_sn: u32::from_be_bytes(
                 buf[24..28].try_into().context("failed to get stat_sn")?,
             ),
@@ -93,6 +91,7 @@ impl LoginResponse {
             status_class,
             status_detail,
             reserved2: [0u8; 14],
+            //reserved2: buf[38..48].try_into()?,
         })
     }
 
@@ -108,14 +107,13 @@ impl LoginResponse {
         buf[8..14].copy_from_slice(&self.isid);
         buf[14..16].copy_from_slice(&self.tsih.to_be_bytes());
         buf[16..20].copy_from_slice(&self.initiator_task_tag.to_be_bytes());
-        // reserved1 (20..24)
         buf[20..24].copy_from_slice(&self.reserved1);
         buf[24..28].copy_from_slice(&self.stat_sn.to_be_bytes());
         buf[28..32].copy_from_slice(&self.exp_cmd_sn.to_be_bytes());
         buf[32..36].copy_from_slice(&self.max_cmd_sn.to_be_bytes());
         buf[36] = self.status_class.into();
         buf[37] = self.status_detail.clone().into();
-        // reserved2 (38..48)
+        //buf[38..48].copy_from_slice(&self.reserved2);
         buf
     }
 }

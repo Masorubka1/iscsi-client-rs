@@ -10,6 +10,10 @@ homepage = "https://github.com/Masorubka1/iscsI-client-rs.git"
 documentation = "https://docs.rs/iscsi-client-rs"
 keywords = ["iscsi", "initiator", "client", "storage", "async"]
 
+[[bin]]
+name = "iscsi_mapper"
+path = "tests/integration_tests/iscsi_mapper.rs"
+
 [[test]]
 name = "unit"
 path = "tests/_unit_entry.rs"

@@ -41,7 +41,7 @@ impl ScsiCommandResponse {
         buf[3] = (&self.status).into();
         buf[4] = self.total_ahs_length;
         buf[5..8].copy_from_slice(&self.data_segment_length);
-        // 8..16 reserved
+        buf[8..16].copy_from_slice(&self.reserved);
         buf[16..20].copy_from_slice(&self.initiator_task_tag.to_be_bytes());
         buf[20..24].copy_from_slice(&self.snack_tag.to_be_bytes());
         buf[24..28].copy_from_slice(&self.stat_sn.to_be_bytes());

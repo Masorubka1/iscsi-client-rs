@@ -1,4 +1,7 @@
-use std::{fmt::Debug, sync::Arc, time::Duration};
+use std::{
+    fmt::{self, Debug},
+    sync::Arc,
+};
 
 use anyhow::{Result, anyhow, bail};
 use dashmap::{DashMap, Entry};
@@ -9,13 +12,15 @@ use tokio::{
         tcp::{OwnedReadHalf, OwnedWriteHalf},
     },
     sync::{Mutex, oneshot},
-    time::timeout,
 };
-use tracing::{info, warn};
+use tracing::{debug, warn};
 
 use crate::{
     cfg::config::Config,
-    client::pdu_connection::{FromBytes, ToBytes},
+    client::{
+        common::{RawPdu, io_with_timeout},
+        pdu_connection::{FromBytes, ToBytes},
+    },
     models::{
         common::{BasicHeaderSegment, HEADER_LEN, SendingData},
         data_fromat::PDUWithData,
@@ -23,52 +28,28 @@ use crate::{
     },
 };
 
-const IO_TIMEOUT: Duration = Duration::from_secs(10);
-
-async fn io_with_timeout<F, T>(label: &'static str, fut: F) -> Result<T>
-where F: Future<Output = std::io::Result<T>> {
-    match timeout(IO_TIMEOUT, fut).await {
-        Ok(Ok(v)) => Ok(v),
-        Ok(Err(e)) => Err(e.into()),
-        Err(_) => Err(anyhow!("{label} timeout")),
-    }
-}
-
-#[derive(Debug)]
-struct Pending {
-    first_hdr: [u8; HEADER_LEN],
-    data: Vec<u8>,
-}
-
 /// A simple iSCSI connection wrapper over a TCP stream.
 ///
 /// Manages sending requests (PDUs) and receiving responses by
 /// framing based on header information.
 #[derive(Debug)]
-pub struct Connection {
-    reader: Mutex<OwnedReadHalf>,
-    writer: Mutex<OwnedWriteHalf>,
+pub struct ClientConnection {
+    pub reader: Mutex<OwnedReadHalf>,
+    pub writer: Mutex<OwnedWriteHalf>,
     cfg: Config,
-    sending: DashMap<u32, oneshot::Sender<Pending>>,
-    reciver: DashMap<u32, oneshot::Receiver<Pending>>,
+    sending: DashMap<u32, oneshot::Sender<RawPdu>>,
+    reciver: DashMap<u32, oneshot::Receiver<RawPdu>>,
 }
 
-impl Connection {
+impl ClientConnection {
     /// Establishes a new TCP connection to the given address.
-    pub async fn connect(cfg: Config) -> Result<Arc<Connection>> {
+    pub async fn connect(cfg: Config) -> Result<Arc<Self>> {
         let stream = TcpStream::connect(&cfg.login.security.target_address).await?;
         stream.set_linger(None)?;
 
-        // IDK why i need splited r/w socket
         let (r, w) = stream.into_split();
 
-        let conn = Arc::new(Connection {
-            reader: Mutex::new(r),
-            writer: Mutex::new(w),
-            cfg,
-            sending: DashMap::new(),
-            reciver: DashMap::new(),
-        });
+        let conn = Self::from_split_no_reader(r, w, cfg);
 
         let reader = Arc::clone(&conn);
         tokio::spawn(async move {
@@ -80,11 +61,29 @@ impl Connection {
         Ok(conn)
     }
 
+    pub fn from_split_no_reader(
+        r: OwnedReadHalf,
+        w: OwnedWriteHalf,
+        cfg: Config,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            reader: Mutex::new(r),
+            writer: Mutex::new(w),
+            cfg,
+            sending: DashMap::new(),
+            reciver: DashMap::new(),
+        })
+    }
+
     /// Helper to serialize and write a PDU to the socket.
-    async fn write(&self, mut req: impl ToBytes<Header = Vec<u8>>) -> Result<()> {
+    async fn write(
+        &self,
+        mut req: impl ToBytes<Header = Vec<u8>> + fmt::Debug,
+    ) -> Result<()> {
         let mut w = self.writer.lock().await;
         for (mut out_header, out_data) in req.to_bytes(&self.cfg)? {
-            info!(
+            debug!("SEND {req:?}");
+            debug!(
                 "Size_header: {} Size_data: {}",
                 out_header.len(),
                 out_data.len()
@@ -99,6 +98,13 @@ impl Connection {
             }
         }
         Ok(())
+    }
+
+    pub async fn send_segment(
+        &self,
+        req: impl ToBytes<Header = Vec<u8>> + fmt::Debug,
+    ) -> Result<()> {
+        self.write(req).await
     }
 
     pub async fn send_request(
@@ -116,7 +122,6 @@ impl Connection {
         let (tx, rx) = oneshot::channel();
         self.sending.insert(initiator_task_tag, tx);
         self.reciver.insert(initiator_task_tag, rx);
-        info!("{req:?}");
         if let Err(e) = self.write(req).await {
             let _ = self.sending.remove(&initiator_task_tag);
             let _ = self.reciver.remove(&initiator_task_tag);
@@ -135,19 +140,22 @@ impl Connection {
             Some((_, rx)) => rx,
         };
 
-        let Pending { first_hdr, data } = rx.await.map_err(|_| {
+        let RawPdu {
+            last_hdr_with_updated_data,
+            data,
+        } = rx.await.map_err(|_| {
             anyhow!("Failed to read response: connection closed before answer")
         })?;
 
-        let pdu_header = T::from_bhs_bytes(&first_hdr)?;
+        let pdu_header = T::from_bhs_bytes(&last_hdr_with_updated_data)?;
         let tmp = PDUWithData::<T>::parse(pdu_header, data.as_slice(), false, false);
-        info!("{tmp:?}");
+        debug!("READ {tmp:?}");
         tmp
     }
 
     async fn read_loop(self: Arc<Self>) -> Result<()> {
         let mut hdr = [0u8; HEADER_LEN];
-        let pending: DashMap<u32, Pending> = DashMap::new();
+        let pending: DashMap<u32, RawPdu> = DashMap::new();
 
         loop {
             {
@@ -176,11 +184,13 @@ impl Connection {
             match (cont_bit, fin_bit) {
                 (true, false) => match pending.entry(itt) {
                     Entry::Occupied(mut e) => {
-                        e.get_mut().data.extend_from_slice(&payload[HEADER_LEN..]);
+                        let e = e.get_mut();
+                        e.data.extend_from_slice(&payload[HEADER_LEN..]);
+                        e.last_hdr_with_updated_data = hdr;
                     },
                     Entry::Vacant(v) => {
-                        v.insert(Pending {
-                            first_hdr: hdr,
+                        v.insert(RawPdu {
+                            last_hdr_with_updated_data: hdr,
                             data: payload[ahs + HEADER_LEN..].to_vec(),
                         });
                     },
@@ -200,8 +210,8 @@ impl Connection {
                     fixed_hdr[5..8].copy_from_slice(&len_be[1..4]);
 
                     if let Some((_, tx)) = self.sending.remove(&itt) {
-                        let _ = tx.send(Pending {
-                            first_hdr: fixed_hdr,
+                        let _ = tx.send(RawPdu {
+                            last_hdr_with_updated_data: fixed_hdr,
                             data: data_combined,
                         });
                     }
@@ -209,8 +219,8 @@ impl Connection {
 
                 (false, false) => {
                     if let Some((_, tx)) = self.sending.remove(&itt) {
-                        let _ = tx.send(Pending {
-                            first_hdr: hdr,
+                        let _ = tx.send(RawPdu {
+                            last_hdr_with_updated_data: hdr,
                             data: payload,
                         });
                     }

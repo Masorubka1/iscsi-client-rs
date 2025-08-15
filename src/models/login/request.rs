@@ -43,10 +43,10 @@ impl LoginRequest {
         buf[14..16].copy_from_slice(&self.tsih.to_be_bytes());
         buf[16..20].copy_from_slice(&self.initiator_task_tag.to_be_bytes());
         buf[20..22].copy_from_slice(&self.cid.to_be_bytes());
-        // buf[22..24] -- reserved
+        buf[22..24].copy_from_slice(&self.reserved1);
         buf[24..28].copy_from_slice(&self.cmd_sn.to_be_bytes());
         buf[28..32].copy_from_slice(&self.exp_stat_sn.to_be_bytes());
-        // buf[32..48] -- reserved
+        //buf[32..48].copy_from_slice(&self.reserved2);
         buf
     }
 
@@ -69,10 +69,9 @@ impl LoginRequest {
         let tsih = u16::from_be_bytes([buf[14], buf[15]]);
         let initiator_task_tag = u32::from_be_bytes(buf[16..20].try_into()?);
         let cid = u16::from_be_bytes(buf[20..22].try_into()?);
-        // buf[22..24] -- reserved
+        let reserved1 = buf[22..24].try_into()?;
         let cmd_sn = u32::from_be_bytes(buf[24..28].try_into()?);
         let exp_stat_sn = u32::from_be_bytes(buf[28..32].try_into()?);
-        // buf[32..48] -- reserved
         Ok(LoginRequest {
             opcode,
             flags,
@@ -84,7 +83,7 @@ impl LoginRequest {
             tsih,
             initiator_task_tag,
             cid,
-            reserved1: [0u8; 2],
+            reserved1,
             cmd_sn,
             exp_stat_sn,
             reserved2: [0u8; 16],

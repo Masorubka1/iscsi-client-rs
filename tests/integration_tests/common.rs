@@ -2,7 +2,7 @@ use std::{path::PathBuf, sync::Arc};
 
 use anyhow::{Context, Result};
 use iscsi_client_rs::{
-    cfg::config::Config, client::client::Connection, utils::generate_isid,
+    cfg::config::Config, client::client::ClientConnection, utils::generate_isid,
 };
 
 pub fn test_path() -> String {
@@ -17,8 +17,8 @@ pub fn load_config() -> Result<Config> {
     Ok(cfg)
 }
 
-pub async fn connect_cfg(cfg: &Config) -> Result<Arc<Connection>> {
-    Connection::connect(cfg.clone()).await
+pub async fn connect_cfg(cfg: &Config) -> Result<Arc<ClientConnection>> {
+    ClientConnection::connect(cfg.clone()).await
 }
 
 pub fn test_isid() -> [u8; 6] {

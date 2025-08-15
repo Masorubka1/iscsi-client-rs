@@ -10,7 +10,7 @@ use std::{
 use anyhow::{Result, anyhow};
 
 use crate::{
-    client::client::Connection,
+    client::client::ClientConnection,
     models::{
         command::{
             common::TaskAttribute,
@@ -24,7 +24,7 @@ use crate::{
 
 #[derive(Debug)]
 pub struct ReadCtx<'a> {
-    pub conn: Arc<Connection>,
+    pub conn: Arc<ClientConnection>,
     pub lun: [u8; 8],
     pub itt: &'a AtomicU32,
     pub cmd_sn: &'a AtomicU32,
@@ -35,7 +35,7 @@ pub struct ReadCtx<'a> {
 
 impl<'a> ReadCtx<'a> {
     pub fn new(
-        conn: Arc<Connection>,
+        conn: Arc<ClientConnection>,
         lun: [u8; 8],
         itt: &'a AtomicU32,
         cmd_sn: &'a AtomicU32,

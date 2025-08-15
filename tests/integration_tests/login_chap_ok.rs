@@ -6,6 +6,7 @@ use iscsi_client_rs::{
         config::{AuthConfig, Config},
         logger::init_logger,
     },
+    client::client::ClientConnection,
     models::nop::request::NopOutRequest,
     state_machine::{
         login_states::{LoginCtx, LoginStates, run_login, start_chap},
@@ -31,8 +32,7 @@ async fn login_chap_ok() -> Result<()> {
         },
     }
 
-    let conn: Arc<iscsi_client_rs::client::client::Connection> =
-        connect_cfg(&cfg).await?;
+    let conn: Arc<ClientConnection> = connect_cfg(&cfg).await?;
 
     let isid = test_isid();
     let mut lctx = LoginCtx::new(conn.clone(), &cfg, isid, 1, 0);
