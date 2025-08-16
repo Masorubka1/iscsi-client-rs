@@ -1,5 +1,7 @@
 use anyhow::{Context, Result, anyhow};
 
+use crate::models::data::Entry;
+
 pub const FIXED_MIN_LEN: usize = 18;
 
 #[repr(C)]
@@ -135,27 +137,9 @@ impl core::fmt::Debug for SenseData {
     }
 }
 
-/// Return the SPC-4 description for a given ASC/ASCQ pair.
-///
-/// * If the pair is not present in the official table, returns `"UNSPECIFIED /
-///   vendor specific"`.
+/// Human-readable description for ASC/ASCQ from the generated SPC table.
+/// Falls back to a generic message if the pair is not listed (vendor-specific).
 #[inline]
 pub fn asc_ascq_to_str(asc: u8, ascq: u8) -> &'static str {
-    hot_table(asc, ascq).unwrap_or("UNSPECIFIED / vendor specific")
-}
-
-fn hot_table(asc: u8, ascq: u8) -> Option<&'static str> {
-    Some(match (asc, ascq) {
-        (0x00, 0x00) => "No additional sense information",
-        (0x02, 0x04) => "Not ready – LUN not ready, format in progress",
-        (0x03, 0x11) => "Medium error – unrecovered read error",
-        (0x04, 0x01) => "Logical unit is in process of becoming ready",
-        (0x05, 0x20) => "Illegal request – invalid command information field",
-        (0x24, 0x00) => "Illegal request – invalid field in CDB",
-        (0x25, 0x00) => "Illegal request – logical unit not supported",
-        (0x29, 0x00) => "Unit attention – power on, reset, or bus device reset occurred",
-        (0x3A, 0x00) => "Medium not present",
-        (0x40, 0x00) => "Data integrity error",
-        _ => return None,
-    })
+    Entry::lookup(asc, ascq).unwrap_or("UNSPECIFIED / vendor specific")
 }

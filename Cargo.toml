@@ -14,6 +14,10 @@ keywords = ["iscsi", "initiator", "client", "storage", "async"]
 name = "iscsi_mapper"
 path = "tests/integration_tests/iscsi_mapper.rs"
 
+[[bin]]
+name = "asc_ascq"
+path = "docker/build.rs"
+
 [[test]]
 name = "unit"
 path = "tests/_unit_entry.rs"
