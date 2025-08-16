@@ -40,7 +40,6 @@ async fn login_chap_ok() -> Result<()> {
     let state: LoginStates = start_chap();
     let login_status = run_login(state, &mut lctx).await?;
 
-    // После логина — 1 NOP на проверку канала
     let cmd_sn = AtomicU32::new(login_status.exp_cmd_sn);
     let exp_stat_sn = AtomicU32::new(login_status.stat_sn.wrapping_add(1));
     let itt = AtomicU32::new(login_status.itt.wrapping_add(1));

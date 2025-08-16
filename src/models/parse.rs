@@ -15,6 +15,7 @@ use crate::models::{
 };
 
 #[enum_dispatch(BasicHeaderSegment, SendingData)]
+#[derive(Debug)]
 pub enum Pdu {
     NopOutRequest,
     ScsiCommandRequest,

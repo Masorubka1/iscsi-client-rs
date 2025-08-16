@@ -34,58 +34,50 @@ where T: BasicHeaderSegment + SendingData + FromBytes
     }
 
     /// Build finnal PDU (BHS + DataSegment)
-    fn build(&mut self, cfg: &Config) -> Result<Vec<(Self::Header, Vec<u8>)>> {
+    fn build(&mut self, cfg: &Config) -> Result<(Self::Header, Vec<u8>)> {
         let mrdsl = cfg.login.negotiation.max_recv_data_segment_length as usize;
         if mrdsl == 0 {
             bail!("MaxRecvDataSegmentLength is zero");
         }
 
-        let chunks = if self.data.is_empty() {
-            vec![&self.data[..]]
-        } else {
-            self.data.chunks(mrdsl).collect::<Vec<_>>()
-        };
-        let padding_ahs = (4 - (self.aditional_heder.len() % 4)) % 4;
+        self.header.set_data_length_bytes(self.data.len() as u32);
 
-        let mut final_body = Vec::with_capacity(chunks.len());
-        for (i, chunk) in chunks.iter().enumerate() {
-            if i == chunks.len() - 1 {
-                self.header.set_final_bit();
-            } else {
-                self.header.set_continue_bit();
-            }
-            self.header.set_data_length_bytes(chunk.len() as u32);
-            let bhs = T::to_bhs_bytes(&self.header)?;
-            let padding_chunk = (4 - (chunk.len() % 4)) % 4;
-            let mut body = Vec::with_capacity(
-                self.aditional_heder.len()
-                    + padding_ahs
-                    + (self.header_digest.is_some() as usize) * 4
-                    + chunk.len()
-                    + padding_chunk
-                    + (self.data_digest.is_some() as usize) * 4,
-            );
+        let opcode = &self.header.get_opcode().opcode;
 
-            if !self.aditional_heder.is_empty() {
-                body.extend_from_slice(&self.aditional_heder);
-                body.extend(std::iter::repeat_n(0u8, padding_ahs));
-            }
-
-            if let Some(hd) = self.header_digest {
-                body.extend_from_slice(&hd.to_be_bytes());
-            }
-
-            body.extend_from_slice(chunk);
-            body.extend(std::iter::repeat_n(0u8, padding_chunk));
-
-            if let Some(dd) = self.data_digest {
-                body.extend_from_slice(&dd.to_be_bytes());
-            }
-
-            final_body.push((bhs.to_vec(), body));
+        if opcode != &Opcode::ScsiDataOut && opcode != &Opcode::LogoutReq {
+            self.header.set_final_bit();
         }
 
-        Ok(final_body)
+        let bhs = T::to_bhs_bytes(&self.header)?;
+
+        let padding_ahs = (4 - (self.aditional_heder.len() % 4)) % 4;
+        let padding_chunk = (4 - (self.data.len() % 4)) % 4;
+        let mut body = Vec::with_capacity(
+            self.aditional_heder.len()
+                + padding_ahs
+                + (self.header_digest.is_some() as usize) * 4
+                + self.data.len()
+                + padding_chunk
+                + (self.data_digest.is_some() as usize) * 4,
+        );
+
+        if !self.aditional_heder.is_empty() {
+            body.extend_from_slice(&self.aditional_heder);
+            body.extend(std::iter::repeat_n(0u8, padding_ahs));
+        }
+
+        if let Some(hd) = self.header_digest {
+            body.extend_from_slice(&hd.to_be_bytes());
+        }
+
+        body.extend_from_slice(&self.data[..]);
+        body.extend(std::iter::repeat_n(0u8, padding_chunk));
+
+        if let Some(dd) = self.data_digest {
+            body.extend_from_slice(&dd.to_be_bytes());
+        }
+
+        Ok((bhs.to_vec(), body))
     }
 }
 
@@ -239,9 +231,7 @@ where T: BasicHeaderSegment + SendingData + FromBytes + fmt::Debug
         let mut ds = f.debug_struct("PDUWithData");
         ds.field("header", &self.header);
 
-        let hdr_data_len = self.header.get_data_length_bytes();
-        ds.field("data_len_hdr", &hdr_data_len)
-            .field("data_len", &self.data.len());
+        ds.field("data_len", &self.data.len());
 
         match self.header_digest {
             Some(hd) => ds.field("header_digest", &format_args!("{hd:#010x}")),

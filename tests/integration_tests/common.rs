@@ -25,7 +25,6 @@ pub fn test_isid() -> [u8; 6] {
     generate_isid().0
 }
 
-/// LUN -> 8 байт (для LUN=1 tgt обычно понимает [0,1,0..])
 pub fn lun8(lun: u8) -> [u8; 8] {
     let mut a = [0u8; 8];
     a[1] = lun;

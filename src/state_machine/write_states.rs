@@ -10,6 +10,7 @@ use anyhow::{Result, anyhow, bail};
 use tracing::info;
 
 use crate::{
+    cfg::config::Config,
     client::client::ClientConnection,
     models::{
         command::{
@@ -17,7 +18,7 @@ use crate::{
             request::{ScsiCommandRequest, ScsiCommandRequestBuilder},
             response::ScsiCommandResponse,
         },
-        common::Builder,
+        common::{BasicHeaderSegment, SendingData},
         data::{
             request::{ScsiDataOut, ScsiDataOutBuilder},
             sense_data::SenseData,
@@ -31,6 +32,7 @@ use crate::{
 #[derive(Debug)]
 pub struct WriteCtx<'a> {
     pub conn: Arc<ClientConnection>,
+    pub cfg: Arc<Config>,
     pub lun: [u8; 8],
     pub itt: &'a AtomicU32,
     pub cmd_sn: &'a AtomicU32,
@@ -50,9 +52,11 @@ pub struct WriteStatus {
     pub total_bytes: usize,
 }
 
+#[allow(clippy::too_many_arguments)]
 impl<'a> WriteCtx<'a> {
     pub fn new(
         conn: Arc<ClientConnection>,
+        cfg: Arc<Config>,
         lun: [u8; 8],
         itt: &'a AtomicU32,
         cmd_sn: &'a AtomicU32,
@@ -62,6 +66,7 @@ impl<'a> WriteCtx<'a> {
     ) -> Self {
         Self {
             conn,
+            cfg,
             lun,
             itt,
             cmd_sn,
@@ -86,10 +91,10 @@ impl<'a> WriteCtx<'a> {
             .expected_data_transfer_length(self.payload.len() as u32)
             .scsi_descriptor_block(&self.cdb)
             .write()
-            .task_attribute(TaskAttribute::Simple);
+            .task_attribute(TaskAttribute::Simple)
+            .header;
 
-        let pdu: PDUWithData<ScsiCommandRequest> =
-            PDUWithData::from_header(header.header);
+        let pdu: PDUWithData<ScsiCommandRequest> = PDUWithData::from_header(header);
 
         self.conn.send_request(itt, pdu).await?;
 
@@ -113,7 +118,7 @@ impl<'a> WriteCtx<'a> {
     async fn send_data(
         &self,
         itt: u32,
-        next_data_sn: u32,
+        mut next_data_sn: u32,
         ttt: u32,
         offset: usize,
         len: usize,
@@ -124,32 +129,53 @@ impl<'a> WriteCtx<'a> {
         let end = offset
             .checked_add(len)
             .ok_or_else(|| anyhow!("offset+len overflow"))?;
-        let slice = self.payload.get(offset..end).ok_or_else(|| {
-            anyhow!(
-                "R2T window [{offset}..{end}) is out of bounds {}",
+        if end > self.payload.len() {
+            bail!(
+                "Data window [{offset}..{end}) exceeds payload {}",
                 self.payload.len()
-            )
-        })?;
+            );
+        }
 
-        let hdr = ScsiDataOutBuilder::new()
-            .lun(&self.lun)
-            .initiator_task_tag(itt)
-            .target_transfer_tag(ttt)
-            .exp_stat_sn(self.exp_stat_sn.load(Ordering::SeqCst))
-            .buffer_offset(offset as u32)
-            .data_sn(next_data_sn)
-            .header;
+        let mrdsl = self.cfg.login.negotiation.max_recv_data_segment_length as usize;
+        if mrdsl == 0 {
+            bail!("MRDSL is zero");
+        }
+        let max_burst = self.cfg.login.negotiation.max_burst_length as usize;
+        let to_send_total = len.min(max_burst);
 
-        let mut pdu: PDUWithData<ScsiDataOut> = PDUWithData::from_header(hdr);
-        pdu.append_data(slice.to_vec());
+        let mut sent = 0usize;
+        while sent < to_send_total {
+            let take = (to_send_total - sent).min(mrdsl);
+            let off = offset + sent;
+            let last = sent + take == to_send_total;
 
-        self.conn.send_request(itt, pdu).await?;
+            let proto_hdr = ScsiDataOutBuilder::new()
+                .lun(&self.lun)
+                .initiator_task_tag(itt)
+                .target_transfer_tag(ttt)
+                .exp_stat_sn(self.exp_stat_sn.load(Ordering::SeqCst))
+                .buffer_offset(off as u32)
+                .data_sn(next_data_sn)
+                .header;
 
-        // NOTE: if the target ever sends DesiredDataTransferLength > MRDSL,
-        // you must split the window into several Data-Out PDUs and increment
-        // DataSN per chunk. For common tgtd/targetcli configs R2T <= MRDSL, so +1 is
-        // fine.
-        Ok((slice.len(), next_data_sn.wrapping_add(1)))
+            let mut pdu: PDUWithData<ScsiDataOut> = PDUWithData::from_header(proto_hdr);
+
+            pdu.header.set_data_length_bytes(take as u32);
+            if last {
+                pdu.header.set_final_bit();
+            } else {
+                pdu.header.set_continue_bit();
+            }
+
+            pdu.data.extend_from_slice(&self.payload[off..off + take]);
+
+            self.conn.send_request(itt, pdu).await?;
+
+            next_data_sn = next_data_sn.wrapping_add(1);
+            sent += take;
+        }
+
+        Ok((sent, next_data_sn))
     }
 
     /// Wait for the SCSI Response and validate success.
@@ -297,16 +323,17 @@ impl<'ctx> StateMachine<WriteCtx<'ctx>, WriteStep> for SendWindow {
 
     fn step<'a>(&'a mut self, ctx: &'a mut WriteCtx<'ctx>) -> Self::StepResult<'a> {
         Box::pin(async move {
-            let itt = self.st.itt;
-            let ttt = self.ttt;
-            let off = self.offset;
-            let len = self.len;
-
             // Send a *single* Data-Out request with the whole window;
             // ScsiDataOutBuilder will split into MRDSL-sized PDUs and
             // set F/DataSN/BufferOffset per-chunk.
             let (sent, next_sn) = match ctx
-                .send_data(itt, self.st.next_data_sn, ttt, off, len)
+                .send_data(
+                    self.st.itt,
+                    self.st.next_data_sn,
+                    self.ttt,
+                    self.offset,
+                    self.len,
+                )
                 .await
             {
                 Ok(x) => x,

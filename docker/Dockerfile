@@ -8,7 +8,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 ENV TGT_IQN=iqn.2025-08.example:disk0 \
-    TGT_SIZE_MB=200 \
+    TGT_SIZE_MB=1000 \
     TGT_LUN=1 \
     TGT_PGT=1
 

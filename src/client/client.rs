@@ -3,15 +3,15 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::{Result, anyhow, bail};
-use dashmap::{DashMap, Entry};
+use anyhow::{Result, anyhow};
+use dashmap::DashMap;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{
         TcpStream,
         tcp::{OwnedReadHalf, OwnedWriteHalf},
     },
-    sync::{Mutex, oneshot},
+    sync::{Mutex, mpsc},
 };
 use tracing::{debug, warn};
 
@@ -37,8 +37,8 @@ pub struct ClientConnection {
     pub reader: Mutex<OwnedReadHalf>,
     pub writer: Mutex<OwnedWriteHalf>,
     cfg: Config,
-    sending: DashMap<u32, oneshot::Sender<RawPdu>>,
-    reciver: DashMap<u32, oneshot::Receiver<RawPdu>>,
+    sending: DashMap<u32, mpsc::Sender<RawPdu>>,
+    reciver: DashMap<u32, mpsc::Receiver<RawPdu>>,
 }
 
 impl ClientConnection {
@@ -81,21 +81,19 @@ impl ClientConnection {
         mut req: impl ToBytes<Header = Vec<u8>> + fmt::Debug,
     ) -> Result<()> {
         let mut w = self.writer.lock().await;
-        for (mut out_header, out_data) in req.to_bytes(&self.cfg)? {
-            debug!("SEND {req:?}");
-            debug!(
-                "Size_header: {} Size_data: {}",
-                out_header.len(),
-                out_data.len()
-            );
-            if out_data.is_empty() || self.cfg.extra_data.r2t.immediate_data == "Yes" {
-                out_header.extend_from_slice(&out_data);
-                io_with_timeout("write header and data", w.write_all(&out_header))
-                    .await?;
-            } else {
-                io_with_timeout("write header", w.write_all(&out_header)).await?;
-                io_with_timeout("write data", w.write_all(&out_data)).await?;
-            }
+        let (mut out_header, out_data) = req.to_bytes(&self.cfg)?;
+        debug!("SEND {req:?}");
+        debug!(
+            "Size_header: {} Size_data: {}",
+            out_header.len(),
+            out_data.len()
+        );
+        if out_data.is_empty() || self.cfg.extra_data.r2t.immediate_data == "Yes" {
+            out_header.extend_from_slice(&out_data);
+            io_with_timeout("write header and data", w.write_all(&out_header)).await?;
+        } else {
+            io_with_timeout("write header", w.write_all(&out_header)).await?;
+            io_with_timeout("write data", w.write_all(&out_data)).await?;
         }
         Ok(())
     }
@@ -112,16 +110,12 @@ impl ClientConnection {
         initiator_task_tag: u32,
         req: impl ToBytes<Header = Vec<u8>> + Debug,
     ) -> Result<()> {
-        if self.sending.contains_key(&initiator_task_tag) {
-            bail!(
-                "Failed to send request, cause already sended other with same itt={}",
-                initiator_task_tag
-            )
+        if !self.sending.contains_key(&initiator_task_tag) {
+            let (tx, rx) = mpsc::channel::<RawPdu>(32);
+            self.sending.insert(initiator_task_tag, tx);
+            self.reciver.insert(initiator_task_tag, rx);
         }
 
-        let (tx, rx) = oneshot::channel();
-        self.sending.insert(initiator_task_tag, tx);
-        self.reciver.insert(initiator_task_tag, rx);
         if let Err(e) = self.write(req).await {
             let _ = self.sending.remove(&initiator_task_tag);
             let _ = self.reciver.remove(&initiator_task_tag);
@@ -135,27 +129,31 @@ impl ClientConnection {
         &self,
         initiator_task_tag: u32,
     ) -> Result<PDUWithData<T>> {
-        let rx = match self.reciver.remove(&initiator_task_tag) {
-            None => bail!("no pending request with itt={initiator_task_tag}"),
-            Some((_, rx)) => rx,
-        };
+        let mut rx = self
+            .reciver
+            .remove(&initiator_task_tag)
+            .map(|(_, rx)| rx)
+            .ok_or_else(|| anyhow!("no pending request with itt={initiator_task_tag}"))?;
 
         let RawPdu {
             last_hdr_with_updated_data,
             data,
-        } = rx.await.map_err(|_| {
+        } = rx.recv().await.ok_or_else(|| {
             anyhow!("Failed to read response: connection closed before answer")
         })?;
 
         let pdu_header = T::from_bhs_bytes(&last_hdr_with_updated_data)?;
-        let tmp = PDUWithData::<T>::parse(pdu_header, data.as_slice(), false, false);
-        debug!("READ {tmp:?}");
-        tmp
+        if !pdu_header.get_final_bit() {
+            let _ = self.reciver.insert(initiator_task_tag, rx);
+        }
+
+        let parsed = PDUWithData::<T>::parse(pdu_header, data.as_slice(), false, false);
+        debug!("READ {parsed:?}");
+        parsed
     }
 
     async fn read_loop(self: Arc<Self>) -> Result<()> {
         let mut hdr = [0u8; HEADER_LEN];
-        let pending: DashMap<u32, RawPdu> = DashMap::new();
 
         loop {
             {
@@ -164,12 +162,12 @@ impl ClientConnection {
             }
 
             let pdu_hdr = Pdu::from_bhs_bytes(&hdr)?;
+            debug!("PRE BHS: {pdu_hdr:?}");
             let itt = pdu_hdr.get_initiator_task_tag();
-            let cont_bit = pdu_hdr.get_continue_bit();
             let fin_bit = pdu_hdr.get_final_bit();
             let total = pdu_hdr.total_length_bytes();
 
-            let mut payload = if total > HEADER_LEN {
+            let payload = if total > HEADER_LEN {
                 let mut data = vec![0u8; total - HEADER_LEN];
                 let mut r = self.reader.lock().await;
                 io_with_timeout("read payload", r.read_exact(&mut data)).await?;
@@ -178,51 +176,20 @@ impl ClientConnection {
                 vec![]
             };
 
-            // TODO: inplace support checking header_digest && data_digest
-            match (cont_bit, fin_bit) {
-                (true, false) => match pending.entry(itt) {
-                    Entry::Occupied(mut e) => {
-                        let e = e.get_mut();
-                        e.data.append(&mut payload);
-                        e.last_hdr_with_updated_data = hdr;
-                    },
-                    Entry::Vacant(v) => {
-                        v.insert(RawPdu {
-                            last_hdr_with_updated_data: hdr,
-                            data: payload,
-                        });
-                    },
-                },
-
-                (_, true) => {
-                    let data_combined = if let Some((_, mut pend)) = pending.remove(&itt)
-                    {
-                        pend.data.extend_from_slice(&payload);
-                        pend.data
-                    } else {
-                        payload
-                    };
-
-                    let mut fixed_hdr = hdr;
-                    let len_be = (data_combined.len() as u32).to_be_bytes();
-                    fixed_hdr[5..8].copy_from_slice(&len_be[1..4]);
-
-                    if let Some((_, tx)) = self.sending.remove(&itt) {
-                        let _ = tx.send(RawPdu {
-                            last_hdr_with_updated_data: fixed_hdr,
-                            data: data_combined,
-                        });
-                    }
-                },
-
-                (false, false) => {
-                    if let Some((_, tx)) = self.sending.remove(&itt) {
-                        let _ = tx.send(RawPdu {
-                            last_hdr_with_updated_data: hdr,
-                            data: payload,
-                        });
-                    }
-                },
+            if let Some((itt, tx)) = self.sending.remove(&itt) {
+                let _ = tx
+                    .send(RawPdu {
+                        last_hdr_with_updated_data: hdr,
+                        data: payload,
+                    })
+                    .await;
+                if !fin_bit {
+                    self.sending.insert(itt, tx);
+                }
+            } else {
+                warn!(
+                    "Failed attempt to write to unexisted sender channel with itt {itt}"
+                );
             }
         }
     }

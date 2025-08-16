@@ -266,7 +266,7 @@ where
     let cfg = load_config()?;
     let write_to = dur_env("MAPPER_WRITE_TIMEOUT_MS", 10_00);
 
-    let frames = pdu.build(&cfg)?;
+    let frames = vec![pdu.build(&cfg)?];
     for mut pair in frames {
         let (ref mut bhs, ref body) = pair;
         {

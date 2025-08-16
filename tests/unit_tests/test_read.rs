@@ -52,14 +52,7 @@ fn test_read_pdu_build() -> Result<()> {
     let mut builder =
         PDUWithData::<ScsiCommandRequest>::from_header(header_builder.header);
 
-    let chunks = builder.build(&cfg)?;
-    assert_eq!(
-        chunks.len(),
-        1,
-        "READ PDU (without data) payload must be 1 chunk"
-    );
-
-    let (hdr_bytes, body_bytes) = &chunks[0];
+    let (hdr_bytes, body_bytes) = &builder.build(&cfg)?;
 
     assert_eq!(&hdr_bytes[..], &expected[..HEADER_LEN], "BHS mismatch");
 
