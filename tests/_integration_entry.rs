@@ -8,4 +8,5 @@ mod integration_tests {
     pub mod login_plain_ok;
     pub mod logout_ok;
     pub mod read10_write_read10;
+    pub mod write_1gb;
 }

@@ -52,12 +52,10 @@ fn test_text_request() -> Result<()> {
         .cmd_sn(cmd_sn)
         .exp_stat_sn(exp_sn);
 
-    let mut built = PDUWithData::<TextRequest>::from_header(header_builder.header);
-    built.append_data(parsed_fixture.data.clone());
+    let mut builder = PDUWithData::<TextRequest>::from_header(header_builder.header);
+    builder.append_data(parsed_fixture.data.clone());
 
-    let chunks = built.build(&cfg)?;
-    assert_eq!(chunks.len(), 1);
-    let (hdr_bytes, body_bytes) = &chunks[0];
+    let (hdr_bytes, body_bytes) = &builder.build(&cfg)?;
 
     assert_eq!(
         &hdr_bytes[..],
@@ -72,12 +70,12 @@ fn test_text_request() -> Result<()> {
     );
 
     assert_eq!(
-        built.header.get_data_length_bytes(),
+        builder.header.get_data_length_bytes(),
         parsed_fixture.header.get_data_length_bytes(),
         "data_segment_length mismatch"
     );
     assert_eq!(
-        built.header.get_opcode(),
+        builder.header.get_opcode(),
         parsed_fixture.header.get_opcode(),
         "opcode mismatch"
     );

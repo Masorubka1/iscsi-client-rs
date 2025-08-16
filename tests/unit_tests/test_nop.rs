@@ -48,14 +48,7 @@ fn test_nop_out_minimal() -> Result<()> {
 
     let mut builder = PDUWithData::<NopOutRequest>::from_header(header_builder.header);
 
-    let chunks = builder.build(&cfg).expect("failed to serialize");
-    assert_eq!(
-        chunks.len(),
-        1,
-        "NOP-Out (without data) payload must be 1 chunk"
-    );
-
-    let (hdr, body) = &chunks[0];
+    let (hdr, body) = &builder.build(&cfg)?;
     assert!(body.is_empty(), "NOP-Out payload must be empty");
     assert_eq!(
         NopOutRequest::from_bhs_bytes(hdr)?,

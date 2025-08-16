@@ -16,6 +16,7 @@ use crate::{
             common::TaskAttribute,
             request::{ScsiCommandRequest, ScsiCommandRequestBuilder},
         },
+        common::SendingData,
         data::response::ScsiDataIn,
         data_fromat::PDUWithData,
     },
@@ -104,10 +105,11 @@ impl<'ctx> StateMachine<ReadCtx<'ctx>, ReadStepOut> for ReadStart {
                 .expected_data_transfer_length(ctx.read_len)
                 .scsi_descriptor_block(&ctx.cdb)
                 .read()
-                .task_attribute(TaskAttribute::Simple);
+                .task_attribute(TaskAttribute::Simple)
+                .header;
 
             let builder: PDUWithData<ScsiCommandRequest> =
-                PDUWithData::from_header(header.header);
+                PDUWithData::from_header(header);
 
             if let Err(e) = ctx.conn.send_request(itt, builder).await {
                 return Transition::Done(Err(e));
@@ -137,21 +139,61 @@ impl<'ctx> StateMachine<ReadCtx<'ctx>, ReadStepOut> for ReadWait {
 
     fn step<'a>(&'a mut self, ctx: &'a mut ReadCtx<'ctx>) -> Self::StepResult<'a> {
         Box::pin(async move {
-            let rsp = match ctx.conn.read_response::<ScsiDataIn>(self.pending.itt).await {
-                Ok(r) => r,
-                Err(e) => return Transition::Done(Err(anyhow!("unexpected PDU: {}", e))),
-            };
+            let mut buf = vec![0u8; ctx.read_len as usize];
+            let mut filled_hi = 0usize;
+            let mut done = false;
 
-            if rsp.header.stat_sn_or_rsvd != 0 {
-                let next_esn = rsp.header.stat_sn_or_rsvd.wrapping_add(1);
-                ctx.exp_stat_sn.store(next_esn, Ordering::SeqCst);
+            // Получаем PDUs до статуса (S) или SCSI Response
+            while !done {
+                let pdu: PDUWithData<ScsiDataIn> =
+                    match ctx.conn.read_response(self.pending.itt).await {
+                        Ok(p) => p,
+                        Err(e) => {
+                            return Transition::Done(Err(anyhow!("unexpected PDU: {e}")));
+                        },
+                    };
+
+                let off = pdu.header.buffer_offset as usize;
+                let len = pdu.data.len();
+
+                if off
+                    .checked_add(len)
+                    .map(|e| e <= buf.len())
+                    .unwrap_or(false)
+                {
+                    buf[off..off + len].copy_from_slice(&pdu.data);
+                    if off + len > filled_hi {
+                        filled_hi = off + len;
+                    }
+                } else {
+                    return Transition::Done(Err(anyhow!(
+                        "target sent more data than expected: off={} len={} cap={}",
+                        off,
+                        len,
+                        buf.len()
+                    )));
+                }
+
+                if pdu.header.stat_sn_or_rsvd != 0 {
+                    let next_esn = pdu.header.stat_sn_or_rsvd.wrapping_add(1);
+                    ctx.exp_stat_sn.store(next_esn, Ordering::SeqCst);
+                }
+
+                let status_present = pdu.header.get_final_bit();
+                if status_present {
+                    done = true;
+                }
+            }
+
+            if filled_hi < buf.len() {
+                buf.truncate(filled_hi);
             }
 
             let out = ReadResult {
                 itt: self.pending.itt,
                 cmd_sn: self.pending.cmd_sn,
                 exp_stat_sn: ctx.exp_stat_sn.load(Ordering::SeqCst),
-                data: rsp.data,
+                data: buf,
             };
             Transition::Done(Ok(out))
         })

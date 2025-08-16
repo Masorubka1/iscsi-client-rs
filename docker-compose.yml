@@ -8,7 +8,7 @@ services:
       - "3260:3260/tcp"
     environment:
       TGT_IQN: ${TGT_IQN:-iqn.2025-08.example:disk0}
-      TGT_SIZE_MB: ${TGT_SIZE_MB:-200}
+      TGT_SIZE_MB: ${TGT_SIZE_MB:-1050}
       TGT_LUN: ${TGT_LUN:-1}
       TGT_PGT: ${TGT_PGT:-1}
 

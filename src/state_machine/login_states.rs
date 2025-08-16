@@ -2,6 +2,7 @@ use std::{future::Future, pin::Pin, sync::Arc};
 
 use anyhow::{Context, Result, anyhow};
 use md5::{Digest, Md5};
+use tracing::debug;
 
 use crate::{
     cfg::config::{
@@ -220,7 +221,7 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for ChapSecurity {
     fn step<'a>(&'a mut self, ctx: &'a mut LoginCtx<'ctx>) -> Self::StepResult<'a> {
         Box::pin(async move {
             // Step1: Security → Security (without CHAP_A)
-            let req = LoginRequestBuilder::new(ctx.isid, 0)
+            let header = LoginRequestBuilder::new(ctx.isid, 0)
                 .csg(Stage::Security)
                 .nsg(Stage::Security)
                 .initiator_task_tag(ctx.itt)
@@ -229,7 +230,7 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for ChapSecurity {
                 .exp_stat_sn(0)
                 .header;
 
-            let mut pdu = PDUWithData::from_header(req);
+            let mut pdu = PDUWithData::from_header(header);
             pdu.append_data(login_keys_security(ctx.cfg));
 
             match ctx.conn.send_request(ctx.itt, pdu).await {
@@ -265,7 +266,7 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for ChapA {
         let last = self.last.clone();
         Box::pin(async move {
             // Step2: Security → Security, CHAP_A=5
-            let req = LoginRequestBuilder::new(ctx.isid, last.tsih)
+            let header = LoginRequestBuilder::new(ctx.isid, last.tsih)
                 .csg(Stage::Security)
                 .nsg(Stage::Security)
                 .initiator_task_tag(last.itt)
@@ -274,7 +275,7 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for ChapA {
                 .exp_stat_sn(last.stat_sn.wrapping_add(1))
                 .header;
 
-            let mut pdu = PDUWithData::from_header(req);
+            let mut pdu = PDUWithData::from_header(header);
             pdu.append_data(b"CHAP_A=5\x00".to_vec());
 
             match ctx.conn.send_request(last.itt, pdu).await {
@@ -326,7 +327,7 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for ChapAnswer {
             let chap_r = calc_chap_r_hex(id, secret, &chal);
 
             // Step3: (Security -> Operational, Transit=1)
-            let req = LoginRequestBuilder::new(ctx.isid, last.tsih)
+            let header = LoginRequestBuilder::new(ctx.isid, last.tsih)
                 .transit()
                 .csg(Stage::Security)
                 .nsg(Stage::Operational)
@@ -336,7 +337,7 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for ChapAnswer {
                 .exp_stat_sn(last.stat_sn.wrapping_add(1))
                 .header;
 
-            let mut pdu = PDUWithData::from_header(req);
+            let mut pdu = PDUWithData::from_header(header);
             pdu.append_data(login_keys_chap_response(user, &chap_r));
 
             if let Err(e) = ctx.conn.send_request(last.itt, pdu).await {
@@ -373,7 +374,7 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for ChapOpToFull {
         let last = self.last.clone();
         Box::pin(async move {
             // Step4: Operational (Transit) → FullFeature + operational keys
-            let req = LoginRequestBuilder::new(ctx.isid, last.tsih)
+            let header = LoginRequestBuilder::new(ctx.isid, last.tsih)
                 .transit()
                 .csg(Stage::Operational)
                 .nsg(Stage::FullFeature)
@@ -384,7 +385,7 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for ChapOpToFull {
                 .exp_stat_sn(last.stat_sn.wrapping_add(1))
                 .header;
 
-            let mut pdu = PDUWithData::from_header(req);
+            let mut pdu = PDUWithData::from_header(header);
             pdu.append_data(login_keys_operational(ctx.cfg));
 
             match ctx.conn.send_request(last.itt, pdu).await {
@@ -402,6 +403,7 @@ pub async fn run_login(
     mut state: LoginStates,
     ctx: &mut LoginCtx<'_>,
 ) -> Result<LoginStatus> {
+    debug!("Loop login");
     loop {
         let tr = match &mut state {
             LoginStates::PlainStart(s) => s.step(ctx).await,

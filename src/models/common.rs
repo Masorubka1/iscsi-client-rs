@@ -165,5 +165,5 @@ pub trait Builder: Sized {
     ///
     /// The `cfg` parameter is typically used to honour negotiated session
     /// limits such as *MaxRecvDataSegmentLength*.
-    fn build(&mut self, cfg: &Config) -> Result<Vec<(Self::Header, Vec<u8>)>>;
+    fn build(&mut self, cfg: &Config) -> Result<(Self::Header, Vec<u8>)>;
 }

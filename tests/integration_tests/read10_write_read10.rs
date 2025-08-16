@@ -1,12 +1,11 @@
-// tests/read10_write_read10.rs
-use std::{sync::atomic::AtomicU32, time::Duration};
+use std::{
+    sync::{Arc, atomic::AtomicU32},
+    time::Duration,
+};
 
 use anyhow::Result;
 use iscsi_client_rs::{
-    cfg::{
-        config::{AuthConfig, Config},
-        logger::init_logger,
-    },
+    cfg::{config::AuthConfig, logger::init_logger},
     control_block::common::{build_read10, build_write10},
     state_machine::{
         login_states::{LoginCtx, LoginStates, run_login, start_plain},
@@ -29,7 +28,7 @@ fn pick_lba_from_isid(isid: [u8; 6]) -> u32 {
 async fn read10_write10_read10_plain() -> Result<()> {
     let _ = init_logger(&test_path());
 
-    let cfg: Config = load_config()?;
+    let cfg = Arc::new(load_config()?);
     if !matches!(cfg.login.auth, AuthConfig::None) {
         eprintln!(
             "⏭️  skip: auth.method != none in TEST_CONFIG (этот тест только для \
@@ -80,6 +79,7 @@ async fn read10_write10_read10_plain() -> Result<()> {
 
     let mut wctx = WriteCtx::new(
         conn.clone(),
+        cfg.clone(),
         lun,
         &itt,
         &cmd_sn,

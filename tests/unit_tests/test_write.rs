@@ -52,13 +52,10 @@ fn test_write_pdu_build() -> Result<()> {
         .write()
         .task_attribute(TaskAttribute::Simple);
 
-    let mut pdu = PDUWithData::<ScsiCommandRequest>::from_header(header.header);
-    pdu.append_data(write_buf);
+    let mut builder = PDUWithData::<ScsiCommandRequest>::from_header(header.header);
+    builder.append_data(write_buf);
 
-    let chunks = pdu.build(&cfg)?;
-    assert_eq!(chunks.len(), 1, "WRITE PDU must be a single chunk");
-
-    let (hdr_bytes, body_bytes) = &chunks[0];
+    let (hdr_bytes, body_bytes) = &builder.build(&cfg)?;
 
     assert_eq!(
         ScsiCommandRequest::from_bhs_bytes(hdr_bytes)?,
