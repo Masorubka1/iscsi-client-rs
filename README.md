@@ -243,13 +243,13 @@ A high-level plan, trimmed for GitHub readability. We track delivery as **Now â†
   * [ ] Discovery: **SendTargets** (Text)
 * **Reliability & ergonomics**
 
-  * [ ] Structured errors with retry hints
+  * [x] Structured errors with retry hints
   * [ ] Timeouts & cancellation tokens
   * [ ] Back-pressure & graceful shutdown
 * **Testing & CI**
 
   * [ ] Multi-target matrix: **tgt**, **LIO/targetcli**, **SCST**
-  * [ ] Byte-exact fixtures for each login hop
+  * [x] Byte-exact fixtures for each login hop
   * [ ] Fuzzing (cargo-fuzz / proptest) for PDUs & text keys
 
 ## Next

@@ -1,4 +1,4 @@
-use std::fs;
+use std::{fs, thread::sleep, time::Duration};
 
 use anyhow::{Context, Result};
 use hex::FromHex;
@@ -55,16 +55,23 @@ fn test_write_pdu_build() -> Result<()> {
     let mut builder = PDUWithData::<ScsiCommandRequest>::from_header(header.header);
     builder.append_data(write_buf);
 
+    let hd = cfg
+        .login
+        .negotiation
+        .header_digest
+        .eq_ignore_ascii_case("CRC32C");
+    let dd = cfg
+        .login
+        .negotiation
+        .data_digest
+        .eq_ignore_ascii_case("CRC32C");
+
+    println!("{hd}, {dd}");
+
     let (hdr_bytes, body_bytes) = &builder.build(
         cfg.login.negotiation.max_recv_data_segment_length as usize,
-        cfg.login
-            .negotiation
-            .header_digest
-            .eq_ignore_ascii_case("CRC32C"),
-        cfg.login
-            .negotiation
-            .data_digest
-            .eq_ignore_ascii_case("CRC32C"),
+        hd,
+        dd,
     )?;
 
     assert_eq!(
@@ -84,20 +91,37 @@ fn test_write_pdu_build() -> Result<()> {
 
 #[test]
 fn test_write_response_parse() -> Result<()> {
+    let cfg = resolve_config_path("tests/config.yaml")
+        .and_then(Config::load_from_file)
+        .context("failed to resolve or load config")?;
+
     let bytes =
         load_fixture("tests/unit_tests/fixtures/scsi_commands/write_response.hex")?;
     assert!(bytes.len() >= HEADER_LEN);
+
+    let hd = cfg
+        .login
+        .negotiation
+        .header_digest
+        .eq_ignore_ascii_case("CRC32C");
+    let dd = cfg
+        .login
+        .negotiation
+        .data_digest
+        .eq_ignore_ascii_case("CRC32C");
+
+    println!("{hd}, {dd}");
 
     let hdr_only = ScsiCommandResponse::from_bhs_bytes(&bytes[..HEADER_LEN])?;
     let parsed = PDUWithData::<ScsiCommandResponse>::parse(
         hdr_only,
         &bytes[HEADER_LEN..],
-        true,
-        false,
+        hd,
+        dd,
     )?;
 
     assert!(parsed.data.is_empty());
-    assert!(parsed.header_digest.is_some());
+    assert!(parsed.header_digest.is_none());
     assert!(parsed.data_digest.is_none());
 
     assert_eq!(parsed.header.stat_sn, 1914934025, "Unexpected StatSN");
