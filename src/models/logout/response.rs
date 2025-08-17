@@ -223,26 +223,32 @@ impl FromBytes for LogoutResponse {
 }
 
 impl BasicHeaderSegment for LogoutResponse {
+    #[inline]
     fn to_bhs_bytes(&self) -> Result<[u8; HEADER_LEN]> {
         Ok(self.to_bhs_bytes())
     }
 
+    #[inline]
     fn get_opcode(&self) -> &BhsOpcode {
         &self.opcode
     }
 
+    #[inline]
     fn get_initiator_task_tag(&self) -> u32 {
         self.initiator_task_tag
     }
 
+    #[inline]
     fn get_ahs_length_bytes(&self) -> usize {
         (self.total_ahs_length as usize) * 4
     }
 
+    #[inline]
     fn set_ahs_length_bytes(&mut self, len: u8) {
         self.total_ahs_length = len >> 2;
     }
 
+    #[inline]
     fn get_data_length_bytes(&self) -> usize {
         u32::from_be_bytes([
             0,
@@ -252,9 +258,20 @@ impl BasicHeaderSegment for LogoutResponse {
         ]) as usize
     }
 
+    #[inline]
     fn set_data_length_bytes(&mut self, len: u32) {
         error!("LogoutResp must have zero DataSegmentLength");
         let be = len.to_be_bytes();
         self.data_segment_length = [be[1], be[2], be[3]];
+    }
+
+    #[inline]
+    fn get_header_diggest(&self, _: bool) -> usize {
+        0
+    }
+
+    #[inline]
+    fn get_data_diggest(&self, _: bool) -> usize {
+        0
     }
 }

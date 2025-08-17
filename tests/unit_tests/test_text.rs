@@ -55,7 +55,17 @@ fn test_text_request() -> Result<()> {
     let mut builder = PDUWithData::<TextRequest>::from_header(header_builder.header);
     builder.append_data(parsed_fixture.data.clone());
 
-    let (hdr_bytes, body_bytes) = &builder.build(&cfg)?;
+    let (hdr_bytes, body_bytes) = &builder.build(
+        cfg.login.negotiation.max_recv_data_segment_length as usize,
+        cfg.login
+            .negotiation
+            .header_digest
+            .eq_ignore_ascii_case("CRC32C"),
+        cfg.login
+            .negotiation
+            .data_digest
+            .eq_ignore_ascii_case("CRC32C"),
+    )?;
 
     assert_eq!(
         &hdr_bytes[..],

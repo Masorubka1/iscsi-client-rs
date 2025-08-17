@@ -21,8 +21,6 @@ pub struct SenseData {
 }
 
 impl SenseData {
-    /// Парсим sense, допускаем 2-байтовый BE-префикс длины: [len_hi,len_lo] +
-    /// sense...
     pub fn parse(buf: &[u8]) -> Result<Self> {
         if buf.len() < FIXED_MIN_LEN {
             return Err(anyhow!("sense buffer too small: {}", buf.len()));

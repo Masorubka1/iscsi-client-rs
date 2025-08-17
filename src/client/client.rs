@@ -81,7 +81,19 @@ impl ClientConnection {
         mut req: impl ToBytes<Header = Vec<u8>> + fmt::Debug,
     ) -> Result<()> {
         let mut w = self.writer.lock().await;
-        let (mut out_header, out_data) = req.to_bytes(&self.cfg)?;
+        let (mut out_header, out_data) = req.to_bytes(
+            self.cfg.login.negotiation.max_recv_data_segment_length as usize,
+            self.cfg
+                .login
+                .negotiation
+                .header_digest
+                .eq_ignore_ascii_case("CRC32C"),
+            self.cfg
+                .login
+                .negotiation
+                .data_digest
+                .eq_ignore_ascii_case("CRC32C"),
+        )?;
         debug!("SEND {req:?}");
         debug!(
             "Size_header: {} Size_data: {}",
@@ -147,13 +159,43 @@ impl ClientConnection {
             let _ = self.reciver.insert(initiator_task_tag, rx);
         }
 
-        let parsed = PDUWithData::<T>::parse(pdu_header, data.as_slice(), false, false);
+        let hd = self
+            .cfg
+            .login
+            .negotiation
+            .header_digest
+            .eq_ignore_ascii_case("CRC32C");
+        let hd = pdu_header.get_header_diggest(hd);
+        let dd = self
+            .cfg
+            .login
+            .negotiation
+            .data_digest
+            .eq_ignore_ascii_case("CRC32C");
+        let dd = pdu_header.get_data_diggest(dd);
+
+        let parsed =
+            PDUWithData::<T>::parse(pdu_header, data.as_slice(), hd != 0, dd != 0);
+
         debug!("READ {parsed:?}");
         parsed
     }
 
     async fn read_loop(self: Arc<Self>) -> Result<()> {
         let mut hdr = [0u8; HEADER_LEN];
+
+        let hd = self
+            .cfg
+            .login
+            .negotiation
+            .header_digest
+            .eq_ignore_ascii_case("CRC32C");
+        let dd = self
+            .cfg
+            .login
+            .negotiation
+            .data_digest
+            .eq_ignore_ascii_case("CRC32C");
 
         loop {
             {
@@ -165,7 +207,15 @@ impl ClientConnection {
             debug!("PRE BHS: {pdu_hdr:?}");
             let itt = pdu_hdr.get_initiator_task_tag();
             let fin_bit = pdu_hdr.get_final_bit();
-            let total = pdu_hdr.total_length_bytes();
+
+            let mut total = pdu_hdr.total_length_bytes();
+            debug!("total {total}");
+            if total > HEADER_LEN {
+                total += pdu_hdr.get_header_diggest(hd) + pdu_hdr.get_data_diggest(dd);
+            } else {
+                total += pdu_hdr.get_header_diggest(hd);
+            }
+            debug!("total with crc32c {total}");
 
             let payload = if total > HEADER_LEN {
                 let mut data = vec![0u8; total - HEADER_LEN];

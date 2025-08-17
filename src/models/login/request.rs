@@ -257,4 +257,12 @@ impl BasicHeaderSegment for LoginRequest {
         let be = len.to_be_bytes();
         self.data_segment_length = [be[1], be[2], be[3]];
     }
+
+    fn get_header_diggest(&self, _: bool) -> usize {
+        0
+    }
+
+    fn get_data_diggest(&self, _: bool) -> usize {
+        0
+    }
 }

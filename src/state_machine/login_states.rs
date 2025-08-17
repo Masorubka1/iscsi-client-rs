@@ -18,14 +18,12 @@ use crate::{
     state_machine::common::{StateMachine, Transition},
 };
 
-/// Контекст логина (общий для plain/chap)
 #[derive(Debug)]
 pub struct LoginCtx<'a> {
     pub conn: Arc<ClientConnection>,
     pub cfg: &'a Config,
     pub isid: [u8; 6],
     pub cid: u16,
-    /// Обычно 0 — для всей сессии логина.
     pub itt: u32,
 }
 

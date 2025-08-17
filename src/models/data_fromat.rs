@@ -1,9 +1,9 @@
 use std::{any::type_name, fmt};
 
 use anyhow::{Context, Result, bail};
+use crc32c::crc32c_append;
 
 use crate::{
-    cfg::config::Config,
     client::pdu_connection::FromBytes,
     models::{
         common::{BasicHeaderSegment, Builder, SendingData},
@@ -11,6 +11,42 @@ use crate::{
         opcode::Opcode,
     },
 };
+
+#[inline]
+fn pad_len(n: usize) -> usize {
+    (4 - (n % 4)) % 4
+}
+
+#[inline]
+fn crc32c_of_parts(parts: &[&[u8]]) -> u32 {
+    let mut acc = 0u32;
+    for p in parts {
+        if !p.is_empty() {
+            acc = crc32c_append(acc, p);
+        }
+    }
+    acc
+}
+
+#[inline]
+fn crc32c_with_padding(parts: &[&[u8]], pad: usize) -> u32 {
+    let mut acc = crc32c_of_parts(parts);
+    if pad != 0 {
+        let zeros = [0u8; 3];
+        acc = crc32c_append(acc, &zeros[..pad]);
+    }
+    acc
+}
+
+#[inline]
+fn compute_header_digest(bhs: &[u8], ahs: &[u8]) -> u32 {
+    crc32c_with_padding(&[bhs, ahs], pad_len(ahs.len()))
+}
+
+#[inline]
+fn compute_data_digest(data: &[u8]) -> u32 {
+    crc32c_with_padding(&[data], pad_len(data.len()))
+}
 
 #[derive(PartialEq)]
 pub struct PDUWithData<T> {
@@ -34,10 +70,17 @@ where T: BasicHeaderSegment + SendingData + FromBytes
     }
 
     /// Build finnal PDU (BHS + DataSegment)
-    fn build(&mut self, cfg: &Config) -> Result<(Self::Header, Vec<u8>)> {
-        let mrdsl = cfg.login.negotiation.max_recv_data_segment_length as usize;
-        if mrdsl == 0 {
-            bail!("MaxRecvDataSegmentLength is zero");
+    fn build(
+        &mut self,
+        max_recv_data_segment_length: usize,
+        enable_header_digest: bool,
+        enable_data_digest: bool,
+    ) -> Result<(Self::Header, Vec<u8>)> {
+        if max_recv_data_segment_length < self.data.len() {
+            bail!(
+                "MaxRecvDataSegmentLength is less than data len: {}",
+                self.data.len()
+            );
         }
 
         self.header.set_data_length_bytes(self.data.len() as u32);
@@ -47,6 +90,8 @@ where T: BasicHeaderSegment + SendingData + FromBytes
         if opcode != &Opcode::ScsiDataOut && opcode != &Opcode::LogoutReq {
             self.header.set_final_bit();
         }
+
+        let opcode = &self.header.get_opcode().opcode;
 
         let bhs = T::to_bhs_bytes(&self.header)?;
 
@@ -61,20 +106,34 @@ where T: BasicHeaderSegment + SendingData + FromBytes
                 + (self.data_digest.is_some() as usize) * 4,
         );
 
+        self.header_digest = if enable_header_digest && opcode != &Opcode::LoginReq {
+            Some(compute_header_digest(&bhs, &self.aditional_heder))
+        } else {
+            None
+        };
+
+        self.data_digest =
+            if enable_data_digest && !self.data.is_empty() && opcode != &Opcode::LoginReq
+            {
+                Some(compute_data_digest(&self.data))
+            } else {
+                None
+            };
+
         if !self.aditional_heder.is_empty() {
             body.extend_from_slice(&self.aditional_heder);
             body.extend(std::iter::repeat_n(0u8, padding_ahs));
         }
 
         if let Some(hd) = self.header_digest {
-            body.extend_from_slice(&hd.to_be_bytes());
+            body.extend_from_slice(&hd.to_le_bytes());
         }
 
         body.extend_from_slice(&self.data[..]);
         body.extend(std::iter::repeat_n(0u8, padding_chunk));
 
         if let Some(dd) = self.data_digest {
-            body.extend_from_slice(&dd.to_be_bytes());
+            body.extend_from_slice(&dd.to_le_bytes());
         }
 
         Ok((bhs.to_vec(), body))
@@ -141,7 +200,7 @@ where T: BasicHeaderSegment + FromBytes
             if buf.len() < off + 4 {
                 bail!("{tn}: no room for HeaderDigest");
             }
-            let hd = u32::from_be_bytes(
+            let hd = u32::from_le_bytes(
                 buf[off..off + 4]
                     .try_into()
                     .context("expected header_digest, but failed to build")?,
@@ -177,7 +236,7 @@ where T: BasicHeaderSegment + FromBytes
             if buf.len() < off + 4 {
                 bail!("{tn}: no room for DataDigest");
             }
-            let dd = u32::from_be_bytes(
+            let dd = u32::from_le_bytes(
                 buf[off..off + 4]
                     .try_into()
                     .context("expected data_digest, but failed to build")?,
@@ -187,6 +246,28 @@ where T: BasicHeaderSegment + FromBytes
         } else {
             None
         };
+
+        if enable_header_digest {
+            let bhs_bytes = T::to_bhs_bytes(&header)?;
+            let want = compute_header_digest(&bhs_bytes, &aditional_heder);
+            if header_digest != Some(want) {
+                bail!(
+                    "{tn}: HeaderDigest mismatch: got={:?}, want={:#010x}",
+                    header_digest,
+                    want
+                );
+            }
+        }
+        if enable_data_digest && !data.is_empty() {
+            let want = compute_data_digest(&data);
+            if data_digest != Some(want) {
+                bail!(
+                    "{tn}: DataDigest mismatch: got={:?}, want={:#010x}",
+                    data_digest,
+                    want
+                );
+            }
+        }
 
         Ok(Self {
             header,
