@@ -1,4 +1,4 @@
-use std::{fs, thread::sleep, time::Duration};
+use std::fs;
 
 use anyhow::{Context, Result};
 use hex::FromHex;
