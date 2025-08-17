@@ -55,7 +55,17 @@ fn test_write_pdu_build() -> Result<()> {
     let mut builder = PDUWithData::<ScsiCommandRequest>::from_header(header.header);
     builder.append_data(write_buf);
 
-    let (hdr_bytes, body_bytes) = &builder.build(&cfg)?;
+    let (hdr_bytes, body_bytes) = &builder.build(
+        cfg.login.negotiation.max_recv_data_segment_length as usize,
+        cfg.login
+            .negotiation
+            .header_digest
+            .eq_ignore_ascii_case("CRC32C"),
+        cfg.login
+            .negotiation
+            .data_digest
+            .eq_ignore_ascii_case("CRC32C"),
+    )?;
 
     assert_eq!(
         ScsiCommandRequest::from_bhs_bytes(hdr_bytes)?,

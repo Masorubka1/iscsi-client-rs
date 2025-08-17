@@ -48,7 +48,17 @@ fn test_nop_out_minimal() -> Result<()> {
 
     let mut builder = PDUWithData::<NopOutRequest>::from_header(header_builder.header);
 
-    let (hdr, body) = &builder.build(&cfg)?;
+    let (hdr, body) = &builder.build(
+        cfg.login.negotiation.max_recv_data_segment_length as usize,
+        cfg.login
+            .negotiation
+            .header_digest
+            .eq_ignore_ascii_case("CRC32C"),
+        cfg.login
+            .negotiation
+            .data_digest
+            .eq_ignore_ascii_case("CRC32C"),
+    )?;
     assert!(body.is_empty(), "NOP-Out payload must be empty");
     assert_eq!(
         NopOutRequest::from_bhs_bytes(hdr)?,

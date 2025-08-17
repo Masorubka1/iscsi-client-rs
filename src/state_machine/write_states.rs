@@ -7,7 +7,7 @@ use std::{
 };
 
 use anyhow::{Result, anyhow, bail};
-use tracing::info;
+use tracing::debug;
 
 use crate::{
     cfg::config::Config,
@@ -383,7 +383,7 @@ pub async fn run_write(
     ctx: &mut WriteCtx<'_>,
 ) -> Result<WriteStatus> {
     loop {
-        info!("{state:?}");
+        debug!("{state:?}");
         state = match state {
             WriteStates::IssueCmd(ref mut s) => match s.step(ctx).await {
                 Transition::Next(next, _) => next,

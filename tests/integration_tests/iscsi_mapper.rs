@@ -266,7 +266,19 @@ where
     let cfg = load_config()?;
     let write_to = dur_env("MAPPER_WRITE_TIMEOUT_MS", 10_00);
 
-    let frames = vec![pdu.build(&cfg)?];
+    let frames = vec![
+        pdu.build(
+            cfg.login.negotiation.max_recv_data_segment_length as usize,
+            cfg.login
+                .negotiation
+                .header_digest
+                .eq_ignore_ascii_case("CRC32C"),
+            cfg.login
+                .negotiation
+                .data_digest
+                .eq_ignore_ascii_case("CRC32C"),
+        )?,
+    ];
     for mut pair in frames {
         let (ref mut bhs, ref body) = pair;
         {

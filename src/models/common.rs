@@ -1,7 +1,7 @@
 use anyhow::Result;
 use enum_dispatch::enum_dispatch;
 
-use crate::{cfg::config::Config, models::opcode::BhsOpcode};
+use crate::models::opcode::BhsOpcode;
 
 pub const HEADER_LEN: usize = 48;
 
@@ -82,14 +82,26 @@ pub trait BasicHeaderSegment: Sized + SendingData {
     fn set_data_length_bytes(&mut self, len: u32);
 
     /// Number of actual payload bytes in the DataSegment.
+    #[inline]
     fn total_length_bytes(&self) -> usize {
         let padding_ahs = (4 - (self.get_ahs_length_bytes() % 4)) % 4;
         let padding_data_segment = (4 - (self.get_data_length_bytes() % 4)) % 4;
+
         HEADER_LEN
             + self.get_ahs_length_bytes()
             + padding_ahs
             + self.get_data_length_bytes()
             + padding_data_segment
+    }
+
+    #[inline]
+    fn get_header_diggest(&self, enable_header_digest: bool) -> usize {
+        4 * enable_header_digest as usize
+    }
+
+    #[inline]
+    fn get_data_diggest(&self, enable_data_digest: bool) -> usize {
+        4 * (self.get_data_length_bytes() > 0) as usize * enable_data_digest as usize
     }
 }
 
@@ -165,5 +177,10 @@ pub trait Builder: Sized {
     ///
     /// The `cfg` parameter is typically used to honour negotiated session
     /// limits such as *MaxRecvDataSegmentLength*.
-    fn build(&mut self, cfg: &Config) -> Result<(Self::Header, Vec<u8>)>;
+    fn build(
+        &mut self,
+        max_recv_data_segment_length: usize,
+        enable_header_digest: bool,
+        enable_data_digest: bool,
+    ) -> Result<(Self::Header, Vec<u8>)>;
 }

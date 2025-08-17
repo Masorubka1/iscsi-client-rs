@@ -125,7 +125,17 @@ fn test_login_request() -> Result<()> {
 
     assert_eq!(builder.header, parsed.header, "BHS differs from fixture");
 
-    let (_hdr, body) = &builder.build(&cfg)?;
+    let (_hdr, body) = &builder.build(
+        cfg.login.negotiation.max_recv_data_segment_length as usize,
+        cfg.login
+            .negotiation
+            .header_digest
+            .eq_ignore_ascii_case("CRC32C"),
+        cfg.login
+            .negotiation
+            .data_digest
+            .eq_ignore_ascii_case("CRC32C"),
+    )?;
 
     let left: BTreeSet<_> = split_zeroes(body);
     let right: BTreeSet<_> = split_zeroes(&parsed.data);
@@ -193,7 +203,17 @@ fn chap_step1_security_only() -> Result<()> {
     let mut s1 = PDUWithData::<LoginRequest>::from_header(s1_hdr);
     s1.append_data(login_keys_security(&cfg));
 
-    let (hdr_bytes, data_bytes) = &s1.build(&cfg)?;
+    let (hdr_bytes, data_bytes) = &s1.build(
+        cfg.login.negotiation.max_recv_data_segment_length as usize,
+        cfg.login
+            .negotiation
+            .header_digest
+            .eq_ignore_ascii_case("CRC32C"),
+        cfg.login
+            .negotiation
+            .data_digest
+            .eq_ignore_ascii_case("CRC32C"),
+    )?;
     let mut got = hdr_bytes.clone();
     got.extend_from_slice(data_bytes);
 
@@ -272,7 +292,17 @@ fn chap_step3_chap_response() -> Result<()> {
     let mut s3 = PDUWithData::<LoginRequest>::from_header(s3_hdr);
     s3.append_data(login_keys_chap_response(user, &chap_r));
 
-    let (hdr_bytes, data_bytes) = &s3.build(&cfg)?;
+    let (hdr_bytes, data_bytes) = &s3.build(
+        cfg.login.negotiation.max_recv_data_segment_length as usize,
+        cfg.login
+            .negotiation
+            .header_digest
+            .eq_ignore_ascii_case("CRC32C"),
+        cfg.login
+            .negotiation
+            .data_digest
+            .eq_ignore_ascii_case("CRC32C"),
+    )?;
     let mut got = hdr_bytes.clone();
     got.extend_from_slice(data_bytes);
 
@@ -312,7 +342,17 @@ fn chap_step4_oper_to_ff_with_ops() -> Result<()> {
     let mut s4 = PDUWithData::<LoginRequest>::from_header(s4_hdr);
     s4.append_data(login_keys_operational(&cfg));
 
-    let (hdr_bytes, data_bytes) = &s4.build(&cfg)?;
+    let (hdr_bytes, data_bytes) = &s4.build(
+        cfg.login.negotiation.max_recv_data_segment_length as usize,
+        cfg.login
+            .negotiation
+            .header_digest
+            .eq_ignore_ascii_case("CRC32C"),
+        cfg.login
+            .negotiation
+            .data_digest
+            .eq_ignore_ascii_case("CRC32C"),
+    )?;
     let mut got = hdr_bytes.clone();
     got.extend_from_slice(data_bytes);
 
