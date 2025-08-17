@@ -238,7 +238,7 @@ A high-level plan, trimmed for GitHub readability. We track delivery as **Now â†
 
 * **Core protocol & plumbing**
 
-  * [ ] CRC32C digests (Header/Data; opt-in)
+  * [x] CRC32C digests (Header/Data; opt-in)
   * [ ] Unified state machine (Login, NOP, READ/WRITE)
   * [ ] Discovery: **SendTargets** (Text)
 * **Reliability & ergonomics**
