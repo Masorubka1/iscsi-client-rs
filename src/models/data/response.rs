@@ -4,6 +4,7 @@ use bitflags::bitflags;
 use crate::{
     client::pdu_connection::FromBytes,
     models::{
+        command::common::ScsiStatus,
         common::{BasicHeaderSegment, HEADER_LEN, SendingData},
         opcode::{BhsOpcode, Opcode},
     },
@@ -43,7 +44,7 @@ pub struct ScsiDataIn {
     pub opcode: BhsOpcode,            // 0  (0x25)
     pub flags: DataInFlags,           // 1  (F,A,0,0,0,O,U,S)
     pub reserved2: u8,                // 2  (reserved)
-    pub status_or_rsvd: u8,           // 3  (SCSI Status, if S=1; else 0)
+    pub status_or_rsvd: ScsiStatus,   // 3  (SCSI Status, if S=1; else 0)
     pub total_ahs_length: u8,         // 4
     pub data_segment_length: [u8; 3], // 5..7
     pub lun: [u8; 8],                 // 8..15  (LUN or reserved; if A=1 must present)
@@ -59,16 +60,16 @@ pub struct ScsiDataIn {
 
 impl ScsiDataIn {
     #[inline]
-    pub fn scsi_status(&self) -> Option<u8> {
+    pub fn scsi_status(&self) -> Option<&ScsiStatus> {
         if self.flags.contains(DataInFlags::S) {
-            Some(self.status_or_rsvd)
+            Some(&self.status_or_rsvd)
         } else {
             None
         }
     }
 
     #[inline]
-    pub fn set_scsi_status(&mut self, st: Option<u8>) {
+    pub fn set_scsi_status(&mut self, st: Option<ScsiStatus>) {
         match st {
             Some(s) => {
                 self.flags.insert(DataInFlags::S);
@@ -77,7 +78,7 @@ impl ScsiDataIn {
             },
             None => {
                 self.flags.remove(DataInFlags::S);
-                self.status_or_rsvd = 0;
+                self.status_or_rsvd = ScsiStatus::Good;
                 self.stat_sn_or_rsvd = 0;
                 self.residual_count = 0;
             },
@@ -91,7 +92,7 @@ impl ScsiDataIn {
         buf[1] = self.flags.bits();
         buf[2] = self.reserved2;
         buf[3] = if self.flags.contains(DataInFlags::S) {
-            self.status_or_rsvd
+            (&self.status_or_rsvd).into()
         } else {
             0
         };
@@ -130,7 +131,7 @@ impl ScsiDataIn {
         }
         let flags = DataInFlags::try_from(b[1])?;
         let reserved2 = b[2];
-        let status_or_rsvd = b[3];
+        let status_or_rsvd = ScsiStatus::try_from(b[3])?;
         let total_ahs_length = b[4];
         let data_segment_length = [b[5], b[6], b[7]];
         let mut lun = [0u8; 8];
@@ -162,11 +163,22 @@ impl ScsiDataIn {
             residual_count,
         })
     }
+
+    pub fn get_real_final_bit(&self) -> bool {
+        self.flags.contains(DataInFlags::FINAL)
+    }
+
+    pub fn get_status_bit(&self) -> bool {
+        self.flags.contains(DataInFlags::S)
+    }
 }
 
 impl SendingData for ScsiDataIn {
     fn get_final_bit(&self) -> bool {
+        // WARNING: IN SOME CASES WE EXPECT THAT after ScsiDataIn goes
+        // ScsiCommandResponse
         self.flags.contains(DataInFlags::FINAL)
+            && (self.scsi_status() == Some(&ScsiStatus::Good))
     }
 
     fn set_final_bit(&mut self) {

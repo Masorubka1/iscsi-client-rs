@@ -179,8 +179,9 @@ impl TryFrom<u8> for ResponseCode {
 ///
 /// Only valid when ResponseCode == CommandCompleted.
 #[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum ScsiStatus {
+    #[default]
     Good = 0x00,
     CheckCondition = 0x02,
     Busy = 0x08,

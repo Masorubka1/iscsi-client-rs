@@ -6,7 +6,7 @@ use std::{
 use anyhow::Result;
 use iscsi_client_rs::{
     cfg::{config::AuthConfig, logger::init_logger},
-    control_block::common::{build_read10, build_write10},
+    control_block::{read::build_read10, write::build_write10},
     state_machine::{
         login_states::{LoginCtx, LoginStates, run_login, start_plain},
         read_states::{ReadCtx, ReadStart, ReadStates, run_read},
@@ -70,6 +70,7 @@ async fn read10_write10_read10_plain() -> Result<()> {
         (BLK * blocks as usize) as u32,
         cdb_rd1,
     );
+    let _ = run_read(ReadStates::Start(ReadStart), &mut rctx1).await;
     let rd1 = run_read(ReadStates::Start(ReadStart), &mut rctx1).await?;
     assert_eq!(rd1.data.len(), BLK);
 

@@ -1,16 +1,11 @@
 use std::{
-    sync::atomic::{AtomicU32, Ordering},
+    sync::{Arc, atomic::AtomicU32},
     time::Duration,
 };
 
 use anyhow::{Context, Result};
 use iscsi_client_rs::{
-    cfg::{
-        cli::resolve_config_path,
-        config::{AuthConfig, Config},
-        logger::init_logger,
-    },
-    client::client::ClientConnection,
+    cfg::{config::AuthConfig, logger::init_logger},
     control_block::{
         read::build_read10,
         read_capacity::{
@@ -19,77 +14,51 @@ use iscsi_client_rs::{
         },
         write::build_write10,
     },
-    models::{logout::request::LogoutReason, nop::request::NopOutRequest},
     state_machine::{
-        login_states::{LoginCtx, LoginStates, run_login, start_chap, start_plain},
-        logout_states::{self, LogoutCtx, LogoutStates, run_logout},
-        nop_states::{self, NopCtx, NopStates, run_nop},
+        login_states::{LoginCtx, LoginStates, run_login, start_plain},
         read_states::{ReadCtx, ReadStart, ReadStates, run_read},
         write_states::{IssueCmd, WriteCtx, WriteStates, run_write},
     },
-    utils::generate_isid,
 };
-use tokio::{
-    main,
-    time::{self, sleep},
+use tokio::time::sleep;
+
+use crate::integration_tests::common::{
+    connect_cfg, load_config, lun8, test_isid, test_path,
 };
-use tracing::info;
 
 fn pick_lba_from_isid(isid: [u8; 6]) -> u32 {
     let s: u32 = isid.iter().map(|&b| b as u32).sum();
     4096 + (s % 1024)
 }
 
-#[main]
-async fn main() -> Result<()> {
-    let _init_logger = init_logger("tests/config_logger.yaml")?;
+#[tokio::test]
+async fn read_capacity_then_write10_plain() -> Result<()> {
+    let _ = init_logger(&test_path());
 
-    let cfg = resolve_config_path("tests/config.yaml")
-        .and_then(Config::load_from_file)
-        .context("failed to resolve or load config")?;
+    let cfg = Arc::new(load_config()?);
+    if !matches!(cfg.login.auth, AuthConfig::None) {
+        eprintln!("⏭️  skip: auth.method != none in TEST_CONFIG (test for login_plain)");
+        return Ok(());
+    }
 
-    let conn = ClientConnection::connect(cfg.clone()).await?;
-    info!("Connected to target");
+    let conn = connect_cfg(&cfg).await?;
+    let isid = test_isid();
 
-    let (_isid, _isid_str) = generate_isid();
-    info!("{_isid:?} {_isid_str}");
-    let isid = [0, 2, 61, 0, 0, 14];
+    // -------- Login ----------
+    let mut lctx = LoginCtx::new(
+        conn.clone(),
+        &cfg,
+        isid,
+        /* cid= */ 1,
+        /* tsih= */ 1,
+    );
+    let login_state: LoginStates = start_plain();
+    let login_status = run_login(login_state, &mut lctx).await?;
 
-    let mut lctx = LoginCtx::new(conn.clone(), &cfg, isid, 1, 0);
-
-    let state: LoginStates = match cfg.login.auth {
-        AuthConfig::Chap(_) => start_chap(),
-        AuthConfig::None => start_plain(),
-    };
-
-    let login_status = run_login(state, &mut lctx).await?;
-
-    time::sleep(Duration::from_millis(2000)).await;
-
-    // seed our three counters:
     let cmd_sn = AtomicU32::new(login_status.exp_cmd_sn);
     let exp_stat_sn = AtomicU32::new(login_status.stat_sn.wrapping_add(1));
     let itt = AtomicU32::new(login_status.itt.wrapping_add(1));
-    let lun = [0, 1, 0, 0, 0, 0, 0, 0];
-
-    let ttt = NopOutRequest::DEFAULT_TAG;
-
-    let mut ctx = NopCtx::new(conn.clone(), lun, &itt, &cmd_sn, &exp_stat_sn, ttt);
-
-    while itt.load(Ordering::SeqCst) != 2 {
-        run_nop(NopStates::Idle(nop_states::Idle), &mut ctx).await?;
-    }
-
-    // —————— TEXT ——————
-    /*match send_text(&conn, lun, &itt, ttt, &cmd_sn, &exp_stat_sn).await {
-        Ok(resp) => {
-            info!("[Text] resp={resp:?}");
-        },
-        Err(e) => {
-            eprintln!("[Text] rejected or failed: {e}");
-            return Err(e);
-        },
-    }*/
+    let lun = lun8(1);
 
     // ============ READ CAPACITY(10) ============
     let mut cdb_rc10 = [0u8; 16];
@@ -109,6 +78,7 @@ async fn main() -> Result<()> {
         8, // RC(10) returns 8 bytes
         cdb_rc10,
     );
+
     let _ = run_read(ReadStates::Start(ReadStart), &mut rc10_ctx).await;
     let rc10_pdu = run_read(ReadStates::Start(ReadStart), &mut rc10_ctx)
         .await
@@ -216,7 +186,7 @@ async fn main() -> Result<()> {
 
     let mut wctx = WriteCtx::new(
         conn.clone(),
-        cfg.clone().into(),
+        cfg.clone(),
         lun,
         &itt,
         &cmd_sn,
@@ -251,22 +221,6 @@ async fn main() -> Result<()> {
         rd2.data, payload,
         "read-back data differs from what was written"
     );
-
-    // LOGOUT — close the whole session
-    {
-        let cid = 0u16;
-        let reason = LogoutReason::CloseSession;
-
-        let mut lctx =
-            LogoutCtx::new(conn.clone(), &itt, &cmd_sn, &exp_stat_sn, cid, reason);
-
-        let status =
-            run_logout(LogoutStates::Idle(logout_states::Idle), &mut lctx).await?;
-        info!(
-            "LOGOUT done: itt={} cmd_sn={} exp_stat_sn={}",
-            status.itt, status.cmd_sn, status.exp_stat_sn
-        );
-    }
 
     Ok(())
 }

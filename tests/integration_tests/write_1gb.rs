@@ -3,7 +3,7 @@ use std::sync::{Arc, atomic::AtomicU32};
 use anyhow::Result;
 use iscsi_client_rs::{
     cfg::{config::AuthConfig, logger::init_logger},
-    control_block::common::{build_read16, build_write16},
+    control_block::{read::build_read16, write::build_write16},
     state_machine::{
         login_states::{LoginCtx, LoginStates, run_login, start_plain},
         read_states::{ReadCtx, ReadStart, ReadStates, run_read},
@@ -73,7 +73,7 @@ async fn write16_read16_1_gib_plain() -> Result<()> {
         /* flags= */ 0,
         /* control= */ 0,
     );
-    let payload_warm = vec![0xEEu8; 512]; // один блок
+    let payload_warm = vec![0x00u8; 512]; // один блок
 
     let mut wctx_warm = WriteCtx::new(
         conn.clone(),

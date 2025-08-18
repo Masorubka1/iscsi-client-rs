@@ -13,11 +13,11 @@ use crate::{
     client::client::ClientConnection,
     models::{
         command::{
-            common::TaskAttribute,
+            common::{ScsiStatus, TaskAttribute},
             request::{ScsiCommandRequest, ScsiCommandRequestBuilder},
+            response::ScsiCommandResponse,
         },
-        common::SendingData,
-        data::response::ScsiDataIn,
+        data::{response::ScsiDataIn, sense_data::SenseData},
         data_fromat::PDUWithData,
     },
     state_machine::common::{StateMachine, Transition},
@@ -64,8 +64,6 @@ pub struct ReadResult {
     pub data: Vec<u8>,
 }
 
-/* ===== States & transitions ===== */
-
 #[derive(Debug, Clone)]
 struct PendingRead {
     itt: u32,
@@ -73,13 +71,23 @@ struct PendingRead {
 }
 
 pub struct ReadStart;
-pub struct ReadWait {
+pub struct ReadWaitData {
     pending: PendingRead,
+}
+
+pub struct ReadWaitResp {
+    pending: PendingRead,
+    buf: Vec<u8>,
+    filled_hi: usize,
+    expected: usize,
+    status_in_datain: Option<ScsiStatus>,
+    residual_in_datain: Option<u32>,
 }
 
 pub enum ReadStates {
     Start(ReadStart),
-    Wait(ReadWait),
+    WaitData(ReadWaitData),
+    WaitResp(ReadWaitResp),
 }
 
 type ReadStepOut = Transition<ReadStates, Result<ReadResult>>;
@@ -110,27 +118,25 @@ impl<'ctx> StateMachine<ReadCtx<'ctx>, ReadStepOut> for ReadStart {
 
             let builder: PDUWithData<ScsiCommandRequest> =
                 PDUWithData::from_header(header);
-
             if let Err(e) = ctx.conn.send_request(itt, builder).await {
                 return Transition::Done(Err(e));
             }
 
             let pending = PendingRead { itt, cmd_sn: sn };
-
             Transition::Next(
-                ReadStates::Wait(ReadWait { pending }),
+                ReadStates::WaitData(ReadWaitData { pending }),
                 Ok(ReadResult {
                     itt,
                     cmd_sn: sn,
                     exp_stat_sn: esn,
-                    data: Vec::with_capacity(ctx.read_len as usize),
+                    data: vec![],
                 }),
             )
         })
     }
 }
 
-impl<'ctx> StateMachine<ReadCtx<'ctx>, ReadStepOut> for ReadWait {
+impl<'ctx> StateMachine<ReadCtx<'ctx>, ReadStepOut> for ReadWaitData {
     type StepResult<'a>
         = Pin<Box<dyn Future<Output = ReadStepOut> + Send + 'a>>
     where
@@ -139,31 +145,34 @@ impl<'ctx> StateMachine<ReadCtx<'ctx>, ReadStepOut> for ReadWait {
 
     fn step<'a>(&'a mut self, ctx: &'a mut ReadCtx<'ctx>) -> Self::StepResult<'a> {
         Box::pin(async move {
-            let mut buf = vec![0u8; ctx.read_len as usize];
+            let expected = ctx.read_len as usize;
+            let mut buf = vec![0u8; expected];
             let mut filled_hi = 0usize;
-            let mut done = false;
 
-            // Получаем PDUs до статуса (S) или SCSI Response
-            while !done {
+            let mut status_in_datain: Option<ScsiStatus> = None;
+            let mut residual_in_datain: Option<u32> = None;
+
+            loop {
                 let pdu: PDUWithData<ScsiDataIn> =
                     match ctx.conn.read_response(self.pending.itt).await {
                         Ok(p) => p,
                         Err(e) => {
-                            return Transition::Done(Err(anyhow!("unexpected PDU: {e}")));
+                            return Transition::Done(Err(anyhow!(
+                                "unexpected PDU while Data-In: {e}"
+                            )));
                         },
                     };
 
                 let off = pdu.header.buffer_offset as usize;
                 let len = pdu.data.len();
-
                 if off
                     .checked_add(len)
                     .map(|e| e <= buf.len())
                     .unwrap_or(false)
                 {
-                    buf[off..off + len].copy_from_slice(&pdu.data);
-                    if off + len > filled_hi {
-                        filled_hi = off + len;
+                    if len != 0 {
+                        buf[off..off + len].copy_from_slice(&pdu.data);
+                        filled_hi = filled_hi.max(off + len);
                     }
                 } else {
                     return Transition::Done(Err(anyhow!(
@@ -175,25 +184,146 @@ impl<'ctx> StateMachine<ReadCtx<'ctx>, ReadStepOut> for ReadWait {
                 }
 
                 if pdu.header.stat_sn_or_rsvd != 0 {
-                    let next_esn = pdu.header.stat_sn_or_rsvd.wrapping_add(1);
-                    ctx.exp_stat_sn.store(next_esn, Ordering::SeqCst);
+                    ctx.exp_stat_sn.store(
+                        pdu.header.stat_sn_or_rsvd.wrapping_add(1),
+                        Ordering::SeqCst,
+                    );
                 }
 
-                let status_present = pdu.header.get_final_bit();
-                if status_present {
-                    done = true;
+                let final_bit = pdu.header.get_real_final_bit();
+                let s_bit = pdu.header.get_status_bit();
+
+                if s_bit {
+                    status_in_datain = pdu.header.scsi_status().cloned();
+                    residual_in_datain = Some(pdu.header.residual_count);
+                }
+
+                if final_bit {
+                    break;
                 }
             }
 
-            if filled_hi < buf.len() {
-                buf.truncate(filled_hi);
+            let next = ReadWaitResp {
+                pending: self.pending.clone(),
+                buf,
+                filled_hi,
+                expected,
+                status_in_datain,
+                residual_in_datain,
+            };
+
+            Transition::Next(
+                ReadStates::WaitResp(next),
+                Ok(ReadResult {
+                    itt: self.pending.itt,
+                    cmd_sn: self.pending.cmd_sn,
+                    exp_stat_sn: ctx.exp_stat_sn.load(Ordering::SeqCst),
+                    data: vec![],
+                }),
+            )
+        })
+    }
+}
+
+impl<'ctx> StateMachine<ReadCtx<'ctx>, ReadStepOut> for ReadWaitResp {
+    type StepResult<'a>
+        = Pin<Box<dyn Future<Output = ReadStepOut> + Send + 'a>>
+    where
+        Self: 'a,
+        ReadCtx<'ctx>: 'a;
+
+    fn step<'a>(&'a mut self, ctx: &'a mut ReadCtx<'ctx>) -> Self::StepResult<'a> {
+        Box::pin(async move {
+            let (status_u8, residual, sense_opt) = if let Some(st) =
+                self.status_in_datain.clone()
+            {
+                if st == ScsiStatus::Good {
+                    (st, self.residual_in_datain.unwrap_or(0), None)
+                } else {
+                    let rsp: PDUWithData<ScsiCommandResponse> =
+                        match ctx.conn.read_response(self.pending.itt).await {
+                            Ok(p) => p,
+                            Err(e) => {
+                                return Transition::Done(Err(anyhow!(
+                                    "expected ScsiCommandResponse after S=1 Data-In: {e}"
+                                )));
+                            },
+                        };
+                    ctx.exp_stat_sn
+                        .store(rsp.header.stat_sn.wrapping_add(1), Ordering::SeqCst);
+                    (
+                        st,
+                        rsp.header.residual_count,
+                        if rsp.data.is_empty() {
+                            None
+                        } else {
+                            Some(rsp.data)
+                        },
+                    )
+                }
+            } else {
+                let rsp: PDUWithData<ScsiCommandResponse> =
+                    match ctx.conn.read_response(self.pending.itt).await {
+                        Ok(p) => p,
+                        Err(e) => {
+                            return Transition::Done(Err(anyhow!(
+                                "expected ScsiCommandResponse after Data-In FINAL: {e}"
+                            )));
+                        },
+                    };
+                ctx.exp_stat_sn
+                    .store(rsp.header.stat_sn.wrapping_add(1), Ordering::SeqCst);
+                (
+                    rsp.header.status.clone(),
+                    rsp.header.residual_count,
+                    if rsp.data.is_empty() {
+                        None
+                    } else {
+                        Some(rsp.data)
+                    },
+                )
+            };
+
+            if status_u8 != ScsiStatus::Good {
+                if let Some(sb) = sense_opt {
+                    if let Ok(sense) = SenseData::parse(&sb) {
+                        return Transition::Done(Err(anyhow!(
+                            "SCSI CheckCondition: {:?}",
+                            sense
+                        )));
+                    } else {
+                        return Transition::Done(Err(anyhow!(
+                            "SCSI CheckCondition (sense {} bytes): {:02X?}",
+                            sb.len(),
+                            sb
+                        )));
+                    }
+                } else {
+                    return Transition::Done(Err(anyhow!(
+                        "SCSI status != GOOD ({:?}) and no sense provided",
+                        status_u8
+                    )));
+                }
             }
+
+            let got = self.filled_hi;
+            if got != self.expected {
+                return Transition::Done(Err(anyhow!(
+                    "short/long read: expected {} bytes, got {}; residual={}",
+                    self.expected,
+                    got,
+                    residual
+                )));
+            }
+
+            let mut data = self.buf.clone();
+            data.truncate(self.expected);
 
             let out = ReadResult {
                 itt: self.pending.itt,
                 cmd_sn: self.pending.cmd_sn,
                 exp_stat_sn: ctx.exp_stat_sn.load(Ordering::SeqCst),
-                data: buf,
+                data,
             };
             Transition::Done(Ok(out))
         })
@@ -207,14 +337,15 @@ pub async fn run_read(
     loop {
         let tr = match &mut state {
             ReadStates::Start(s) => s.step(ctx).await,
-            ReadStates::Wait(s) => s.step(ctx).await,
+            ReadStates::WaitData(s) => s.step(ctx).await,
+            ReadStates::WaitResp(s) => s.step(ctx).await,
         };
 
         match tr {
             Transition::Next(next, _r) => {
                 state = next;
             },
-            Transition::Stay(Ok(_)) => { /* progress tick */ },
+            Transition::Stay(Ok(_)) => { /* tick */ },
             Transition::Stay(Err(e)) => return Err(e),
             Transition::Done(result) => return result,
         }
