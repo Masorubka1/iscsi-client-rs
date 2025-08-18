@@ -4,10 +4,10 @@ use anyhow::{Context, Result};
 use hex::FromHex;
 use iscsi_client_rs::{
     cfg::{cli::resolve_config_path, config::Config},
-    control_block::common::build_read10,
+    control_block::read::build_read10,
     models::{
         command::{
-            common::TaskAttribute,
+            common::{ScsiStatus, TaskAttribute},
             request::{ScsiCommandRequest, ScsiCommandRequestBuilder},
         },
         common::{BasicHeaderSegment, Builder, HEADER_LEN},
@@ -29,7 +29,7 @@ fn test_read_pdu_build() -> Result<()> {
         .context("failed to resolve or load config")?;
 
     let expected =
-        load_fixture("tests/unit_tests/fixtures/scsi_commands/read_request.hex")?;
+        load_fixture("tests/unit_tests/fixtures/scsi_commands/read10_request.hex")?;
 
     let lun = [0, 1, 0, 0, 0, 0, 0, 0];
     let itt = 4;
@@ -78,7 +78,7 @@ fn test_read_pdu_build() -> Result<()> {
 #[test]
 fn test_read_response_good() -> Result<()> {
     let raw =
-        load_fixture("tests/unit_tests/fixtures/scsi_commands/read_response_good.hex")
+        load_fixture("tests/unit_tests/fixtures/scsi_commands/read10_response_good.hex")
             .context("failed to load read_response_good fixture")?;
     assert!(
         raw.len() >= HEADER_LEN,
@@ -104,7 +104,7 @@ fn test_read_response_good() -> Result<()> {
     );
     assert_eq!(
         pdu.header.scsi_status(),
-        Some(0),
+        Some(&ScsiStatus::Good),
         "SCSI status must be GOOD(0)"
     );
 

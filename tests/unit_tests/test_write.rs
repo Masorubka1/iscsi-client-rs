@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use hex::FromHex;
 use iscsi_client_rs::{
     cfg::{cli::resolve_config_path, config::Config},
-    control_block::common::build_write10,
+    control_block::write::build_write10,
     models::{
         command::{
             common::{ResponseCode, TaskAttribute},
@@ -29,7 +29,7 @@ fn test_write_pdu_build() -> Result<()> {
         .context("failed to resolve or load config")?;
 
     let expected =
-        load_fixture("tests/unit_tests/fixtures/scsi_commands/write_request.hex")?;
+        load_fixture("tests/unit_tests/fixtures/scsi_commands/write10_request.hex")?;
 
     let expected_hdr = ScsiCommandRequest::from_bhs_bytes(&expected[..HEADER_LEN])?;
 
@@ -96,7 +96,7 @@ fn test_write_response_parse() -> Result<()> {
         .context("failed to resolve or load config")?;
 
     let bytes =
-        load_fixture("tests/unit_tests/fixtures/scsi_commands/write_response.hex")?;
+        load_fixture("tests/unit_tests/fixtures/scsi_commands/write10_response.hex")?;
     assert!(bytes.len() >= HEADER_LEN);
 
     let hd = cfg
