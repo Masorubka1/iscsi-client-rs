@@ -6,11 +6,11 @@
 mod integration_tests {
     pub mod common;
 
+    pub mod check_tur;
     pub mod get_capacity_read_write;
     pub mod login_chap_ok;
     pub mod login_plain_ok;
     pub mod logout_ok;
     pub mod read_write_read;
-    pub mod test_unit_ready;
     pub mod write_1gb;
 }

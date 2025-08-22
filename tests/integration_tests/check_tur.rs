@@ -18,7 +18,7 @@ use iscsi_client_rs::{
 use crate::integration_tests::common::{connect_cfg, load_config, test_isid, test_path};
 
 #[tokio::test]
-async fn login_and_test_unit_ready() -> Result<()> {
+async fn login_and_tur() -> Result<()> {
     let _ = init_logger(&test_path());
 
     let cfg: Config = load_config()?;
