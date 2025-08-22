@@ -116,7 +116,6 @@ async fn main() -> Result<()> {
             8, // RC(10) returns 8 bytes
             cdb_rc10,
         );
-        let _ = run_read(ReadStates::Start(ReadStart), &mut rc10_ctx).await;
         let rc10_pdu = run_read(ReadStates::Start(ReadStart), &mut rc10_ctx)
             .await
             .context("READ CAPACITY(10) failed")?;
