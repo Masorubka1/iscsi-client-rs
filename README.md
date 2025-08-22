@@ -25,6 +25,7 @@ A pure‑Rust iSCSI initiator **library** (with example CLI) for interacting wit
   * **SCSI READ CAPACITY(16)** (Data-In)
   * **SCSI TEST UNIT READY(6)** (Data-In)
   * **SCSI MODE SENSE(6/10)** (Data-In)
+  * **SCSI REPORT LUNS(12)** (Data-In)
   * **Logout**
 * Zero C dependencies
 

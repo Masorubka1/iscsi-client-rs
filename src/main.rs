@@ -20,6 +20,7 @@ use iscsi_client_rs::{
             Rc10Raw, Rc16Raw, build_read_capacity10, build_read_capacity16,
             parse_read_capacity10_zerocopy, parse_read_capacity16_zerocopy,
         },
+        report_luns::{fill_report_luns, select_report},
         write::build_write10,
     },
     models::{logout::common::LogoutReason, nop::request::NopOutRequest},
@@ -83,6 +84,7 @@ async fn main() -> Result<()> {
     {
         // ---- TEST UNIT READY ----
         let mut tctx = TurCtx::new(conn.clone(), &itt, &cmd_sn, &exp_stat_sn, lun);
+        let _tur_status = run_tur(TurStates::Idle(Idle), &mut tctx).await;
         let _tur_status = run_tur(TurStates::Idle(Idle), &mut tctx).await?;
     }
 
@@ -96,6 +98,77 @@ async fn main() -> Result<()> {
             return Err(e);
         },
     }*/
+
+    {
+        let lun_report = 0;
+        // --- REPORT LUNS (step 1): fetch only 8-byte header (LUN LIST LENGTH +
+        // reserved) ---
+        let mut cdb_hdr = [0u8; 16];
+        fill_report_luns(
+            &mut cdb_hdr,
+            select_report::ALL_MAPPED,
+            /* allocation_len */ 16,
+            /* control */ 0x00,
+        );
+
+        let mut rctx_hdr = ReadCtx::new(
+            conn.clone(),
+            lun_report,
+            &itt,
+            &cmd_sn,
+            &exp_stat_sn,
+            16,
+            cdb_hdr,
+        );
+        let hdr = run_read(ReadStates::Start(ReadStart), &mut rctx_hdr).await?;
+        assert_eq!(hdr.data.len(), 16, "REPORT LUNS header must be 16 bytes");
+
+        let lun_list_len =
+            u32::from_be_bytes([hdr.data[0], hdr.data[1], hdr.data[2], hdr.data[3]])
+                as usize;
+        assert_eq!(lun_list_len % 8, 0, "LUN LIST LENGTH must be multiple of 8");
+
+        // --- REPORT LUNS (шаг 2): читаем весь список
+        let total_needed = 8 + lun_list_len; // header + список (кратен 8)
+        let mut cdb_full = [0u8; 16];
+        fill_report_luns(
+            &mut cdb_full,
+            select_report::ALL_MAPPED,
+            total_needed as u32,
+            0x00,
+        );
+
+        let mut rctx_full = ReadCtx::new(
+            conn.clone(),
+            lun_report,
+            &itt,
+            &cmd_sn,
+            &exp_stat_sn,
+            total_needed as u32,
+            cdb_full,
+        );
+        let full = run_read(ReadStates::Start(ReadStart), &mut rctx_full).await?;
+        assert_eq!(
+            full.data.len(),
+            total_needed,
+            "unexpected REPORT LUNS length"
+        );
+        assert_eq!(
+            &full.data[4..8],
+            &[0, 0, 0, 0],
+            "reserved bytes must be zero"
+        );
+
+        let lun_count = lun_list_len / 8;
+        let mut luns = Vec::with_capacity(lun_count);
+        for i in 0..lun_count {
+            let off = 8 + i * 8;
+            let be: [u8; 8] = full.data[off..off + 8].try_into().expect("WTF");
+            luns.push(u64::from_be_bytes(be));
+        }
+
+        info!("REPORT LUNS: count={} -> {:?}", lun_count, luns);
+    }
 
     let lba = {
         // ============ READ CAPACITY(10) ============
