@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2012-2025 Andrei Maltsev
+
 use std::{collections::BTreeSet, fs};
 
 use anyhow::{Context, Result, bail};
@@ -75,16 +78,21 @@ fn load_fixture(path: &str) -> Result<Vec<u8>> {
 }
 
 fn parse_resp(bytes: &[u8]) -> Result<PDUWithData<LoginResponse>> {
-    let hdr = LoginResponse::from_bhs_bytes(&bytes[..HEADER_LEN])?;
-    let pdu =
-        PDUWithData::<LoginResponse>::parse(hdr, &bytes[HEADER_LEN..], false, false)?;
+    let mut header_buf = [0u8; HEADER_LEN];
+    header_buf.copy_from_slice(&bytes[..HEADER_LEN]);
+
+    let mut pdu = PDUWithData::<LoginResponse>::from_header_slice(header_buf);
+
+    pdu.parse_with_buff(&bytes[HEADER_LEN..], false, false)?;
     Ok(pdu)
 }
 
 fn parse_req(bytes: &[u8]) -> Result<PDUWithData<LoginRequest>> {
-    let hdr = LoginRequest::from_bhs_bytes(&bytes[..HEADER_LEN])?;
-    let pdu =
-        PDUWithData::<LoginRequest>::parse(hdr, &bytes[HEADER_LEN..], false, false)?;
+    let mut header_buf = [0u8; HEADER_LEN];
+    header_buf.copy_from_slice(&bytes[..HEADER_LEN]);
+
+    let mut pdu = PDUWithData::<LoginRequest>::from_header_slice(header_buf);
+    pdu.parse_with_buff(&bytes[HEADER_LEN..], false, false)?;
     Ok(pdu)
 }
 
@@ -117,13 +125,19 @@ fn test_login_request() -> Result<()> {
             cfg.login.negotiation.version_max,
         );
 
-    let mut builder = PDUWithData::<LoginRequest>::from_header(header_builder.header);
+    let mut header_buf = [0u8; HEADER_LEN];
+    header_builder.header.to_bhs_bytes(&mut header_buf)?;
+
+    let mut builder = PDUWithData::<LoginRequest>::from_header_slice(header_buf);
 
     for key in cfg.to_login_keys() {
         builder.append_data(key.into_bytes());
     }
 
-    assert_eq!(builder.header, parsed.header, "BHS differs from fixture");
+    assert_eq!(
+        builder.header_buf, parsed.header_buf,
+        "BHS differs from fixture"
+    );
 
     let (_hdr, body) = &builder.build(
         cfg.login.negotiation.max_recv_data_segment_length as usize,
@@ -168,12 +182,13 @@ fn test_login_response_echo() -> Result<()> {
         );
 
     assert_eq!(
-        parsed.header.version_max, builder.header.version_max,
+        parsed.header_view()?.version_max,
+        builder.header.version_max,
         "version_max should match what we sent"
     );
     assert_eq!(
-        parsed.header.flags.bits(),
-        builder.header.flags.bits(),
+        parsed.header_view()?.flags,
+        builder.header.flags,
         "flags should match what we sent"
     );
 
@@ -197,10 +212,12 @@ fn chap_step1_security_only() -> Result<()> {
         .initiator_task_tag(0)
         .connection_id(1)
         .cmd_sn(0)
-        .exp_stat_sn(0)
-        .header;
+        .exp_stat_sn(0);
 
-    let mut s1 = PDUWithData::<LoginRequest>::from_header(s1_hdr);
+    let mut header_buf = [0u8; HEADER_LEN];
+    s1_hdr.header.to_bhs_bytes(&mut header_buf)?;
+
+    let mut s1 = PDUWithData::<LoginRequest>::from_header_slice(header_buf);
     s1.append_data(login_keys_security(&cfg));
 
     let (hdr_bytes, data_bytes) = &s1.build(
@@ -219,7 +236,7 @@ fn chap_step1_security_only() -> Result<()> {
 
     let exp_pdu = parse_req(&req_exp)?;
     let got_pdu = parse_req(&got)?;
-    assert_eq!(got_pdu.header, exp_pdu.header, "step1 BHS differs");
+    assert_eq!(got_pdu.header_buf, exp_pdu.header_buf, "step1 BHS differs");
     assert_eq!(
         split_zeroes(&got_pdu.data),
         split_zeroes(&exp_pdu.data),
@@ -241,19 +258,23 @@ fn chap_step2_chap_a() -> Result<()> {
         "tests/unit_tests/fixtures/login/step2_req.hex",
     )?)?;
 
-    let s2_hdr = LoginRequestBuilder::new(ISID, r1.header.tsih)
+    let r1_header = r1.header_view()?;
+
+    let s2_hdr = LoginRequestBuilder::new(ISID, r1_header.tsih.get())
         .csg(Stage::Security)
         .nsg(Stage::Security)
-        .initiator_task_tag(r1.header.initiator_task_tag)
+        .initiator_task_tag(r1_header.initiator_task_tag.get())
         .connection_id(1)
-        .cmd_sn(r1.header.exp_cmd_sn)
-        .exp_stat_sn(r1.header.exp_cmd_sn.wrapping_add(1))
-        .header;
+        .cmd_sn(r1_header.exp_cmd_sn.get())
+        .exp_stat_sn(r1_header.exp_cmd_sn.get().wrapping_add(1));
 
-    let mut s2 = PDUWithData::<LoginRequest>::from_header(s2_hdr);
+    let mut header_buf = [0u8; HEADER_LEN];
+    s2_hdr.header.to_bhs_bytes(&mut header_buf)?;
+
+    let mut s2 = PDUWithData::<LoginRequest>::from_header_slice(header_buf);
     s2.append_data(b"CHAP_A=5\x00".to_vec());
 
-    assert_eq!(s2.header, req_exp.header, "step2 BHS differs");
+    assert_eq!(s2.header_buf, req_exp.header_buf, "step2 BHS differs");
     assert_eq!(
         s2.data, req_exp.data,
         "step2 request bytes differ from fixture"
@@ -279,17 +300,21 @@ fn chap_step3_chap_response() -> Result<()> {
 
     let req_exp = load_fixture("tests/unit_tests/fixtures/login/step3_req.hex")?;
 
-    let s3_hdr = LoginRequestBuilder::new(ISID, r2.header.tsih)
+    let r2_header = r2.header_view()?;
+
+    let s3_hdr = LoginRequestBuilder::new(ISID, r2_header.tsih.get())
         .transit()
         .csg(Stage::Security)
         .nsg(Stage::Operational)
-        .initiator_task_tag(r2.header.initiator_task_tag)
+        .initiator_task_tag(r2_header.initiator_task_tag.get())
         .connection_id(1)
-        .cmd_sn(r2.header.exp_cmd_sn)
-        .exp_stat_sn(r2.header.stat_sn.wrapping_add(1))
-        .header;
+        .cmd_sn(r2_header.exp_cmd_sn.get())
+        .exp_stat_sn(r2_header.stat_sn.get().wrapping_add(1));
 
-    let mut s3 = PDUWithData::<LoginRequest>::from_header(s3_hdr);
+    let mut header_buf = [0u8; HEADER_LEN];
+    s3_hdr.header.to_bhs_bytes(&mut header_buf)?;
+
+    let mut s3 = PDUWithData::<LoginRequest>::from_header_slice(header_buf);
     s3.append_data(login_keys_chap_response(user, &chap_r));
 
     let (hdr_bytes, data_bytes) = &s3.build(
@@ -308,7 +333,7 @@ fn chap_step3_chap_response() -> Result<()> {
 
     let exp_pdu = parse_req(&req_exp)?;
     let got_pdu = parse_req(&got)?;
-    assert_eq!(got_pdu.header, exp_pdu.header, "step3 BHS differs");
+    assert_eq!(got_pdu.header_buf, exp_pdu.header_buf, "step3 BHS differs");
     assert_eq!(
         split_zeroes(&got_pdu.data),
         split_zeroes(&exp_pdu.data),
@@ -328,18 +353,21 @@ fn chap_step4_oper_to_ff_with_ops() -> Result<()> {
     )?)?;
     let req_exp = load_fixture("tests/unit_tests/fixtures/login/step4_req.hex")?;
 
-    let s4_hdr = LoginRequestBuilder::new(ISID, r2.header.tsih)
+    let r2_header = r2.header_view()?;
+
+    let s4_hdr = LoginRequestBuilder::new(ISID, r2_header.tsih.get())
         .transit()
         .csg(Stage::Operational)
         .nsg(Stage::FullFeature)
-        .versions(r2.header.version_max, r2.header.version_active)
-        .initiator_task_tag(r2.header.initiator_task_tag)
+        .versions(r2_header.version_max, r2_header.version_active)
         .connection_id(1)
-        .cmd_sn(r2.header.exp_cmd_sn)
-        .exp_stat_sn(r2.header.stat_sn.wrapping_add(1))
-        .header;
+        .cmd_sn(r2_header.exp_cmd_sn.get())
+        .exp_stat_sn(r2_header.stat_sn.get().wrapping_add(1));
 
-    let mut s4 = PDUWithData::<LoginRequest>::from_header(s4_hdr);
+    let mut header_buf = [0u8; HEADER_LEN];
+    s4_hdr.header.to_bhs_bytes(&mut header_buf)?;
+
+    let mut s4 = PDUWithData::<LoginRequest>::from_header_slice(header_buf);
     s4.append_data(login_keys_operational(&cfg));
 
     let (hdr_bytes, data_bytes) = &s4.build(
@@ -358,7 +386,7 @@ fn chap_step4_oper_to_ff_with_ops() -> Result<()> {
 
     let exp_pdu = parse_req(&req_exp)?;
     let got_pdu = parse_req(&got)?;
-    assert_eq!(got_pdu.header, exp_pdu.header, "step4 BHS differs");
+    assert_eq!(got_pdu.header_buf, exp_pdu.header_buf, "step4 BHS differs");
     assert_eq!(
         split_zeroes(&got_pdu.data),
         split_zeroes(&exp_pdu.data),

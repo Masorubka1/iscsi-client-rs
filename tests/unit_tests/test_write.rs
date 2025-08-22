@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2012-2025 Andrei Maltsev
+
 use std::fs;
 
 use anyhow::{Context, Result};
@@ -31,19 +34,20 @@ fn test_write_pdu_build() -> Result<()> {
     let expected =
         load_fixture("tests/unit_tests/fixtures/scsi_commands/write10_request.hex")?;
 
-    let expected_hdr = ScsiCommandRequest::from_bhs_bytes(&expected[..HEADER_LEN])?;
-
-    let lun = [0, 1, 0, 0, 0, 0, 0, 0];
+    let lun_bytes = [0, 1, 0, 0, 0, 0, 0, 0];
+    let lun_be = u64::from_be_bytes(lun_bytes);
     let itt = 2;
     let cmd_sn = 0;
     let exp_stat_sn = 2;
 
     let mut cdb = [0u8; 16];
     build_write10(&mut cdb, 0x1234, 0, 0, 1);
+
+    // 512 байт immediate data (или первый burst — как в фикстуре)
     let write_buf = vec![0x01; 512];
 
-    let header = ScsiCommandRequestBuilder::new()
-        .lun(&lun)
+    let header_builder = ScsiCommandRequestBuilder::new()
+        .lun(lun_be)
         .initiator_task_tag(itt)
         .cmd_sn(cmd_sn)
         .exp_stat_sn(exp_stat_sn)
@@ -52,7 +56,10 @@ fn test_write_pdu_build() -> Result<()> {
         .write()
         .task_attribute(TaskAttribute::Simple);
 
-    let mut builder = PDUWithData::<ScsiCommandRequest>::from_header(header.header);
+    let mut header_buf = [0u8; HEADER_LEN];
+    header_builder.header.to_bhs_bytes(&mut header_buf)?;
+
+    let mut builder = PDUWithData::<ScsiCommandRequest>::from_header_slice(header_buf);
     builder.append_data(write_buf);
 
     let hd = cfg
@@ -66,20 +73,13 @@ fn test_write_pdu_build() -> Result<()> {
         .data_digest
         .eq_ignore_ascii_case("CRC32C");
 
-    println!("{hd}, {dd}");
-
     let (hdr_bytes, body_bytes) = &builder.build(
         cfg.login.negotiation.max_recv_data_segment_length as usize,
         hd,
         dd,
     )?;
 
-    assert_eq!(
-        ScsiCommandRequest::from_bhs_bytes(hdr_bytes)?,
-        expected_hdr,
-        "BHS mismatch"
-    );
-
+    assert_eq!(&hdr_bytes[..], &expected[..HEADER_LEN], "BHS mismatch");
     assert_eq!(
         body_bytes,
         &expected[HEADER_LEN..],
@@ -110,25 +110,25 @@ fn test_write_response_parse() -> Result<()> {
         .data_digest
         .eq_ignore_ascii_case("CRC32C");
 
-    println!("{hd}, {dd}");
+    // zerocopy: создаём PDU поверх копии заголовка и парсим тело
+    let mut hdr_buf = [0u8; HEADER_LEN];
+    hdr_buf.copy_from_slice(&bytes[..HEADER_LEN]);
 
-    let hdr_only = ScsiCommandResponse::from_bhs_bytes(&bytes[..HEADER_LEN])?;
-    let parsed = PDUWithData::<ScsiCommandResponse>::parse(
-        hdr_only,
-        &bytes[HEADER_LEN..],
-        hd,
-        dd,
-    )?;
+    let mut pdu = PDUWithData::<ScsiCommandResponse>::from_header_slice(hdr_buf);
+    pdu.parse_with_buff(&bytes[HEADER_LEN..], hd, dd)?;
 
-    assert!(parsed.data.is_empty());
-    assert!(parsed.header_digest.is_none());
-    assert!(parsed.data_digest.is_none());
+    assert!(pdu.data.is_empty());
+    assert!(pdu.header_digest.is_none());
+    assert!(pdu.data_digest.is_none());
 
-    assert_eq!(parsed.header.stat_sn, 1914934025, "Unexpected StatSN");
-    assert_eq!(parsed.header.exp_cmd_sn, 104, "Unexpected ExpCmdSN");
-    assert_eq!(parsed.header.exp_data_sn, 0, "Unexpected ExpDataSN");
+    let header = pdu.header_view()?;
+
+    assert_eq!(header.stat_sn.get(), 1_914_934_025, "Unexpected StatSN");
+    assert_eq!(header.exp_cmd_sn.get(), 104, "Unexpected ExpCmdSN");
+    assert_eq!(header.exp_data_sn.get(), 0, "Unexpected ExpDataSN");
+
     assert_eq!(
-        parsed.header.response,
+        header.response.decode()?,
         ResponseCode::CommandCompleted,
         "Expected GOOD status"
     );

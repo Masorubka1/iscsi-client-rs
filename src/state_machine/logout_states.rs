@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2012-2025 Andrei Maltsev
+
 use std::{
     pin::Pin,
     sync::{
@@ -11,10 +14,12 @@ use anyhow::{Result, bail};
 use crate::{
     client::client::ClientConnection,
     models::{
+        common::HEADER_LEN,
         data_fromat::PDUWithData,
         logout::{
-            request::{LogoutReason, LogoutRequest, LogoutRequestBuilder},
-            response::{LogoutResponse, LogoutResponseCode},
+            common::{LogoutReason, LogoutResponseCode},
+            request::{LogoutRequest, LogoutRequestBuilder},
+            response::LogoutResponse,
         },
     },
     state_machine::common::{StateMachine, Transition},
@@ -28,6 +33,7 @@ pub struct LogoutCtx<'a> {
     pub exp_stat_sn: &'a AtomicU32,
     pub cid: u16,
     pub reason: LogoutReason,
+    pub buf: [u8; HEADER_LEN],
 }
 
 impl<'a> LogoutCtx<'a> {
@@ -46,20 +52,28 @@ impl<'a> LogoutCtx<'a> {
             exp_stat_sn,
             cid,
             reason,
+            buf: [0u8; HEADER_LEN],
         }
     }
 
-    async fn send_logout(&self) -> Result<LogoutStatus> {
+    async fn send_logout(&mut self) -> Result<LogoutStatus> {
         let cmd_sn = self.cmd_sn.load(Ordering::SeqCst);
         let exp_stat_sn = self.exp_stat_sn.fetch_add(1, Ordering::SeqCst);
         let itt = self.itt.fetch_add(1, Ordering::SeqCst);
 
         let header = LogoutRequestBuilder::new(self.reason.clone(), itt, self.cid)
             .cmd_sn(cmd_sn)
-            .exp_stat_sn(exp_stat_sn)
-            .build();
+            .exp_stat_sn(exp_stat_sn);
 
-        let builder: PDUWithData<LogoutRequest> = PDUWithData::from_header(header);
+        let _ = header
+            .header
+            .to_bhs_bytes(self.buf.as_mut_slice())
+            .map_err(|e| {
+                Transition::<PDUWithData<LogoutResponse>, anyhow::Error>::Done(e)
+            });
+
+        let builder: PDUWithData<LogoutRequest> =
+            PDUWithData::from_header_slice(self.buf);
         self.conn.send_request(itt, builder).await?;
 
         Ok(LogoutStatus {
@@ -74,8 +88,8 @@ impl<'a> LogoutCtx<'a> {
 
         match self.conn.read_response::<LogoutResponse>(itt).await {
             Ok(rsp) => {
-                if rsp.header.response != LogoutResponseCode::Success {
-                    bail!("LogoutResp: target returned {:?}", rsp.header);
+                if rsp.header_view()?.response.decode()? != LogoutResponseCode::Success {
+                    bail!("LogoutResp: target returned {:?}", rsp.header_view()?);
                 }
                 Ok(())
             },

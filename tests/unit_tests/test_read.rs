@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2012-2025 Andrei Maltsev
+
 use std::fs;
 
 use anyhow::{Context, Result};
@@ -11,7 +14,7 @@ use iscsi_client_rs::{
             request::{ScsiCommandRequest, ScsiCommandRequestBuilder},
         },
         common::{BasicHeaderSegment, Builder, HEADER_LEN},
-        data::response::{DataInFlags, ScsiDataIn},
+        data::response::ScsiDataIn,
         data_fromat::PDUWithData,
     },
 };
@@ -31,7 +34,9 @@ fn test_read_pdu_build() -> Result<()> {
     let expected =
         load_fixture("tests/unit_tests/fixtures/scsi_commands/read10_request.hex")?;
 
-    let lun = [0, 1, 0, 0, 0, 0, 0, 0];
+    let lun_bytes = [0, 1, 0, 0, 0, 0, 0, 0];
+    let lun_be = u64::from_be_bytes(lun_bytes);
+
     let itt = 4;
     let cmd_sn = 1;
     let exp_stat_sn = 4;
@@ -40,7 +45,7 @@ fn test_read_pdu_build() -> Result<()> {
     build_read10(&mut cdb_read, 0x1234, 16, 0, 0);
 
     let header_builder = ScsiCommandRequestBuilder::new()
-        .lun(&lun)
+        .lun(lun_be)
         .initiator_task_tag(itt)
         .cmd_sn(cmd_sn)
         .exp_stat_sn(exp_stat_sn)
@@ -49,8 +54,10 @@ fn test_read_pdu_build() -> Result<()> {
         .read()
         .task_attribute(TaskAttribute::Simple);
 
-    let mut builder =
-        PDUWithData::<ScsiCommandRequest>::from_header(header_builder.header);
+    let mut header_buf = [0u8; HEADER_LEN];
+    header_builder.header.to_bhs_bytes(&mut header_buf)?;
+
+    let mut builder = PDUWithData::<ScsiCommandRequest>::from_header_slice(header_buf);
 
     let (hdr_bytes, body_bytes) = &builder.build(
         cfg.login.negotiation.max_recv_data_segment_length as usize,
@@ -65,13 +72,11 @@ fn test_read_pdu_build() -> Result<()> {
     )?;
 
     assert_eq!(&hdr_bytes[..], &expected[..HEADER_LEN], "BHS mismatch");
-
     assert_eq!(
         body_bytes,
         &expected[HEADER_LEN..],
         "READ PDU payload mismatch"
     );
-
     Ok(())
 }
 
@@ -89,45 +94,35 @@ fn test_read_response_good() -> Result<()> {
 
     let (hdr_bytes, body_bytes) = raw.split_at(HEADER_LEN);
 
-    let hdr = ScsiDataIn::from_bhs_bytes(hdr_bytes)
-        .context("failed to parse ScsiDataIn BHS")?;
-    let pdu = PDUWithData::<ScsiDataIn>::parse(hdr, body_bytes, false, false)
+    let mut hdr_buf = [0u8; HEADER_LEN];
+    hdr_buf.copy_from_slice(hdr_bytes);
+
+    let mut pdu = PDUWithData::<ScsiDataIn>::from_header_slice(hdr_buf);
+    pdu.parse_with_buff(body_bytes, false, false)
         .context("failed to parse ScsiDataIn PDU body")?;
 
-    assert!(
-        pdu.header.flags.contains(DataInFlags::FINAL),
-        "FINAL bit must be set"
-    );
-    assert!(
-        pdu.header.flags.contains(DataInFlags::S),
-        "S bit (status present) must be set"
-    );
+    let header = pdu.header_view()?;
+
+    assert!(header.flags.fin(), "FINAL bit must be set");
+    assert!(header.flags.s(), "S bit (status present) must be set");
+
     assert_eq!(
-        pdu.header.scsi_status(),
-        Some(&ScsiStatus::Good),
+        header.scsi_status(),
+        Some(ScsiStatus::Good),
         "SCSI status must be GOOD(0)"
     );
 
-    assert!(
-        !pdu.header.flags.contains(DataInFlags::A),
-        "A bit must be 0"
-    );
-    /*assert!(
-        !pdu.header.flags.contains(DataInFlags::O),
-        "O bit must be 0"
-    );*/
-    assert!(
-        !pdu.header.flags.contains(DataInFlags::U),
-        "U bit must be 0"
-    );
+    assert!(!pdu.header_view()?.flags.ack(), "A bit must be 0");
+    // assert!(!pdu.header.flags.o(), "O bit must be 0");
+    assert!(!header.flags.u(), "U bit must be 0");
 
     assert_eq!(
         pdu.data.len(),
-        pdu.header.get_data_length_bytes(),
+        header.get_data_length_bytes(),
         "payload length mismatch: data.len() vs DataSegmentLength"
     );
 
-    let payload = vec![0x00; pdu.header.get_data_length_bytes()];
+    let payload = vec![0x00; header.get_data_length_bytes()];
     assert_eq!(&pdu.data, &payload);
 
     Ok(())

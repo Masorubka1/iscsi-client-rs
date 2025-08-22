@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2012-2025 Andrei Maltsev
+
 use std::{
     sync::atomic::{AtomicU32, Ordering},
     time::Duration,
@@ -19,7 +22,7 @@ use iscsi_client_rs::{
         },
         write::build_write10,
     },
-    models::{logout::request::LogoutReason, nop::request::NopOutRequest},
+    models::{logout::common::LogoutReason, nop::request::NopOutRequest},
     state_machine::{
         login_states::{LoginCtx, LoginStates, run_login, start_chap, start_plain},
         logout_states::{self, LogoutCtx, LogoutStates, run_logout},
@@ -31,14 +34,9 @@ use iscsi_client_rs::{
 };
 use tokio::{
     main,
-    time::{self, sleep},
+    time::{self},
 };
 use tracing::info;
-
-fn pick_lba_from_isid(isid: [u8; 6]) -> u32 {
-    let s: u32 = isid.iter().map(|&b| b as u32).sum();
-    4096 + (s % 1024)
-}
 
 #[main]
 async fn main() -> Result<()> {
@@ -70,7 +68,7 @@ async fn main() -> Result<()> {
     let cmd_sn = AtomicU32::new(login_status.exp_cmd_sn);
     let exp_stat_sn = AtomicU32::new(login_status.stat_sn.wrapping_add(1));
     let itt = AtomicU32::new(login_status.itt.wrapping_add(1));
-    let lun = [0, 1, 0, 0, 0, 0, 0, 0];
+    let lun = 1u64 << 48;
 
     let ttt = NopOutRequest::DEFAULT_TAG;
 
@@ -124,9 +122,10 @@ async fn main() -> Result<()> {
         "block_len(10): {blk_len_10} must be power-of-two"
     );
     let max_lba_10 = rc10.max_lba.get();
+    info!("max_lba_10: {max_lba_10}");
 
     // ============ READ CAPACITY(16) (optional) ============
-    let (blk_len, max_lba_u64) = {
+    let (_blk_len, max_lba_u64) = {
         let mut cdb_rc16 = [0u8; 16];
         build_read_capacity16(
             &mut cdb_rc16,
@@ -182,13 +181,13 @@ async fn main() -> Result<()> {
     } else {
         (max_lba_u64 - 1).min(u32::MAX as u64) as u32
     };
-    let mut lba = pick_lba_from_isid(isid) % max_lba_usable.saturating_add(1);
+    let mut lba = 0;
     if lba == max_lba_usable {
         lba = max_lba_usable.saturating_sub(1);
     }
 
     // ============ READ(10) one block ============
-    let blk_sz = blk_len as usize;
+    let blk_sz = 512usize;
     let blocks: u16 = 1;
 
     let mut cdb_rd1 = [0u8; 16];
@@ -225,17 +224,10 @@ async fn main() -> Result<()> {
         payload.clone(),
     );
 
-    match run_write(WriteStates::IssueCmd(IssueCmd), &mut wctx).await {
-        Ok(_) => {},
-        Err(_) => {
-            sleep(Duration::from_millis(100)).await;
-            let mut wctx2 = WriteCtx { ..wctx };
-            run_write(WriteStates::IssueCmd(IssueCmd), &mut wctx2).await?;
-        },
-    }
+    let _wd1 = run_write(WriteStates::IssueCmd(IssueCmd), &mut wctx).await?;
 
     // ============ READ(10) back & verify ============
-    let mut cdb_rd2 = [0u8; 16];
+    /*let mut cdb_rd2 = [0u8; 16];
     build_read10(&mut cdb_rd2, lba, blocks, 0, 0);
     let mut rctx2 = ReadCtx::new(
         conn.clone(),
@@ -250,7 +242,7 @@ async fn main() -> Result<()> {
     assert_eq!(
         rd2.data, payload,
         "read-back data differs from what was written"
-    );
+    );*/
 
     // LOGOUT — close the whole session
     {

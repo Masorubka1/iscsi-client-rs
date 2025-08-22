@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2012-2025 Andrei Maltsev
+
 use anyhow::Result;
 use enum_dispatch::enum_dispatch;
 
@@ -17,25 +20,6 @@ pub const HEADER_LEN: usize = 48;
 /// Implementing `SendingData` lets generic helpers (e.g. the
 /// `PDUWithData` builder or the `Connection` read-loop) toggle and query
 /// those flags **without** knowing the concrete PDU type.
-///
-/// ### Contract
-///
-/// | method                | meaning in sender’s point of view                                     | must keep invariant                       |
-/// |-----------------------|------------------------------------------------------------------------|-------------------------------------------|
-/// | `get_final_bit()`     | `true` ⇒ this frame is the **last** one of the sequence               |                                           |
-/// | `set_final_bit()`     | set *F = 1* **and** (if applicable) clear *C = 1*                     | after call, `get_final_bit()==true`       |
-/// | `get_continue_bit()`  | `true` ⇒ **at least one** more frame will follow                      |                                           |
-/// | `set_continue_bit()`  | clear *F* and set *C* so that the receiver expects more frames        | after call, `get_continue_bit()==true`    |
-///
-/// ### Notes
-///
-/// * A well-formed PDU **cannot** have both *F=1* **and** *C=1*.
-///   Implementations should enforce that when toggling the flags.
-/// * PDUs that are always single-framed (e.g. NOP-In/Out) may implement these
-///   methods as *no-ops* or even panic if someone attempts to change the flag.
-/// * The trait is kept separate from `BasicHeaderSegment` so that it can also
-///   be used for helper wrappers that are not themselves BHS types (e.g.
-///   composite builders).
 #[enum_dispatch]
 pub trait SendingData: Sized {
     /// Return the current state of the **Final (F)** bit.
@@ -61,10 +45,10 @@ pub trait SendingData: Sized {
 /// 3. and finally building the full wire format.
 #[enum_dispatch]
 pub trait BasicHeaderSegment: Sized + SendingData {
-    fn to_bhs_bytes(&self) -> Result<[u8; HEADER_LEN]>;
+    fn to_bhs_bytes(&self, buf: &mut [u8]) -> Result<()>;
 
     /// first u8 of BHS
-    fn get_opcode(&self) -> &BhsOpcode;
+    fn get_opcode(&self) -> Result<BhsOpcode>;
 
     /// Expose Initiator Task Tag of this PDU
     fn get_initiator_task_tag(&self) -> u32;
@@ -105,6 +89,82 @@ pub trait BasicHeaderSegment: Sized + SendingData {
     }
 }
 
+// Forward SendingData to &mut T
+impl<T: SendingData> SendingData for &mut T {
+    #[inline]
+    fn get_final_bit(&self) -> bool {
+        (**self).get_final_bit()
+    }
+
+    #[inline]
+    fn set_final_bit(&mut self) {
+        (**self).set_final_bit()
+    }
+
+    #[inline]
+    fn get_continue_bit(&self) -> bool {
+        (**self).get_continue_bit()
+    }
+
+    #[inline]
+    fn set_continue_bit(&mut self) {
+        (**self).set_continue_bit()
+    }
+}
+
+// Forward BasicHeaderSegment to &mut T
+impl<T: BasicHeaderSegment> BasicHeaderSegment for &mut T {
+    #[inline]
+    fn to_bhs_bytes(&self, buf: &mut [u8]) -> anyhow::Result<()> {
+        (**self).to_bhs_bytes(buf)
+    }
+
+    #[inline]
+    fn get_opcode(&self) -> anyhow::Result<crate::models::opcode::BhsOpcode> {
+        (**self).get_opcode()
+    }
+
+    #[inline]
+    fn get_initiator_task_tag(&self) -> u32 {
+        (**self).get_initiator_task_tag()
+    }
+
+    #[inline]
+    fn get_ahs_length_bytes(&self) -> usize {
+        (**self).get_ahs_length_bytes()
+    }
+
+    #[inline]
+    fn set_ahs_length_bytes(&mut self, len: u8) {
+        (**self).set_ahs_length_bytes(len)
+    }
+
+    #[inline]
+    fn get_data_length_bytes(&self) -> usize {
+        (**self).get_data_length_bytes()
+    }
+
+    #[inline]
+    fn set_data_length_bytes(&mut self, len: u32) {
+        (**self).set_data_length_bytes(len)
+    }
+
+    #[inline]
+    fn total_length_bytes(&self) -> usize {
+        (**self).total_length_bytes()
+    }
+
+    #[inline]
+    fn get_header_diggest(&self, en: bool) -> usize {
+        (**self).get_header_diggest(en)
+    }
+
+    #[inline]
+    fn get_data_diggest(&self, en: bool) -> usize {
+        (**self).get_data_diggest(en)
+    }
+}
+
 /// A helper-trait for **builder objects** that construct a complete
 /// iSCSI PDU: a 48-byte Basic-Header-Segment (BHS) plus the optional
 /// **Data-Segment** and digests.
@@ -117,53 +177,6 @@ pub trait BasicHeaderSegment: Sized + SendingData {
 /// [`Builder::build`]; the helper splits the payload into chunks that
 /// respect *MaxRecvDataSegmentLength* and automatically toggles the
 /// **F/C** bits on the header copies.
-///
-/// ### Associated type
-///
-/// * `Header` — the *encoded* header bytes returned by `build`.  For most
-///   builders this will be `Vec<u8>` or `[u8; 48]`.
-///
-/// ### Required methods
-///
-/// * **`append_data(&mut self, more)`** Extends the internal payload buffer
-///   with `more` and updates the `DataSegmentLength` field inside the owned
-///   header **immediately**. The method mutates `self`; it does **not** return
-///   a new builder.
-///
-/// * **`build(&mut self, cfg)`** Consumes the builder and returns a vector of
-///   `(header, body)` tuples.  Each tuple represents **one** wire-frame to be
-///   written:
-///
-///   1. The header slice’s length is always 48 bytes.
-///   2. The payload slice may be empty (`Vec::new()`) for PDUs that carry only
-///      a header.
-///   3. The method splits the payload into
-///      `cfg.login.negotiation.max_recv_data_segment_length` sized chunks and
-///      sets the **Continue** / **Final** flags accordingly.
-///
-///   The caller is expected to serialise the returned frames *in order*.
-///
-/// ### Example
-///
-/// ```no_run
-/// # use anyhow::Result;
-/// # use iscsi_client_rs::models::{common::Builder, command::request::ScsiCommandRequestBuilder};
-/// # use iscsi_client_rs::cfg::config::Config;
-/// # fn send(cfg: &Config) -> Result<()> {
-/// let mut req = ScsiCommandRequestBuilder::new()
-///     .lun(&[0;8])
-///     .read()
-///     .finall();
-///
-/// req.append_data(vec![0xde, 0xad, 0xbe, 0xef]);
-///
-/// for (hdr, body) in req.build(cfg)? {
-///     // socket.write_all(&hdr).await?;
-///     // socket.write_all(&body).await?;
-/// }
-/// # Ok(())
-/// # }
-/// ```
 pub trait Builder: Sized {
     /// The concrete buffer type used to return the encoded header.
     type Header: AsRef<[u8]>;

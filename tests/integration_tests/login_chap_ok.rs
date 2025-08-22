@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2012-2025 Andrei Maltsev
+
 use std::sync::{Arc, atomic::AtomicU32};
 
 use anyhow::Result;
@@ -14,9 +17,7 @@ use iscsi_client_rs::{
     },
 };
 
-use crate::integration_tests::common::{
-    connect_cfg, load_config, lun8, test_isid, test_path,
-};
+use crate::integration_tests::common::{connect_cfg, load_config, test_isid, test_path};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn login_chap_ok() -> Result<()> {
@@ -43,7 +44,7 @@ async fn login_chap_ok() -> Result<()> {
     let cmd_sn = AtomicU32::new(login_status.exp_cmd_sn);
     let exp_stat_sn = AtomicU32::new(login_status.stat_sn.wrapping_add(1));
     let itt = AtomicU32::new(login_status.itt.wrapping_add(1));
-    let lun = lun8(1);
+    let lun = 1 << 48;
 
     let ttt = NopOutRequest::DEFAULT_TAG;
     let mut nctx = NopCtx::new(conn.clone(), lun, &itt, &cmd_sn, &exp_stat_sn, ttt);

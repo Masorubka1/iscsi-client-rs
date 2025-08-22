@@ -271,7 +271,7 @@ A high-level plan, trimmed for GitHub readability. We track delivery as **Now â†
   * [ ] AEN / Unit Attention flow
 * **Performance**
 
-  * [ ] Zero-copy build/parse; fewer allocs
+  * [x] Zero-copy build/parse; fewer allocs
   * [ ] Pipelining & outstanding-cmd windows
   * [ ] Auto-tune: MaxBurstLength, FirstBurstLength
   * [ ] Scatter-gather for large Data-Out

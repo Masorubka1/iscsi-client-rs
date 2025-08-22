@@ -1,5 +1,3 @@
-## WARNING ALL CODE TESTED ONLY WITH `targetcli`. ON OTHER TARGETS BEHAVIOUR UNEXPECTED
-
 login:
   # 1) Security Negotiation
   security:

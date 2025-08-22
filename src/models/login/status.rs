@@ -1,4 +1,10 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2012-2025 Andrei Maltsev
+
+use core::fmt;
+
 use anyhow::{Result, anyhow, bail};
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 /// The status classes as per RFC 3720 §11.11.1
 #[repr(u8)]
@@ -230,6 +236,179 @@ impl From<StatusDetail> for u8 {
             StatusDetail::Redirection(inner) => inner as u8,
             StatusDetail::InitiatorErr(inner) => inner.into(),
             StatusDetail::TargetErr(inner) => inner.into(),
+        }
+    }
+}
+
+/// Wire-safe, zero-copy wrapper for **Status-Class** (1 byte on the wire).
+#[repr(transparent)]
+#[derive(
+    Copy, Clone, PartialEq, Eq, Default, FromBytes, IntoBytes, KnownLayout, Immutable,
+)]
+pub struct RawStatusClass(u8);
+
+impl RawStatusClass {
+    #[inline]
+    pub const fn raw(self) -> u8 {
+        self.0
+    }
+
+    #[inline]
+    pub const fn from_raw(v: u8) -> Self {
+        Self(v)
+    }
+
+    /// Infallible decode: unknown values map to `StatusClass::Unknown(v)`.
+    #[inline]
+    pub fn decode(self) -> StatusClass {
+        StatusClass::from(self.0)
+    }
+
+    /// Encode from the rich enum into the wire byte.
+    #[inline]
+    pub fn encode(&mut self, c: StatusClass) {
+        self.0 = u8::from(c);
+    }
+
+    #[inline]
+    pub const fn is_known(self) -> bool {
+        matches!(self.0, 0..=3)
+    }
+}
+
+impl From<RawStatusClass> for StatusClass {
+    #[inline]
+    fn from(r: RawStatusClass) -> Self {
+        r.decode()
+    }
+}
+impl From<StatusClass> for RawStatusClass {
+    #[inline]
+    fn from(c: StatusClass) -> Self {
+        Self(u8::from(c))
+    }
+}
+
+impl fmt::Debug for RawStatusClass {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "RawStatusClass({:?})", self.decode())
+    }
+}
+
+/// Wire-safe, zero-copy wrapper for **Status-Detail** (1 byte on the wire).
+///
+/// Note: decoding requires the corresponding `StatusClass` to interpret the
+/// byte.
+#[repr(transparent)]
+#[derive(
+    Copy, Clone, PartialEq, Eq, Default, FromBytes, IntoBytes, KnownLayout, Immutable,
+)]
+pub struct RawStatusDetail(u8);
+
+impl RawStatusDetail {
+    #[inline]
+    pub const fn raw(self) -> u8 {
+        self.0
+    }
+
+    #[inline]
+    pub const fn from_raw(v: u8) -> Self {
+        Self(v)
+    }
+
+    /// Decode using the provided `StatusClass`.
+    #[inline]
+    pub fn decode_with_class(self, class: StatusClass) -> Result<StatusDetail> {
+        match class {
+            StatusClass::Success => {
+                Ok(StatusDetail::Success(SuccessDetail::try_from(self.0)?))
+            },
+            StatusClass::Redirection => Ok(StatusDetail::Redirection(
+                RedirectionDetail::try_from(self.0)?,
+            )),
+            StatusClass::InitiatorError => Ok(StatusDetail::InitiatorErr(
+                InitiatorErrorDetail::try_from(self.0)?,
+            )),
+            StatusClass::TargetError => Ok(StatusDetail::TargetErr(
+                TargetErrorDetail::try_from(self.0)?,
+            )),
+            StatusClass::Unknown(v) => {
+                bail!("cannot decode Status-Detail for unknown Status-Class {v:#04x}")
+            },
+        }
+    }
+
+    /// Encode from the typed `StatusDetail` into the wire byte.
+    #[inline]
+    pub fn encode(&mut self, d: StatusDetail) {
+        self.0 = u8::from(d);
+    }
+}
+
+impl fmt::Debug for RawStatusDetail {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "RawStatusDetail(0x{:02x})", self.0)
+    }
+}
+
+/// Small helper to handle the (Class, Detail) pair together.
+#[derive(Copy, Clone, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
+#[repr(C)]
+pub struct RawStatusPair {
+    pub class: RawStatusClass,
+    pub detail: RawStatusDetail,
+}
+
+impl Default for RawStatusPair {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl RawStatusPair {
+    #[inline]
+    pub fn new() -> Self {
+        Self {
+            class: RawStatusClass::default(),
+            detail: RawStatusDetail::default(),
+        }
+    }
+
+    /// Decode both class and detail together.
+    #[inline]
+    pub fn decode(self) -> Result<(StatusClass, StatusDetail)> {
+        let class = self.class.decode();
+        let detail = self.detail.decode_with_class(class)?;
+        Ok((class, detail))
+    }
+
+    /// Encode from typed values.
+    #[inline]
+    pub fn encode(&mut self, class: StatusClass, detail: StatusDetail) -> Result<()> {
+        // sanity check: detail must match class (optional, but helps catch bugs)
+        match (class, &detail) {
+            (StatusClass::Success, StatusDetail::Success(_))
+            | (StatusClass::Redirection, StatusDetail::Redirection(_))
+            | (StatusClass::InitiatorError, StatusDetail::InitiatorErr(_))
+            | (StatusClass::TargetError, StatusDetail::TargetErr(_)) => {},
+            _ => bail!("StatusDetail does not match StatusClass"),
+        }
+        self.class.encode(class);
+        self.detail.encode(detail);
+        Ok(())
+    }
+}
+
+impl fmt::Debug for RawStatusPair {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.decode() {
+            Ok((c, d)) => write!(f, "RawStatusPair({:?}, {:?})", c, d),
+            Err(_) => write!(
+                f,
+                "RawStatusPair(class={:?}, detail=0x{:02x})",
+                self.class.decode(),
+                self.detail.raw()
+            ),
         }
     }
 }

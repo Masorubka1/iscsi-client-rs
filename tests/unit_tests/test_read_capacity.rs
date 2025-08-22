@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2012-2025 Andrei Maltsev
+
 use std::fs;
 
 use anyhow::{Context, Result};
@@ -14,11 +17,12 @@ use iscsi_client_rs::{
             request::{ScsiCommandRequest, ScsiCommandRequestBuilder},
         },
         common::{BasicHeaderSegment, Builder, HEADER_LEN},
-        data::response::{DataInFlags, ScsiDataIn},
+        data::response::ScsiDataIn,
         data_fromat::PDUWithData,
     },
 };
 
+// Helper to load a hex fixture and decode it to a byte vector.
 fn load_fixture(path: &str) -> Result<Vec<u8>> {
     let s = fs::read_to_string(path)?;
     let cleaned = s.trim().replace(|c: char| c.is_whitespace(), "");
@@ -35,7 +39,8 @@ fn test_read_capacity10_request_build() -> Result<()> {
         "tests/unit_tests/fixtures/scsi_commands/read_capacity10_request.hex",
     )?;
 
-    let lun = [0, 1, 0, 0, 0, 0, 0, 0];
+    let lun_bytes = [0, 1, 0, 0, 0, 0, 0, 0];
+    let lun_be = u64::from_be_bytes(lun_bytes);
     let itt = 5;
     let cmd_sn = 3;
     let exp_stat_sn = 5;
@@ -45,7 +50,7 @@ fn test_read_capacity10_request_build() -> Result<()> {
     build_read_capacity10(&mut cdb, 0, false, 0);
 
     let header_builder = ScsiCommandRequestBuilder::new()
-        .lun(&lun)
+        .lun(lun_be)
         .initiator_task_tag(itt)
         .cmd_sn(cmd_sn)
         .exp_stat_sn(exp_stat_sn)
@@ -54,7 +59,10 @@ fn test_read_capacity10_request_build() -> Result<()> {
         .read()
         .task_attribute(TaskAttribute::Simple);
 
-    let mut pdu = PDUWithData::<ScsiCommandRequest>::from_header(header_builder.header);
+    let mut header_buf = [0u8; HEADER_LEN];
+    header_builder.header.to_bhs_bytes(&mut header_buf)?;
+
+    let mut pdu = PDUWithData::<ScsiCommandRequest>::from_header_slice(header_buf);
 
     let (hdr_bytes, body_bytes) = pdu.build(
         cfg.login.negotiation.max_recv_data_segment_length as usize,
@@ -88,7 +96,8 @@ fn test_read_capacity16_request_build() -> Result<()> {
         "tests/unit_tests/fixtures/scsi_commands/read_capacity16_request.hex",
     )?;
 
-    let lun = [0, 1, 0, 0, 0, 0, 0, 0];
+    let lun_bytes = [0, 1, 0, 0, 0, 0, 0, 0];
+    let lun_be = u64::from_be_bytes(lun_bytes);
     let itt = 5;
     let cmd_sn = 3;
     let exp_stat_sn = 5;
@@ -98,7 +107,7 @@ fn test_read_capacity16_request_build() -> Result<()> {
     build_read_capacity16(&mut cdb, 0, false, 32, 0);
 
     let header_builder = ScsiCommandRequestBuilder::new()
-        .lun(&lun)
+        .lun(lun_be)
         .initiator_task_tag(itt)
         .cmd_sn(cmd_sn)
         .exp_stat_sn(exp_stat_sn)
@@ -107,7 +116,10 @@ fn test_read_capacity16_request_build() -> Result<()> {
         .read()
         .task_attribute(TaskAttribute::Simple);
 
-    let mut pdu = PDUWithData::<ScsiCommandRequest>::from_header(header_builder.header);
+    let mut header_buf = [0u8; HEADER_LEN];
+    header_builder.header.to_bhs_bytes(&mut header_buf)?;
+
+    let mut pdu = PDUWithData::<ScsiCommandRequest>::from_header_slice(header_buf);
 
     let (hdr_bytes, body_bytes) = pdu.build(
         cfg.login.negotiation.max_recv_data_segment_length as usize,
@@ -134,7 +146,6 @@ fn test_read_capacity16_request_build() -> Result<()> {
 /// READ CAPACITY(10) — response
 #[test]
 fn test_rc10_response_parse() -> Result<()> {
-    // TODO: поправь путь на свой
     let raw = load_fixture(
         "tests/unit_tests/fixtures/scsi_commands/read_capacity10_response.hex",
     )
@@ -148,26 +159,29 @@ fn test_rc10_response_parse() -> Result<()> {
 
     let (hdr_bytes, body_bytes) = raw.split_at(HEADER_LEN);
 
-    let hdr = ScsiDataIn::from_bhs_bytes(hdr_bytes)
-        .context("failed to parse ScsiDataIn BHS")?;
+    // zerocopy header view
+    let mut hdr_buf = [0u8; HEADER_LEN];
+    hdr_buf.copy_from_slice(hdr_bytes);
 
-    assert!(hdr.flags.contains(DataInFlags::FINAL), "FINAL must be set");
-    assert!(
-        hdr.flags.contains(DataInFlags::S),
-        "S (status present) must be set"
-    );
+    let mut pdu = PDUWithData::<ScsiDataIn>::from_header_slice(hdr_buf);
+    pdu.parse_with_buff(body_bytes, false, false)
+        .context("failed to parse ScsiDataIn PDU body")?;
+
+    let header = pdu.header_view()?;
+
+    // Flags and status
+    assert!(header.flags.fin(), "FINAL must be set");
+    assert!(header.flags.s(), "S (status present) must be set");
     assert_eq!(
-        hdr.scsi_status(),
-        Some(&ScsiStatus::Good),
+        header.scsi_status(),
+        Some(ScsiStatus::Good),
         "SCSI status must be GOOD (0)"
     );
 
-    let pdu = PDUWithData::<ScsiDataIn>::parse(hdr, body_bytes, false, false)
-        .context("failed to parse ScsiDataIn PDU body")?;
-
+    // Length checks
     assert_eq!(
         pdu.data.len(),
-        pdu.header.get_data_length_bytes(),
+        header.get_data_length_bytes(),
         "payload length != DataSegmentLength"
     );
     assert!(
@@ -175,6 +189,7 @@ fn test_rc10_response_parse() -> Result<()> {
         "RC(10) payload must be at least 8 bytes"
     );
 
+    // Parse RC(10) payload
     let rc10: &Rc10Raw = parse_read_capacity10_zerocopy(&pdu.data)
         .context("failed to zerocopy-parse RC(10) body")?;
 
@@ -185,12 +200,6 @@ fn test_rc10_response_parse() -> Result<()> {
     );
     let total = rc10.total_bytes();
     assert!(total > 0, "total capacity must be > 0");
-
-    // (Опционально) жесткие ожидания под свой таргет/фикстуру:
-    // const E_MAX_LBA_10: u32 = 0x0022_67FF; // пример
-    // const E_BLK_LEN_10: u32 = 512;
-    // assert_eq!(rc10.max_lba.get(), E_MAX_LBA_10);
-    // assert_eq!(blk, E_BLK_LEN_10);
 
     Ok(())
 }
@@ -211,24 +220,27 @@ fn test_rc16_response_parse() -> Result<()> {
 
     let (hdr_bytes, body_bytes) = raw.split_at(HEADER_LEN);
 
-    let hdr = ScsiDataIn::from_bhs_bytes(hdr_bytes)
-        .context("failed to parse ScsiDataIn BHS")?;
-    assert!(hdr.flags.contains(DataInFlags::FINAL), "FINAL must be set");
-    assert!(
-        hdr.flags.contains(DataInFlags::S),
-        "S (status present) must be set"
-    );
+    // zerocopy header view
+    let mut hdr_buf = [0u8; HEADER_LEN];
+    hdr_buf.copy_from_slice(hdr_bytes);
+
+    let mut pdu = PDUWithData::<ScsiDataIn>::from_header_slice(hdr_buf);
+    pdu.parse_with_buff(body_bytes, false, false)
+        .context("failed to parse ScsiDataIn PDU body")?;
+
+    let header = pdu.header_view()?;
+
+    assert!(header.flags.fin(), "FINAL must be set");
+    assert!(header.flags.s(), "S (status present) must be set");
     assert_eq!(
-        hdr.scsi_status(),
-        Some(&ScsiStatus::Good),
+        header.scsi_status(),
+        Some(ScsiStatus::Good),
         "SCSI status must be GOOD (0)"
     );
 
-    let pdu = PDUWithData::<ScsiDataIn>::parse(hdr, body_bytes, false, false)
-        .context("failed to parse ScsiDataIn PDU body")?;
     assert_eq!(
         pdu.data.len(),
-        pdu.header.get_data_length_bytes(),
+        header.get_data_length_bytes(),
         "payload length != DataSegmentLength"
     );
     assert!(
@@ -246,12 +258,6 @@ fn test_rc16_response_parse() -> Result<()> {
     );
     let total = rc16.total_bytes();
     assert!(total > 0, "total capacity must be > 0");
-
-    // (Опционально) жесткие ожидания под конкретную фикстуру:
-    // const E_MAX_LBA_16: u64 = 0x0000_0000_0022_67FF; // пример
-    // const E_BLK_LEN_16: u32 = 512;
-    // assert_eq!(rc16.max_lba.get(), E_MAX_LBA_16);
-    // assert_eq!(blk, E_BLK_LEN_16);
 
     Ok(())
 }

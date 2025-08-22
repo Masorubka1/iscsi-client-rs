@@ -1,9 +1,12 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2012-2025 Andrei Maltsev
+
 use anyhow::{Result, bail};
 use enum_dispatch::enum_dispatch;
 
 use crate::models::{
     command::{request::ScsiCommandRequest, response::ScsiCommandResponse},
-    common::{BasicHeaderSegment, HEADER_LEN, SendingData},
+    common::{BasicHeaderSegment, SendingData},
     data::{request::ScsiDataOut, response::ScsiDataIn},
     login::{request::LoginRequest, response::LoginResponse},
     logout::{request::LogoutRequest, response::LogoutResponse},
@@ -16,25 +19,25 @@ use crate::models::{
 
 #[enum_dispatch(BasicHeaderSegment, SendingData)]
 #[derive(Debug)]
-pub enum Pdu {
-    NopOutRequest,
-    ScsiCommandRequest,
-    TextRequest,
-    LoginRequest,
-    ScsiDataOut,
-    NopInResponse,
-    ScsiCommandResponse,
-    TextResponse,
-    LoginResponse,
-    ScsiDataIn,
-    RejectPdu,
-    ReadyToTransfer,
-    LogoutRequest,
-    LogoutResponse,
+pub enum Pdu<'a> {
+    NopOutRequest(&'a mut NopOutRequest),
+    ScsiCommandRequest(&'a mut ScsiCommandRequest),
+    TextRequest(&'a mut TextRequest),
+    LoginRequest(&'a mut LoginRequest),
+    ScsiDataOut(&'a mut ScsiDataOut),
+    NopInResponse(&'a mut NopInResponse),
+    ScsiCommandResponse(&'a mut ScsiCommandResponse),
+    TextResponse(&'a mut TextResponse),
+    LoginResponse(&'a mut LoginResponse),
+    ScsiDataIn(&'a mut ScsiDataIn),
+    RejectPdu(&'a mut RejectPdu),
+    ReadyToTransfer(&'a mut ReadyToTransfer),
+    LogoutRequest(&'a mut LogoutRequest),
+    LogoutResponse(&'a mut LogoutResponse),
 }
 
-impl Pdu {
-    pub fn from_bhs_bytes(bytes: &[u8]) -> Result<Self> {
+impl<'a> Pdu<'a> {
+    pub fn from_bhs_bytes(bytes: &'a mut [u8]) -> Result<Self> {
         let bhs = BhsOpcode::try_from(bytes[0])
             .map_err(|e| anyhow::anyhow!("invalid opcode: {}", e))?;
         match bhs.opcode {

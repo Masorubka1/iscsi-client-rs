@@ -1,129 +1,107 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2012-2025 Andrei Maltsev
+
 use anyhow::{Result, bail};
+use zerocopy::{
+    BigEndian, FromBytes as ZFromBytes, Immutable, IntoBytes, KnownLayout, U32, U64,
+};
 
 use crate::{
     client::pdu_connection::FromBytes,
     models::{
         common::{BasicHeaderSegment, HEADER_LEN, SendingData},
-        opcode::{BhsOpcode, Opcode},
-        text::common::StageFlags,
+        data_fromat::ZeroCopyType,
+        opcode::{BhsOpcode, Opcode, RawBhsOpcode},
+        text::common::RawStageFlags,
     },
 };
 
 /// BHS for NopOutRequest PDU
 #[repr(C)]
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, Default, PartialEq, ZFromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct TextResponse {
-    pub opcode: BhsOpcode,            // 0
-    pub flags: StageFlags,            // 1
-    reserved1: [u8; 2],               // 2..4
-    pub total_ahs_length: u8,         // 4
-    pub data_segment_length: [u8; 3], // 5..8
-    pub lun: [u8; 8],                 // 8..16
-    pub initiator_task_tag: u32,      // 16..20
-    pub target_task_tag: u32,         // 20..24
-    pub stat_sn: u32,                 // 24..28
-    pub exp_cmd_sn: u32,              // 28..32
-    pub max_cmd_sn: u32,              // 32..36
-    reserved2: [u8; 16],              // 36..48
+    pub opcode: RawBhsOpcode,               // 0
+    pub flags: RawStageFlags,               // 1
+    reserved1: [u8; 2],                     // 2..4
+    pub total_ahs_length: u8,               // 4
+    pub data_segment_length: [u8; 3],       // 5..8
+    pub lun: U64<BigEndian>,                // 8..16
+    pub initiator_task_tag: U32<BigEndian>, // 16..20
+    pub target_task_tag: U32<BigEndian>,    // 20..24
+    pub stat_sn: U32<BigEndian>,            // 24..28
+    pub exp_cmd_sn: U32<BigEndian>,         // 28..32
+    pub max_cmd_sn: U32<BigEndian>,         // 32..36
+    reserved2: [u8; 12],                    // 36..48
 }
 
 impl TextResponse {
-    /// Serialize BHS in 48 bytes
-    pub fn to_bhs_bytes(&self) -> [u8; HEADER_LEN] {
-        let mut buf = [0u8; HEADER_LEN];
-        buf[0] = (&self.opcode).into();
-        buf[1] = self.flags.bits();
-        buf[2..4].copy_from_slice(&self.reserved1);
-        buf[4] = self.total_ahs_length;
-        buf[5..8].copy_from_slice(&self.data_segment_length);
-        buf[8..16].copy_from_slice(&self.lun);
-        buf[16..20].copy_from_slice(&self.initiator_task_tag.to_be_bytes());
-        buf[20..24].copy_from_slice(&self.target_task_tag.to_be_bytes());
-        buf[24..28].copy_from_slice(&self.stat_sn.to_be_bytes());
-        buf[28..32].copy_from_slice(&self.exp_cmd_sn.to_be_bytes());
-        buf[32..36].copy_from_slice(&self.max_cmd_sn.to_be_bytes());
-        // buf[36..48] -- reserved
-        buf
+    pub fn to_bhs_bytes(&self, buf: &mut [u8]) -> Result<()> {
+        if buf.len() != HEADER_LEN {
+            bail!("buffer length must be {HEADER_LEN}, got {}", buf.len());
+        }
+        buf.copy_from_slice(self.as_bytes());
+        Ok(())
     }
 
-    pub fn from_bhs_bytes(buf: &[u8]) -> Result<Self, anyhow::Error> {
-        if buf.len() < HEADER_LEN {
-            bail!("buffer too small");
+    pub fn from_bhs_bytes(buf: &mut [u8]) -> Result<&mut Self> {
+        let hdr = <Self as zerocopy::FromBytes>::mut_from_bytes(buf)
+            .map_err(|e| anyhow::anyhow!("failed convert buffer TextResponse: {e}"))?;
+        if hdr.opcode.opcode_known() != Some(Opcode::TextResp) {
+            anyhow::bail!(
+                "TextResponse: invalid opcode 0x{:02x}",
+                hdr.opcode.opcode_raw()
+            );
         }
-        let opcode = BhsOpcode::try_from(buf[0])?;
-        if opcode.opcode != Opcode::TextResp {
-            bail!("TextResp invalid opcode: {:?}", opcode.opcode);
-        }
-        let flags = StageFlags::try_from(buf[1])?;
-        let total_ahs_length = buf[4];
-        let data_segment_length = [buf[5], buf[6], buf[7]];
-        let mut lun = [0u8; 8];
-        lun.clone_from_slice(&buf[8..16]);
-        let initiator_task_tag = u32::from_be_bytes(buf[16..20].try_into()?);
-        let target_task_tag = u32::from_be_bytes(buf[20..24].try_into()?);
-        let stat_sn = u32::from_be_bytes(buf[24..28].try_into()?);
-        let exp_cmd_sn = u32::from_be_bytes(buf[28..32].try_into()?);
-        let max_cmd_sn = u32::from_be_bytes(buf[32..36].try_into()?);
-        // buf[32..44] -- reserved
-        Ok(TextResponse {
-            opcode,
-            flags,
-            reserved1: [0u8; 2],
-            total_ahs_length,
-            lun,
-            data_segment_length,
-            initiator_task_tag,
-            target_task_tag,
-            stat_sn,
-            exp_cmd_sn,
-            max_cmd_sn,
-            reserved2: [0u8; 16],
-        })
+        Ok(hdr)
     }
 }
 
 impl SendingData for TextResponse {
     fn get_final_bit(&self) -> bool {
-        self.flags.contains(StageFlags::FINAL)
+        self.flags.get_final_bit()
     }
 
     fn set_final_bit(&mut self) {
         // F ← 1,  C ← 0
-        self.flags.remove(StageFlags::CONTINUE);
-        self.flags.insert(StageFlags::FINAL);
+        self.flags.set_final_bit();
+        if self.get_continue_bit() {
+            self.flags.set_continue_bit();
+        }
     }
 
     fn get_continue_bit(&self) -> bool {
-        self.flags.contains(StageFlags::CONTINUE)
+        self.flags.get_continue_bit()
     }
 
     fn set_continue_bit(&mut self) {
         // C ← 1,  F ← 0
-        self.flags.remove(StageFlags::FINAL);
-        self.flags.insert(StageFlags::CONTINUE);
+        self.flags.set_continue_bit();
+        if self.get_final_bit() {
+            self.flags.set_final_bit();
+        }
     }
 }
 
 impl FromBytes for TextResponse {
-    fn from_bhs_bytes(bytes: &[u8]) -> Result<Self> {
-        Self::from_bhs_bytes(bytes)
+    fn from_bhs_bytes(bytes: &mut [u8]) -> Result<&mut Self> {
+        TextResponse::from_bhs_bytes(bytes)
     }
 }
 
 impl BasicHeaderSegment for TextResponse {
     #[inline]
-    fn to_bhs_bytes(&self) -> Result<[u8; HEADER_LEN]> {
-        Ok(self.to_bhs_bytes())
+    fn to_bhs_bytes(&self, buf: &mut [u8]) -> Result<()> {
+        self.to_bhs_bytes(buf)
     }
 
     #[inline]
-    fn get_opcode(&self) -> &BhsOpcode {
-        &self.opcode
+    fn get_opcode(&self) -> Result<BhsOpcode> {
+        BhsOpcode::try_from(self.opcode.raw())
     }
 
     #[inline]
     fn get_initiator_task_tag(&self) -> u32 {
-        self.initiator_task_tag
+        self.initiator_task_tag.get()
     }
 
     #[inline]
@@ -152,3 +130,5 @@ impl BasicHeaderSegment for TextResponse {
         self.data_segment_length = [be[1], be[2], be[3]];
     }
 }
+
+impl ZeroCopyType for TextResponse {}

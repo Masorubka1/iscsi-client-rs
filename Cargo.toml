@@ -1,18 +1,18 @@
 [package]
 name = "iscsi-client-rs"
-version = "0.0.4"
+version = "0.0.5"
 authors = ["Andrei Maltsev"]
 edition = "2024"
 description = "A pure-Rust iSCSI initiator library and CLI"
-license = "MIT"
+license = "GPL-3.0-or-later"
 repository = "https://github.com/Masorubka1/iscsI-client-rs.git"
 homepage = "https://github.com/Masorubka1/iscsI-client-rs.git"
 documentation = "https://docs.rs/iscsi-client-rs"
 keywords = ["iscsi", "initiator", "client", "storage", "async"]
 
-[[bin]]
-name = "iscsi_mapper"
-path = "tests/integration_tests/iscsi_mapper.rs"
+#[[bin]]
+#name = "iscsi_mapper"
+#path = "tests/integration_tests/iscsi_mapper.rs"
 
 [[bin]]
 name = "asc_ascq"

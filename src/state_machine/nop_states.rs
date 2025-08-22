@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2012-2025 Andrei Maltsev
+
 use std::{
     pin::Pin,
     sync::{
@@ -11,6 +14,7 @@ use anyhow::{Result, bail};
 use crate::{
     client::client::ClientConnection,
     models::{
+        common::HEADER_LEN,
         data_fromat::PDUWithData,
         nop::{
             request::{NopOutRequest, NopOutRequestBuilder},
@@ -23,11 +27,12 @@ use crate::{
 #[derive(Debug)]
 pub struct NopCtx<'a> {
     pub conn: Arc<ClientConnection>,
-    pub lun: [u8; 8],
+    pub lun: u64,
     pub itt: &'a AtomicU32,
     pub cmd_sn: &'a AtomicU32,
     pub exp_stat_sn: &'a AtomicU32,
     pub ttt: u32,
+    pub buf: [u8; HEADER_LEN],
 }
 
 #[derive(Debug, Clone)]
@@ -40,7 +45,7 @@ pub struct NopStatus {
 impl<'a> NopCtx<'a> {
     pub fn new(
         conn: Arc<ClientConnection>,
-        lun: [u8; 8],
+        lun: u64,
         itt: &'a AtomicU32,
         cmd_sn: &'a AtomicU32,
         exp_stat_sn: &'a AtomicU32,
@@ -53,23 +58,32 @@ impl<'a> NopCtx<'a> {
             cmd_sn,
             exp_stat_sn,
             ttt,
+            buf: [0u8; HEADER_LEN],
         }
     }
 
-    async fn send_nop_out(&self) -> Result<NopStatus> {
+    async fn send_nop_out(&mut self) -> Result<NopStatus> {
         let cmd_sn = self.cmd_sn.load(Ordering::SeqCst);
         let exp_stat_sn = self.exp_stat_sn.fetch_add(1, Ordering::SeqCst);
         let itt = self.itt.fetch_add(1, Ordering::SeqCst);
 
         let header = NopOutRequestBuilder::new()
             .cmd_sn(cmd_sn)
-            .lun(&self.lun)
+            .lun(self.lun)
             .initiator_task_tag(itt)
             .target_task_tag(self.ttt)
             .exp_stat_sn(exp_stat_sn)
             .immediate();
 
-        let builder: PDUWithData<NopOutRequest> = PDUWithData::from_header(header.header);
+        let _ = header
+            .header
+            .to_bhs_bytes(self.buf.as_mut_slice())
+            .map_err(|e| {
+                Transition::<PDUWithData<NopInResponse>, anyhow::Error>::Done(e)
+            });
+
+        let builder: PDUWithData<NopOutRequest> =
+            PDUWithData::from_header_slice(self.buf);
         self.conn.send_request(itt, builder).await?;
         Ok(NopStatus {
             itt,

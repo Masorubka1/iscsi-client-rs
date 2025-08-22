@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2012-2025 Andrei Maltsev
+
 use std::{path::PathBuf, sync::Arc};
 
 use anyhow::{Context, Result};
@@ -23,10 +26,4 @@ pub async fn connect_cfg(cfg: &Config) -> Result<Arc<ClientConnection>> {
 
 pub fn test_isid() -> [u8; 6] {
     generate_isid().0
-}
-
-pub fn lun8(lun: u8) -> [u8; 8] {
-    let mut a = [0u8; 8];
-    a[1] = lun;
-    a
 }

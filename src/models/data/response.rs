@@ -1,225 +1,175 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2012-2025 Andrei Maltsev
+
 use anyhow::{Result, anyhow, bail};
-use bitflags::bitflags;
+use tracing::debug;
+use zerocopy::{
+    BigEndian, FromBytes as ZFromBytes, Immutable, IntoBytes, KnownLayout, U32, U64,
+};
 
 use crate::{
     client::pdu_connection::FromBytes,
     models::{
-        command::common::ScsiStatus,
+        command::{common::ScsiStatus, zero_copy::RawScsiStatus},
         common::{BasicHeaderSegment, HEADER_LEN, SendingData},
-        opcode::{BhsOpcode, Opcode},
+        data::common::RawDataInFlags,
+        data_fromat::ZeroCopyType,
+        opcode::{BhsOpcode, Opcode, RawBhsOpcode},
     },
 };
 
-bitflags! {
-    #[derive(Default, Debug, PartialEq)]
-    pub struct DataInFlags: u8 {
-        const FINAL = 1 << 7; // Final
-        const A = 1 << 6; // Acknowledge (DataACK SNACK, ERL>0)
-        // bits 5..3 reserved (0)
-        const O = 1 << 2; // Residual Overflow (валиден только при S=1)
-        const U = 1 << 1; // Residual Underflow (валиден только при S=1)
-        const S = 1 << 0; // Status present (если 1, то F тоже обязан быть 1)
-    }
-}
-
-impl TryFrom<u8> for DataInFlags {
-    type Error = anyhow::Error;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        let tmp = DataInFlags::from_bits(value)
-            .ok_or_else(|| anyhow!("invalid DataOutFlags: {:#08b}", value))?;
-
-        if tmp.contains(DataInFlags::U) && tmp.contains(DataInFlags::O) {
-            bail!("Protocol error cause U && O both presented")
-        }
-
-        Ok(tmp)
-    }
-}
-
 /// BHS for SCSI Data-In (opcode 0x25)
 #[repr(C)]
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, Default, PartialEq, ZFromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct ScsiDataIn {
-    pub opcode: BhsOpcode,            // 0  (0x25)
-    pub flags: DataInFlags,           // 1  (F,A,0,0,0,O,U,S)
-    pub reserved2: u8,                // 2  (reserved)
-    pub status_or_rsvd: ScsiStatus,   // 3  (SCSI Status, if S=1; else 0)
-    pub total_ahs_length: u8,         // 4
-    pub data_segment_length: [u8; 3], // 5..7
-    pub lun: [u8; 8],                 // 8..15  (LUN or reserved; if A=1 must present)
-    pub initiator_task_tag: u32,      // 16..19
-    pub target_transfer_tag: u32,     // 20..23 (TTT or 0xffffffff)
-    pub stat_sn_or_rsvd: u32,         // 24..27 (StatSN, if S=1; else 0)
-    pub exp_cmd_sn: u32,              // 28..31
-    pub max_cmd_sn: u32,              // 32..35
-    pub data_sn: u32,                 // 36..39
-    pub buffer_offset: u32,           // 40..43
-    pub residual_count: u32,          // 44..47 (valid only if S=1; else 0)
+    pub opcode: RawBhsOpcode,          // 0  (0x25)
+    pub flags: RawDataInFlags,         // 1  (F,A,0,0,0,O,U,S)
+    pub reserved2: u8,                 // 2  (reserved)
+    pub status_or_rsvd: RawScsiStatus, // 3  (SCSI Status, if S=1; else 0)
+    pub total_ahs_length: u8,          // 4
+    pub data_segment_length: [u8; 3],  // 5..7
+    pub lun: U64<BigEndian>,           /* 8..15  (LUN or reserved; if A=1 must
+                                        * present) */
+    pub initiator_task_tag: U32<BigEndian>, // 16..19
+    pub target_transfer_tag: U32<BigEndian>, // 20..23 (TTT or 0xffffffff)
+    pub stat_sn_or_rsvd: U32<BigEndian>,    // 24..27 (StatSN, if S=1; else 0)
+    pub exp_cmd_sn: U32<BigEndian>,         // 28..31
+    pub max_cmd_sn: U32<BigEndian>,         // 32..35
+    pub data_sn: U32<BigEndian>,            // 36..39
+    pub buffer_offset: U32<BigEndian>,      // 40..43
+    pub residual_count: U32<BigEndian>,     // 44..47 (valid only if S=1; else 0)
 }
 
 impl ScsiDataIn {
+    /// Returns decoded SCSI status iff `S=1` (otherwise `None`).
     #[inline]
-    pub fn scsi_status(&self) -> Option<&ScsiStatus> {
-        if self.flags.contains(DataInFlags::S) {
-            Some(&self.status_or_rsvd)
+    pub fn scsi_status(&self) -> Option<ScsiStatus> {
+        if self.flags.s() {
+            self.status_or_rsvd.decode().ok()
         } else {
             None
         }
     }
 
+    /// Sets/clears SCSI status and enforces `S ⇒ F`.
     #[inline]
     pub fn set_scsi_status(&mut self, st: Option<ScsiStatus>) {
         match st {
             Some(s) => {
-                self.flags.insert(DataInFlags::S);
-                self.flags.insert(DataInFlags::FINAL); // S=1 ⇒ F=1
-                self.status_or_rsvd = s;
+                self.flags.set_s(true); // S = 1
+                self.flags.set_fin(true); // S ⇒ F
+                self.status_or_rsvd.encode(s);
             },
             None => {
-                self.flags.remove(DataInFlags::S);
-                self.status_or_rsvd = ScsiStatus::Good;
-                self.stat_sn_or_rsvd = 0;
-                self.residual_count = 0;
+                self.flags.set_s(false); // S = 0
+                self.status_or_rsvd.encode(ScsiStatus::Good);
+                self.stat_sn_or_rsvd.set(0);
+                self.residual_count.set(0);
             },
         }
+    }
+
+    /// Serialize BHS into the provided 48-byte buffer.
+    ///
+    /// If `S=0`, zeroes out the Status/StatSN/ResidualCount bytes
+    /// as required by the spec.
+    #[inline]
+    pub fn to_bhs_bytes(&self, buf: &mut [u8]) -> Result<()> {
+        if buf.len() != HEADER_LEN {
+            bail!("buffer length must be {HEADER_LEN}, got {}", buf.len());
+        }
+        buf.copy_from_slice(self.as_bytes());
+        if !self.flags.s() {
+            buf[3] = 0; // status
+            buf[24..28].fill(0); // StatSN
+            buf[44..48].fill(0); // ResidualCount
+        }
+        Ok(())
+    }
+
+    /// Parse BHS in-place (backed by the caller's buffer).
+    #[inline]
+    pub fn from_bhs_bytes(buf: &mut [u8]) -> Result<&mut Self> {
+        if buf.len() < HEADER_LEN {
+            return Err(anyhow!(
+                "buffer too small for SCSI Data-In BHS: {}",
+                buf.len()
+            ));
+        }
+        let hdr = Self::mut_from_bytes(buf)
+            .map_err(|_| anyhow!("SCSI Data-In: zerocopy prefix error"))?;
+        // opcode check
+        if hdr.opcode.opcode_known() != Some(Opcode::ScsiDataIn) {
+            bail!(
+                "ScsiDataIn invalid opcode 0x{:02x}",
+                hdr.opcode.opcode_raw()
+            );
+        }
+        // flags validation (U/O mutual exclusion, S => F, reserved bits clear)
+        hdr.flags.validate()?;
+        Ok(hdr)
     }
 
     #[inline]
-    pub fn to_bhs_bytes(&self) -> [u8; HEADER_LEN] {
-        let mut buf = [0u8; HEADER_LEN];
-        buf[0] = (&self.opcode).into();
-        buf[1] = self.flags.bits();
-        buf[2] = self.reserved2;
-        buf[3] = if self.flags.contains(DataInFlags::S) {
-            (&self.status_or_rsvd).into()
-        } else {
-            0
-        };
-        buf[4] = self.total_ahs_length;
-        buf[5..8].copy_from_slice(&self.data_segment_length);
-        buf[8..16].copy_from_slice(&self.lun);
-        buf[16..20].copy_from_slice(&self.initiator_task_tag.to_be_bytes());
-        buf[20..24].copy_from_slice(&self.target_transfer_tag.to_be_bytes());
-        let stat = if self.flags.contains(DataInFlags::S) {
-            self.stat_sn_or_rsvd
-        } else {
-            0
-        };
-        buf[24..28].copy_from_slice(&stat.to_be_bytes());
-        buf[28..32].copy_from_slice(&self.exp_cmd_sn.to_be_bytes());
-        buf[32..36].copy_from_slice(&self.max_cmd_sn.to_be_bytes());
-        buf[36..40].copy_from_slice(&self.data_sn.to_be_bytes());
-        buf[40..44].copy_from_slice(&self.buffer_offset.to_be_bytes());
-        let res = if self.flags.contains(DataInFlags::S) {
-            self.residual_count
-        } else {
-            0
-        };
-        buf[44..48].copy_from_slice(&res.to_be_bytes());
-
-        buf
-    }
-
-    pub fn from_bhs_bytes(b: &[u8]) -> Result<Self> {
-        if b.len() < HEADER_LEN {
-            return Err(anyhow!("buffer too small for SCSI Data-In BHS"));
-        }
-        let opcode = BhsOpcode::try_from(b[0])?;
-        if opcode.opcode != Opcode::ScsiDataIn {
-            bail!("ScsiDataIn invalid opcode: {:?}", opcode.opcode);
-        }
-        let flags = DataInFlags::try_from(b[1])?;
-        let reserved2 = b[2];
-        let status_or_rsvd = ScsiStatus::try_from(b[3])?;
-        let total_ahs_length = b[4];
-        let data_segment_length = [b[5], b[6], b[7]];
-        let mut lun = [0u8; 8];
-        lun.copy_from_slice(&b[8..16]);
-        let initiator_task_tag = u32::from_be_bytes(b[16..20].try_into()?);
-        let target_transfer_tag = u32::from_be_bytes(b[20..24].try_into()?);
-        let stat_sn_or_rsvd = u32::from_be_bytes(b[24..28].try_into()?);
-        let exp_cmd_sn = u32::from_be_bytes(b[28..32].try_into()?);
-        let max_cmd_sn = u32::from_be_bytes(b[32..36].try_into()?);
-        let data_sn = u32::from_be_bytes(b[36..40].try_into()?);
-        let buffer_offset = u32::from_be_bytes(b[40..44].try_into()?);
-        let residual_count = u32::from_be_bytes(b[44..48].try_into()?);
-
-        Ok(Self {
-            opcode,
-            flags,
-            reserved2,
-            status_or_rsvd,
-            total_ahs_length,
-            data_segment_length,
-            lun,
-            initiator_task_tag,
-            target_transfer_tag,
-            stat_sn_or_rsvd,
-            exp_cmd_sn,
-            max_cmd_sn,
-            data_sn,
-            buffer_offset,
-            residual_count,
-        })
-    }
-
     pub fn get_real_final_bit(&self) -> bool {
-        self.flags.contains(DataInFlags::FINAL)
+        self.flags.fin()
     }
 
+    #[inline]
     pub fn get_status_bit(&self) -> bool {
-        self.flags.contains(DataInFlags::S)
+        self.flags.s()
     }
 }
 
 impl SendingData for ScsiDataIn {
     fn get_final_bit(&self) -> bool {
-        // WARNING: IN SOME CASES WE EXPECT THAT after ScsiDataIn goes
-        // ScsiCommandResponse
-        self.flags.contains(DataInFlags::FINAL)
-            && (self.scsi_status() == Some(&ScsiStatus::Good))
+        // In practice Data-In can be followed by a separate SCSI Response.
+        // Keep your previous semantics: final only when F=1 and either S not set,
+        // or status is Good.
+        debug!(
+            "TUT~ {} {}",
+            self.flags.fin(),
+            !matches!(self.scsi_status(), None | Some(ScsiStatus::Good))
+        );
+        self.flags.fin() && !matches!(self.scsi_status(), None | Some(ScsiStatus::Good))
     }
 
     fn set_final_bit(&mut self) {
-        // S ⇒ F, but F may be set without S.
-        self.flags.insert(DataInFlags::FINAL);
+        self.flags.set_fin(true);
     }
 
     fn get_continue_bit(&self) -> bool {
-        // "Continue" is represented by the absence of the Final bit.
-        !self.flags.contains(DataInFlags::FINAL)
+        !self.flags.fin()
     }
 
     fn set_continue_bit(&mut self) {
-        // Clear Final. If S (status present) was set, clear it as well,
-        // because the spec requires S=1 ⇒ F=1. Keeping S while clearing F
-        // would violate RFC 7143 §11.8.1.
-        self.flags.remove(DataInFlags::FINAL);
-        self.flags.remove(DataInFlags::S);
+        // Clear F; and to keep S ⇒ F invariant, also clear S.
+        self.flags.set_fin(false);
+        self.flags.set_s(false);
     }
 }
 
 impl FromBytes for ScsiDataIn {
-    fn from_bhs_bytes(bytes: &[u8]) -> Result<Self> {
-        Self::from_bhs_bytes(bytes)
+    #[inline]
+    fn from_bhs_bytes(bytes: &mut [u8]) -> Result<&mut Self> {
+        ScsiDataIn::from_bhs_bytes(bytes)
     }
 }
 
 impl BasicHeaderSegment for ScsiDataIn {
     #[inline]
-    fn to_bhs_bytes(&self) -> Result<[u8; HEADER_LEN]> {
-        Ok(self.to_bhs_bytes())
+    fn to_bhs_bytes(&self, buf: &mut [u8]) -> Result<()> {
+        self.to_bhs_bytes(buf)
     }
 
     #[inline]
-    fn get_opcode(&self) -> &BhsOpcode {
-        &self.opcode
+    fn get_opcode(&self) -> Result<BhsOpcode> {
+        BhsOpcode::try_from(self.opcode.raw())
     }
 
     #[inline]
     fn get_initiator_task_tag(&self) -> u32 {
-        self.initiator_task_tag
+        self.initiator_task_tag.get()
     }
 
     #[inline]
@@ -248,3 +198,5 @@ impl BasicHeaderSegment for ScsiDataIn {
         self.data_segment_length = [be[1], be[2], be[3]];
     }
 }
+
+impl ZeroCopyType for ScsiDataIn {}

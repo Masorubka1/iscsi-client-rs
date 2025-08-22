@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2012-2025 Andrei Maltsev
+
 use std::{
     sync::{Arc, atomic::AtomicU32},
     time::Duration,
@@ -15,9 +18,7 @@ use iscsi_client_rs::{
 };
 use tokio::time::sleep;
 
-use crate::integration_tests::common::{
-    connect_cfg, load_config, lun8, test_isid, test_path,
-};
+use crate::integration_tests::common::{connect_cfg, load_config, test_isid, test_path};
 
 fn pick_lba_from_isid(isid: [u8; 6]) -> u32 {
     let s: u32 = isid.iter().map(|&b| b as u32).sum();
@@ -53,7 +54,7 @@ async fn read10_write10_read10_plain() -> Result<()> {
     let cmd_sn = AtomicU32::new(login_status.exp_cmd_sn);
     let exp_stat_sn = AtomicU32::new(login_status.stat_sn.wrapping_add(1));
     let itt = AtomicU32::new(login_status.itt.wrapping_add(1));
-    let lun = lun8(1);
+    let lun = 1 << 48;
 
     const BLK: usize = 512;
     let blocks: u16 = 1;

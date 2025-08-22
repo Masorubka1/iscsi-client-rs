@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2012-2025 Andrei Maltsev
+
 use std::{future::Future, pin::Pin, sync::Arc};
 
 use anyhow::{Context, Result, anyhow};
@@ -11,9 +14,13 @@ use crate::{
     },
     client::client::ClientConnection,
     models::{
-        common::Builder as _,
+        common::{Builder as _, HEADER_LEN},
         data_fromat::PDUWithData,
-        login::{common::Stage, request::LoginRequestBuilder, response::LoginResponse},
+        login::{
+            common::Stage,
+            request::{LoginRequest, LoginRequestBuilder},
+            response::LoginResponse,
+        },
     },
     state_machine::common::{StateMachine, Transition},
 };
@@ -25,6 +32,7 @@ pub struct LoginCtx<'a> {
     pub isid: [u8; 6],
     pub cid: u16,
     pub itt: u32,
+    pub buf: [u8; HEADER_LEN],
 }
 
 impl<'a> LoginCtx<'a> {
@@ -41,6 +49,7 @@ impl<'a> LoginCtx<'a> {
             isid,
             cid,
             itt,
+            buf: [0u8; HEADER_LEN],
         }
     }
 }
@@ -57,13 +66,15 @@ pub struct LoginStatus {
 
 impl From<&PDUWithData<LoginResponse>> for LoginStatus {
     fn from(r: &PDUWithData<LoginResponse>) -> Self {
+        let header = r.header_view().expect("failed to parse header");
+
         Self {
-            itt: r.header.initiator_task_tag,
-            tsih: r.header.tsih,
-            exp_cmd_sn: r.header.exp_cmd_sn,
-            stat_sn: r.header.stat_sn,
-            version_max: r.header.version_max,
-            version_active: r.header.version_active,
+            itt: header.initiator_task_tag.get(),
+            tsih: header.tsih.get(),
+            exp_cmd_sn: header.exp_cmd_sn.get(),
+            stat_sn: header.stat_sn.get(),
+            version_max: header.version_max,
+            version_active: header.version_active,
         }
     }
 }
@@ -94,13 +105,15 @@ pub struct LastHdr {
 
 impl From<&PDUWithData<LoginResponse>> for LastHdr {
     fn from(r: &PDUWithData<LoginResponse>) -> Self {
+        let header = r.header_view().expect("failder to parse header");
+
         Self {
-            tsih: r.header.tsih,
-            itt: r.header.initiator_task_tag,
-            exp_cmd_sn: r.header.exp_cmd_sn,
-            stat_sn: r.header.stat_sn,
-            ver_max: r.header.version_max,
-            ver_active: r.header.version_active,
+            tsih: header.tsih.get(),
+            itt: header.initiator_task_tag.get(),
+            exp_cmd_sn: header.exp_cmd_sn.get(),
+            stat_sn: header.stat_sn.get(),
+            ver_max: header.version_max,
+            ver_active: header.version_active,
             data: r.data.clone(),
         }
     }
@@ -183,10 +196,16 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for PlainStart {
                 .initiator_task_tag(ctx.itt)
                 .connection_id(ctx.cid)
                 .cmd_sn(0)
-                .exp_stat_sn(0)
-                .header;
+                .exp_stat_sn(0);
 
-            let mut pdu = PDUWithData::from_header(header);
+            let _ = header
+                .header
+                .to_bhs_bytes(ctx.buf.as_mut_slice())
+                .map_err(|e| {
+                    Transition::<PDUWithData<LoginResponse>, anyhow::Error>::Done(e)
+                });
+
+            let mut pdu = PDUWithData::<LoginRequest>::from_header_slice(ctx.buf);
             for key in ctx.cfg.to_login_keys() {
                 pdu.append_data(key.into_bytes());
             }
@@ -225,10 +244,16 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for ChapSecurity {
                 .initiator_task_tag(ctx.itt)
                 .connection_id(ctx.cid)
                 .cmd_sn(0)
-                .exp_stat_sn(0)
-                .header;
+                .exp_stat_sn(0);
 
-            let mut pdu = PDUWithData::from_header(header);
+            let _ = header
+                .header
+                .to_bhs_bytes(ctx.buf.as_mut_slice())
+                .map_err(|e| {
+                    Transition::<PDUWithData<LoginResponse>, anyhow::Error>::Done(e)
+                });
+
+            let mut pdu = PDUWithData::<LoginRequest>::from_header_slice(ctx.buf);
             pdu.append_data(login_keys_security(ctx.cfg));
 
             match ctx.conn.send_request(ctx.itt, pdu).await {
@@ -270,10 +295,16 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for ChapA {
                 .initiator_task_tag(last.itt)
                 .connection_id(ctx.cid)
                 .cmd_sn(last.exp_cmd_sn)
-                .exp_stat_sn(last.stat_sn.wrapping_add(1))
-                .header;
+                .exp_stat_sn(last.stat_sn.wrapping_add(1));
 
-            let mut pdu = PDUWithData::from_header(header);
+            let _ = header
+                .header
+                .to_bhs_bytes(ctx.buf.as_mut_slice())
+                .map_err(|e| {
+                    Transition::<PDUWithData<LoginResponse>, anyhow::Error>::Done(e)
+                });
+
+            let mut pdu = PDUWithData::<LoginRequest>::from_header_slice(ctx.buf);
             pdu.append_data(b"CHAP_A=5\x00".to_vec());
 
             match ctx.conn.send_request(last.itt, pdu).await {
@@ -332,10 +363,16 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for ChapAnswer {
                 .initiator_task_tag(last.itt)
                 .connection_id(ctx.cid)
                 .cmd_sn(last.exp_cmd_sn)
-                .exp_stat_sn(last.stat_sn.wrapping_add(1))
-                .header;
+                .exp_stat_sn(last.stat_sn.wrapping_add(1));
 
-            let mut pdu = PDUWithData::from_header(header);
+            let _ = header
+                .header
+                .to_bhs_bytes(ctx.buf.as_mut_slice())
+                .map_err(|e| {
+                    Transition::<PDUWithData<LoginResponse>, anyhow::Error>::Done(e)
+                });
+
+            let mut pdu = PDUWithData::<LoginRequest>::from_header_slice(ctx.buf);
             pdu.append_data(login_keys_chap_response(user, &chap_r));
 
             if let Err(e) = ctx.conn.send_request(last.itt, pdu).await {
@@ -380,10 +417,16 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for ChapOpToFull {
                 .initiator_task_tag(last.itt)
                 .connection_id(ctx.cid)
                 .cmd_sn(last.exp_cmd_sn)
-                .exp_stat_sn(last.stat_sn.wrapping_add(1))
-                .header;
+                .exp_stat_sn(last.stat_sn.wrapping_add(1));
 
-            let mut pdu = PDUWithData::from_header(header);
+            let _ = header
+                .header
+                .to_bhs_bytes(ctx.buf.as_mut_slice())
+                .map_err(|e| {
+                    Transition::<PDUWithData<LoginResponse>, anyhow::Error>::Done(e)
+                });
+
+            let mut pdu = PDUWithData::<LoginRequest>::from_header_slice(ctx.buf);
             pdu.append_data(login_keys_operational(ctx.cfg));
 
             match ctx.conn.send_request(last.itt, pdu).await {

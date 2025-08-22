@@ -1,4 +1,6 @@
-// tests/_integration_entry.rs
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2012-2025 Andrei Maltsev
+
 #![allow(clippy::all)]
 
 mod integration_tests {
