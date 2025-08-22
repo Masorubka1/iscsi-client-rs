@@ -3,4 +3,5 @@
 
 pub mod read;
 pub mod read_capacity;
+pub mod test_unit_ready;
 pub mod write;

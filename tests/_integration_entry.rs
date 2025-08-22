@@ -6,6 +6,7 @@
 mod integration_tests {
     pub mod common;
 
+    pub mod check_tur;
     pub mod get_capacity_read_write;
     pub mod login_chap_ok;
     pub mod login_plain_ok;
