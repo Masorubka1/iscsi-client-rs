@@ -20,8 +20,11 @@ A pure‑Rust iSCSI initiator **library** (with example CLI) for interacting wit
 * High‑level state machines for:
   * **Login** (plain & CHAP)
   * **NOP** (Nop-Out / Nop-In)
-  * **SCSI READ(10)** (Data-In)
-  * **SCSI WRITE(10)** (Data-Out; ImmediateData path)
+  * **SCSI READ(10/16)** (Data-In)
+  * **SCSI WRITE(10/16)** (Data-Out; ImmediateData path)
+  * **SCSI READ CAPACITY(16)** (Data-In)
+  * **SCSI TEST UNIT READY(6)** (Data-In)
+  * **SCSI MODE SENSE(6/10)** (Data-In)
   * **Logout**
 * Zero C dependencies
 
