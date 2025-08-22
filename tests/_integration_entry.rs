@@ -11,5 +11,6 @@ mod integration_tests {
     pub mod login_plain_ok;
     pub mod logout_ok;
     pub mod read_write_read;
+    pub mod test_unit_ready;
     pub mod write_1gb;
 }
