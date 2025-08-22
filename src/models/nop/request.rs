@@ -1,78 +1,59 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2012-2025 Andrei Maltsev
+
 use anyhow::{Result, bail};
 use tracing::warn;
+use zerocopy::{
+    BigEndian, FromBytes as ZFromBytes, Immutable, IntoBytes, KnownLayout, U32, U64,
+};
 
 use crate::{
     client::pdu_connection::FromBytes,
     models::{
         common::{BasicHeaderSegment, HEADER_LEN, SendingData},
-        opcode::{BhsOpcode, IfFlags, Opcode},
+        data_fromat::ZeroCopyType,
+        opcode::{BhsOpcode, Opcode, RawBhsOpcode},
     },
 };
 
 /// BHS for NopOutRequest PDU
 #[repr(C)]
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, Default, PartialEq, ZFromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct NopOutRequest {
-    pub opcode: BhsOpcode,            // 0
-    reserved1: [u8; 3],               // 1..4
-    pub total_ahs_length: u8,         // 4
-    pub data_segment_length: [u8; 3], // 5..8
-    pub lun: [u8; 8],                 // 8..16
-    pub initiator_task_tag: u32,      // 16..20
-    pub target_task_tag: u32,         // 20..24
-    pub cmd_sn: u32,                  // 24..28
-    pub exp_stat_sn: u32,             // 28..32
-    reserved2: [u8; 16],              // 32..48
+    pub opcode: RawBhsOpcode,               // 0
+    reserved1: [u8; 3],                     // 1..4
+    pub total_ahs_length: u8,               // 4
+    pub data_segment_length: [u8; 3],       // 5..8
+    pub lun: U64<BigEndian>,                // 8..16
+    pub initiator_task_tag: U32<BigEndian>, // 16..20
+    pub target_task_tag: U32<BigEndian>,    // 20..24
+    pub cmd_sn: U32<BigEndian>,             // 24..28
+    pub exp_stat_sn: U32<BigEndian>,        // 28..32
+    reserved2: [u8; 16],                    // 32..48
 }
 
 impl NopOutRequest {
     pub const DEFAULT_TAG: u32 = 0xffffffff_u32;
 
-    /// Serialize BHS in 48 bytes
-    pub fn to_bhs_bytes(&self) -> [u8; HEADER_LEN] {
-        let mut buf = [0u8; HEADER_LEN];
-        buf[0] = (&self.opcode).into();
-        buf[1..4].copy_from_slice(&self.reserved1);
-        buf[4] = self.total_ahs_length;
-        buf[5..8].copy_from_slice(&self.data_segment_length);
-        buf[8..16].copy_from_slice(&self.lun);
-        buf[16..20].copy_from_slice(&self.initiator_task_tag.to_be_bytes());
-        buf[20..24].copy_from_slice(&self.target_task_tag.to_be_bytes());
-        buf[24..28].copy_from_slice(&self.cmd_sn.to_be_bytes());
-        buf[28..32].copy_from_slice(&self.exp_stat_sn.to_be_bytes());
-        // buf[32..48] -- reserved
-        buf
+    pub fn to_bhs_bytes(&self, buf: &mut [u8]) -> Result<()> {
+        buf.fill(0);
+        if buf.len() != HEADER_LEN {
+            bail!("buffer length must be {HEADER_LEN}, got {}", buf.len());
+        }
+        buf.copy_from_slice(self.as_bytes());
+        Ok(())
     }
 
-    pub fn from_bhs_bytes(buf: &[u8]) -> Result<Self> {
-        if buf.len() < HEADER_LEN {
-            bail!("buffer too small");
+    pub fn from_bhs_bytes(buf: &mut [u8]) -> Result<&mut Self> {
+        let hdr = <Self as zerocopy::FromBytes>::mut_from_bytes(buf)
+            .map_err(|e| anyhow::anyhow!("failed convert buffer NopOutRequest: {e}"))?;
+        if hdr.opcode.opcode_known() != Some(Opcode::NopOut) {
+            anyhow::bail!(
+                "NopOutRequest: invalid opcode 0x{:02x}",
+                hdr.opcode.opcode_raw()
+            );
         }
-        let opcode = BhsOpcode::try_from(buf[0])?;
-        if opcode.opcode != Opcode::NopOut {
-            bail!("NopOut invalid opcode: {:?}", opcode.opcode);
-        }
-        let reserved1 = buf[1..4].try_into()?;
-        let total_ahs_length = buf[4];
-        let data_segment_length = [buf[5], buf[6], buf[7]];
-        let mut lun = [0u8; 8];
-        lun.clone_from_slice(&buf[8..16]);
-        let initiator_task_tag = u32::from_be_bytes(buf[16..20].try_into()?);
-        let target_task_tag = u32::from_be_bytes(buf[20..24].try_into()?);
-        let cmd_sn = u32::from_be_bytes(buf[24..28].try_into()?);
-        let exp_stat_sn = u32::from_be_bytes(buf[28..32].try_into()?);
-        Ok(NopOutRequest {
-            opcode,
-            reserved1,
-            total_ahs_length,
-            lun,
-            data_segment_length,
-            initiator_task_tag,
-            target_task_tag,
-            cmd_sn,
-            exp_stat_sn,
-            reserved2: [0u8; 16],
-        })
+        Ok(hdr)
     }
 }
 
@@ -118,9 +99,10 @@ impl NopOutRequestBuilder {
     pub fn new() -> Self {
         NopOutRequestBuilder {
             header: NopOutRequest {
-                opcode: BhsOpcode {
-                    flags: IfFlags::empty(),
-                    opcode: Opcode::NopOut,
+                opcode: {
+                    let mut tmp = RawBhsOpcode::default();
+                    tmp.set_opcode_known(Opcode::NopOut);
+                    tmp
                 },
                 reserved1: {
                     let mut tmp = [0; 3];
@@ -136,7 +118,7 @@ impl NopOutRequestBuilder {
 
     /// Set Immediate bit (Immediate = bit6)
     pub fn immediate(mut self) -> Self {
-        self.header.opcode.flags.insert(IfFlags::I);
+        self.header.opcode.set_i();
         self
     }
 
@@ -154,31 +136,31 @@ impl NopOutRequestBuilder {
 
     /// Sets the initiator task tag, a unique identifier for this command.
     pub fn initiator_task_tag(mut self, tag: u32) -> Self {
-        self.header.initiator_task_tag = tag;
+        self.header.initiator_task_tag.set(tag);
         self
     }
 
     /// Sets the target task tag, a unique identifier for this command.
     pub fn target_task_tag(mut self, tag: u32) -> Self {
-        self.header.target_task_tag = tag;
+        self.header.target_task_tag.set(tag);
         self
     }
 
     /// Sets the command sequence number (CmdSN) for this request.
     pub fn cmd_sn(mut self, sn: u32) -> Self {
-        self.header.cmd_sn = sn;
+        self.header.cmd_sn.set(sn);
         self
     }
 
     /// Sets the expected status sequence number (ExpStatSN) from the target.
     pub fn exp_stat_sn(mut self, sn: u32) -> Self {
-        self.header.exp_stat_sn = sn;
+        self.header.exp_stat_sn.set(sn);
         self
     }
 
     /// Set the 8-byte Logical Unit Number (LUN) in the BHS header.
-    pub fn lun(mut self, lun: &[u8; 8]) -> Self {
-        self.header.lun.clone_from_slice(lun);
+    pub fn lun(mut self, lun: u64) -> Self {
+        self.header.lun.set(lun);
         self
     }
 }
@@ -202,25 +184,25 @@ impl SendingData for NopOutRequest {
 }
 
 impl FromBytes for NopOutRequest {
-    fn from_bhs_bytes(bytes: &[u8]) -> Result<Self> {
-        Self::from_bhs_bytes(bytes)
+    fn from_bhs_bytes(bytes: &mut [u8]) -> Result<&mut Self> {
+        NopOutRequest::from_bhs_bytes(bytes)
     }
 }
 
 impl BasicHeaderSegment for NopOutRequest {
     #[inline]
-    fn to_bhs_bytes(&self) -> Result<[u8; HEADER_LEN]> {
-        Ok(self.to_bhs_bytes())
+    fn to_bhs_bytes(&self, buf: &mut [u8]) -> Result<()> {
+        self.to_bhs_bytes(buf)
     }
 
     #[inline]
-    fn get_opcode(&self) -> &BhsOpcode {
-        &self.opcode
+    fn get_opcode(&self) -> Result<BhsOpcode> {
+        BhsOpcode::try_from(self.opcode.raw())
     }
 
     #[inline]
     fn get_initiator_task_tag(&self) -> u32 {
-        self.initiator_task_tag
+        self.initiator_task_tag.get()
     }
 
     #[inline]
@@ -249,3 +231,5 @@ impl BasicHeaderSegment for NopOutRequest {
         self.data_segment_length = [be[1], be[2], be[3]];
     }
 }
+
+impl ZeroCopyType for NopOutRequest {}

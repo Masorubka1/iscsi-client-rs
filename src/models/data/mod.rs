@@ -5,6 +5,7 @@ use once_cell::sync::Lazy;
 use crate::models::data::asc_ascq_gen::ASC_ASCQ;
 
 mod asc_ascq_gen;
+pub mod common;
 pub mod request;
 pub mod response;
 pub mod sense_data;

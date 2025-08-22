@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2012-2025 Andrei Maltsev
+
 use std::sync::atomic::AtomicU32;
 
 use anyhow::Result;
@@ -6,7 +9,7 @@ use iscsi_client_rs::{
         config::{AuthConfig, Config},
         logger::init_logger,
     },
-    models::logout::request::LogoutReason,
+    models::logout::common::LogoutReason,
     state_machine::{
         login_states::{LoginCtx, LoginStates, run_login, start_chap, start_plain},
         logout_states::{self, LogoutCtx, LogoutStates, run_logout},

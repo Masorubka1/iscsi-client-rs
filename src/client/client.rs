@@ -1,4 +1,8 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2012-2025 Andrei Maltsev
+
 use std::{
+    any::type_name,
     fmt::{self, Debug},
     sync::Arc,
 };
@@ -23,7 +27,7 @@ use crate::{
     },
     models::{
         common::{BasicHeaderSegment, HEADER_LEN, SendingData},
-        data_fromat::PDUWithData,
+        data_fromat::{PDUWithData, ZeroCopyType},
         parse::Pdu,
     },
 };
@@ -36,7 +40,7 @@ use crate::{
 pub struct ClientConnection {
     pub reader: Mutex<OwnedReadHalf>,
     pub writer: Mutex<OwnedWriteHalf>,
-    cfg: Config,
+    pub cfg: Config,
     sending: DashMap<u32, mpsc::Sender<RawPdu>>,
     reciver: DashMap<u32, mpsc::Receiver<RawPdu>>,
 }
@@ -137,10 +141,10 @@ impl ClientConnection {
         Ok(())
     }
 
-    pub async fn read_response<T: BasicHeaderSegment + FromBytes + Debug>(
+    pub async fn read_response_raw<T: BasicHeaderSegment + Debug>(
         &self,
         initiator_task_tag: u32,
-    ) -> Result<PDUWithData<T>> {
+    ) -> Result<(PDUWithData<T>, Vec<u8>)> {
         let mut rx = self
             .reciver
             .remove(&initiator_task_tag)
@@ -148,16 +152,36 @@ impl ClientConnection {
             .ok_or_else(|| anyhow!("no pending request with itt={initiator_task_tag}"))?;
 
         let RawPdu {
-            last_hdr_with_updated_data,
+            mut last_hdr_with_updated_data,
             data,
         } = rx.recv().await.ok_or_else(|| {
             anyhow!("Failed to read response: connection closed before answer")
         })?;
 
-        let pdu_header = T::from_bhs_bytes(&last_hdr_with_updated_data)?;
+        let pdu_header = Pdu::from_bhs_bytes(&mut last_hdr_with_updated_data)?;
+        debug!(
+            "{} is final bit: {}",
+            type_name::<T>(),
+            pdu_header.get_final_bit()
+        );
         if !pdu_header.get_final_bit() {
             let _ = self.reciver.insert(initiator_task_tag, rx);
         }
+
+        let pdu = PDUWithData::<T>::from_header_slice(last_hdr_with_updated_data);
+
+        Ok((pdu, data))
+    }
+
+    pub async fn read_response<
+        T: BasicHeaderSegment + FromBytes + Debug + ZeroCopyType,
+    >(
+        &self,
+        initiator_task_tag: u32,
+    ) -> Result<PDUWithData<T>> {
+        let (mut pdu, data) = self.read_response_raw(initiator_task_tag).await?;
+
+        let header: &T = pdu.header_view()?;
 
         let hd = self
             .cfg
@@ -165,20 +189,18 @@ impl ClientConnection {
             .negotiation
             .header_digest
             .eq_ignore_ascii_case("CRC32C");
-        let hd = pdu_header.get_header_diggest(hd);
+        let hd = header.get_header_diggest(hd);
         let dd = self
             .cfg
             .login
             .negotiation
             .data_digest
             .eq_ignore_ascii_case("CRC32C");
-        let dd = pdu_header.get_data_diggest(dd);
+        let dd = header.get_data_diggest(dd);
 
-        let parsed =
-            PDUWithData::<T>::parse(pdu_header, data.as_slice(), hd != 0, dd != 0);
+        pdu.parse_with_buff(data.as_slice(), hd != 0, dd != 0)?;
 
-        debug!("READ {parsed:?}");
-        parsed
+        Ok(pdu)
     }
 
     async fn read_loop(self: Arc<Self>) -> Result<()> {
@@ -203,7 +225,7 @@ impl ClientConnection {
                 io_with_timeout("read header", r.read_exact(&mut hdr)).await?;
             }
 
-            let pdu_hdr = Pdu::from_bhs_bytes(&hdr)?;
+            let pdu_hdr = Pdu::from_bhs_bytes(&mut hdr)?;
             debug!("PRE BHS: {pdu_hdr:?}");
             let itt = pdu_hdr.get_initiator_task_tag();
             let fin_bit = pdu_hdr.get_final_bit();

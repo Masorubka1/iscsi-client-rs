@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2012-2025 Andrei Maltsev
+
+use core::fmt;
+
 use anyhow::{Context, Result, anyhow};
 
 use crate::models::data::Entry;
@@ -113,8 +118,8 @@ impl SenseData {
     }
 }
 
-impl core::fmt::Debug for SenseData {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl fmt::Debug for SenseData {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SenseData")
             .field("valid", &self.valid)
             .field(

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2012-2025 Andrei Maltsev
+
 use std::{
     pin::Pin,
     sync::{
@@ -18,7 +21,7 @@ use crate::{
             request::{ScsiCommandRequest, ScsiCommandRequestBuilder},
             response::ScsiCommandResponse,
         },
-        common::{BasicHeaderSegment, SendingData},
+        common::{BasicHeaderSegment, HEADER_LEN, SendingData},
         data::{
             request::{ScsiDataOut, ScsiDataOutBuilder},
             sense_data::SenseData,
@@ -33,7 +36,7 @@ use crate::{
 pub struct WriteCtx<'a> {
     pub conn: Arc<ClientConnection>,
     pub cfg: Arc<Config>,
-    pub lun: [u8; 8],
+    pub lun: u64,
     pub itt: &'a AtomicU32,
     pub cmd_sn: &'a AtomicU32,
     pub exp_stat_sn: &'a AtomicU32,
@@ -42,6 +45,7 @@ pub struct WriteCtx<'a> {
 
     pub cdb: [u8; 16],
     pub payload: Vec<u8>,
+    pub buf: [u8; HEADER_LEN],
 }
 
 #[derive(Debug, Clone)]
@@ -57,7 +61,7 @@ impl<'a> WriteCtx<'a> {
     pub fn new(
         conn: Arc<ClientConnection>,
         cfg: Arc<Config>,
-        lun: [u8; 8],
+        lun: u64,
         itt: &'a AtomicU32,
         cmd_sn: &'a AtomicU32,
         exp_stat_sn: &'a AtomicU32,
@@ -74,27 +78,35 @@ impl<'a> WriteCtx<'a> {
             initial_r2t: false,
             cdb,
             payload: payload.into(),
+            buf: [0u8; HEADER_LEN],
         }
     }
 
     /// Send the SCSI Command (WRITE) with **no** data in the command PDU.
-    async fn send_write_command(&self) -> Result<WriteStatus> {
+    async fn send_write_command(&mut self) -> Result<WriteStatus> {
         let itt = self.itt.fetch_add(1, Ordering::SeqCst);
         let cmd_sn = self.cmd_sn.fetch_add(1, Ordering::SeqCst);
         let exp_stat_sn = self.exp_stat_sn.load(Ordering::SeqCst);
 
         let header = ScsiCommandRequestBuilder::new()
-            .lun(&self.lun)
+            .lun(self.lun)
             .initiator_task_tag(itt)
             .cmd_sn(cmd_sn)
             .exp_stat_sn(exp_stat_sn)
             .expected_data_transfer_length(self.payload.len() as u32)
             .scsi_descriptor_block(&self.cdb)
             .write()
-            .task_attribute(TaskAttribute::Simple)
-            .header;
+            .task_attribute(TaskAttribute::Simple);
 
-        let pdu: PDUWithData<ScsiCommandRequest> = PDUWithData::from_header(header);
+        let _ = header
+            .header
+            .to_bhs_bytes(self.buf.as_mut_slice())
+            .map_err(|e| {
+                Transition::<PDUWithData<ScsiCommandResponse>, anyhow::Error>::Done(e)
+            });
+
+        let pdu: PDUWithData<ScsiCommandRequest> =
+            PDUWithData::from_header_slice(self.buf);
 
         self.conn.send_request(itt, pdu).await?;
 
@@ -106,17 +118,18 @@ impl<'a> WriteCtx<'a> {
         })
     }
 
-    async fn recv_r2t(&self, itt: u32) -> Result<ReadyToTransfer> {
+    async fn recv_r2t(&self, itt: u32) -> Result<PDUWithData<ReadyToTransfer>> {
         let r2t: PDUWithData<ReadyToTransfer> = self.conn.read_response(itt).await?;
+        let header = r2t.header_view()?;
         self.exp_stat_sn
-            .store(r2t.header.stat_sn.wrapping_add(1), Ordering::SeqCst);
-        Ok(r2t.header)
+            .store(header.stat_sn.get().wrapping_add(1), Ordering::SeqCst);
+        Ok(r2t)
     }
 
     /// Send exactly the requested R2T window.
     /// Returns (bytes_sent, next_data_sn).
     async fn send_data(
-        &self,
+        &mut self,
         itt: u32,
         mut next_data_sn: u32,
         ttt: u32,
@@ -149,22 +162,31 @@ impl<'a> WriteCtx<'a> {
             let off = offset + sent;
             let last = sent + take == to_send_total;
 
-            let proto_hdr = ScsiDataOutBuilder::new()
-                .lun(&self.lun)
+            let header = ScsiDataOutBuilder::new()
+                .lun(self.lun)
                 .initiator_task_tag(itt)
                 .target_transfer_tag(ttt)
                 .exp_stat_sn(self.exp_stat_sn.load(Ordering::SeqCst))
                 .buffer_offset(off as u32)
-                .data_sn(next_data_sn)
-                .header;
+                .data_sn(next_data_sn);
 
-            let mut pdu: PDUWithData<ScsiDataOut> = PDUWithData::from_header(proto_hdr);
+            let _ = header
+                .header
+                .to_bhs_bytes(self.buf.as_mut_slice())
+                .map_err(|e| {
+                    Transition::<PDUWithData<ScsiCommandResponse>, anyhow::Error>::Done(e)
+                });
 
-            pdu.header.set_data_length_bytes(take as u32);
+            let mut pdu: PDUWithData<ScsiDataOut> =
+                PDUWithData::from_header_slice(self.buf);
+
+            let header = pdu.header_view_mut()?;
+
+            header.set_data_length_bytes(take as u32);
             if last {
-                pdu.header.set_final_bit();
+                header.set_final_bit();
             } else {
-                pdu.header.set_continue_bit();
+                header.set_continue_bit();
             }
 
             pdu.data.extend_from_slice(&self.payload[off..off + take]);
@@ -179,14 +201,15 @@ impl<'a> WriteCtx<'a> {
     }
 
     /// Wait for the SCSI Response and validate success.
-    async fn wait_scsi_response(&self, itt: u32) -> Result<()> {
+    async fn wait_scsi_response(&mut self, itt: u32) -> Result<()> {
         let rsp: PDUWithData<ScsiCommandResponse> = self.conn.read_response(itt).await?;
+        let header = rsp.header_view()?;
         self.exp_stat_sn
-            .store(rsp.header.stat_sn.wrapping_add(1), Ordering::SeqCst);
-        if rsp.header.response != ResponseCode::CommandCompleted {
-            bail!("WRITE failed: response={:?}", rsp.header.response);
+            .store(header.stat_sn.get().wrapping_add(1), Ordering::SeqCst);
+        if header.response.decode()? != ResponseCode::CommandCompleted {
+            bail!("WRITE failed: response={:?}", header.response);
         }
-        if rsp.header.status != ScsiStatus::Good {
+        if header.status.decode()? != ScsiStatus::Good {
             let sense = SenseData::parse(&rsp.data)?;
             bail!("WRITE failed: {:?}", sense);
         }
@@ -276,9 +299,18 @@ impl<'ctx> StateMachine<WriteCtx<'ctx>, WriteStep> for WaitR2T {
                 Err(e) => return Transition::Done(Err(e)),
             };
 
-            let ttt = r2t.target_transfer_tag;
-            let offset = r2t.buffer_offset as usize;
-            let want = r2t.desired_data_transfer_length as usize;
+            let header = match r2t.header_view() {
+                Ok(header) => header,
+                Err(e) => {
+                    return Transition::Done(Err(anyhow!(
+                        "failed read pdu ReadyToTransfer: {e}"
+                    )));
+                },
+            };
+
+            let ttt = header.target_transfer_tag.get();
+            let offset = header.buffer_offset.get() as usize;
+            let want = header.desired_data_transfer_length.get() as usize;
 
             if offset >= ctx.payload.len() {
                 return Transition::Done(Err(anyhow!(

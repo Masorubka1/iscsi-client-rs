@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2012-2025 Andrei Maltsev
+
 /// Build a 16-byte SCSI **WRITE(10)** CDB.
 ///
 /// Parameters:

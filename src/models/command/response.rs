@@ -1,114 +1,75 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2012-2025 Andrei Maltsev
+
 use anyhow::{Result, bail};
 use tracing::warn;
+use zerocopy::{
+    BigEndian, FromBytes as ZFromBytes, Immutable, IntoBytes, KnownLayout, U32,
+};
 
 use crate::{
     client::pdu_connection::FromBytes,
     models::{
-        command::common::{ResponseCode, ScsiCommandResponseFlags, ScsiStatus},
+        command::zero_copy::{RawResponseCode, RawScsiCmdRespFlags, RawScsiStatus},
         common::{BasicHeaderSegment, HEADER_LEN, SendingData},
-        opcode::{BhsOpcode, Opcode},
+        data_fromat::ZeroCopyType,
+        opcode::{BhsOpcode, Opcode, RawBhsOpcode},
     },
 };
 
 /// BHS for ScsiCommandResponse PDU
 #[repr(C)]
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, ZFromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct ScsiCommandResponse {
-    pub opcode: BhsOpcode,                      // 0
-    pub flags: ScsiCommandResponseFlags,        // 1
-    pub response: ResponseCode,                 // 2
-    pub status: ScsiStatus,                     // 3
-    pub total_ahs_length: u8,                   // 4
-    pub data_segment_length: [u8; 3],           // 5..8
-    reserved: [u8; 8],                          // 8..16
-    pub initiator_task_tag: u32,                // 16..20
-    pub snack_tag: u32,                         // 20..24
-    pub stat_sn: u32,                           // 24..28
-    pub exp_cmd_sn: u32,                        // 28..32
-    pub max_cmd_sn: u32,                        // 32..36
-    pub exp_data_sn: u32,                       // 36..40
-    pub bidirectional_read_residual_count: u32, // 40..44
-    pub residual_count: u32,                    // 44..48
+    pub opcode: RawBhsOpcode,                              // 0
+    pub flags: RawScsiCmdRespFlags,                        // 1
+    pub response: RawResponseCode,                         // 2
+    pub status: RawScsiStatus,                             // 3
+    pub total_ahs_length: u8,                              // 4
+    pub data_segment_length: [u8; 3],                      // 5..8
+    reserved: [u8; 8],                                     // 8..16
+    pub initiator_task_tag: U32<BigEndian>,                // 16..20
+    pub snack_tag: U32<BigEndian>,                         // 20..24
+    pub stat_sn: U32<BigEndian>,                           // 24..28
+    pub exp_cmd_sn: U32<BigEndian>,                        // 28..32
+    pub max_cmd_sn: U32<BigEndian>,                        // 32..36
+    pub exp_data_sn: U32<BigEndian>,                       // 36..40
+    pub bidirectional_read_residual_count: U32<BigEndian>, // 40..44
+    pub residual_count: U32<BigEndian>,                    // 44..48
 }
 
 impl ScsiCommandResponse {
-    /// Serialize BHS in 48 bytes
-    pub fn to_bhs_bytes(&self) -> [u8; HEADER_LEN] {
-        let mut buf = [0u8; HEADER_LEN];
-        buf[0] = (&self.opcode).into();
-        buf[1] = self.flags.bits();
-        buf[2] = (&self.response).into();
-        buf[3] = (&self.status).into();
-        buf[4] = self.total_ahs_length;
-        buf[5..8].copy_from_slice(&self.data_segment_length);
-        buf[8..16].copy_from_slice(&self.reserved);
-        buf[16..20].copy_from_slice(&self.initiator_task_tag.to_be_bytes());
-        buf[20..24].copy_from_slice(&self.snack_tag.to_be_bytes());
-        buf[24..28].copy_from_slice(&self.stat_sn.to_be_bytes());
-        buf[28..32].copy_from_slice(&self.exp_cmd_sn.to_be_bytes());
-        buf[32..36].copy_from_slice(&self.max_cmd_sn.to_be_bytes());
-        buf[36..40].copy_from_slice(&self.exp_data_sn.to_be_bytes());
-        buf[40..44]
-            .copy_from_slice(&self.bidirectional_read_residual_count.to_be_bytes());
-        buf[44..48].copy_from_slice(&self.residual_count.to_be_bytes());
-        buf
+    pub fn to_bhs_bytes(&self, buf: &mut [u8]) -> Result<()> {
+        buf.fill(0);
+        if buf.len() != HEADER_LEN {
+            bail!("buffer length must be {HEADER_LEN}, got {}", buf.len());
+        }
+        buf.copy_from_slice(self.as_bytes());
+        Ok(())
     }
 
-    /// Deserialize BHS from 48 bytes
-    pub fn from_bhs_bytes(buf: &[u8]) -> Result<Self> {
-        if buf.len() < HEADER_LEN {
-            bail!("buffer too small: {} < {}", buf.len(), HEADER_LEN);
+    pub fn from_bhs_bytes(buf: &mut [u8]) -> Result<&mut Self> {
+        let hdr = <Self as zerocopy::FromBytes>::mut_from_bytes(buf).map_err(|e| {
+            anyhow::anyhow!("failed convert buffer ScsiCommandResponse: {e}")
+        })?;
+        if hdr.opcode.opcode_known() != Some(Opcode::ScsiCommandResp) {
+            anyhow::bail!(
+                "ScsiCommandResponse: invalid opcode 0x{:02x}",
+                hdr.opcode.opcode_raw()
+            );
         }
-
-        let opcode = BhsOpcode::try_from(buf[0])?;
-        if opcode.opcode != Opcode::ScsiCommandResp {
-            bail!("ScsiCommandResp invalid opcode: {:?}", opcode.opcode);
-        }
-        let flags = ScsiCommandResponseFlags::try_from(buf[1])?;
-        let response = ResponseCode::try_from(buf[2])?;
-        let status = ScsiStatus::try_from(buf[3])?;
-        let total_ahs_length = buf[4];
-        let data_segment_length = [buf[5], buf[6], buf[7]];
-        let mut reserved = [0u8; 8];
-        reserved.copy_from_slice(&buf[8..16]);
-        let initiator_task_tag = u32::from_be_bytes(buf[16..20].try_into()?);
-        let snack_tag = u32::from_be_bytes(buf[20..24].try_into()?);
-        let stat_sn = u32::from_be_bytes(buf[24..28].try_into()?);
-        let exp_cmd_sn = u32::from_be_bytes(buf[28..32].try_into()?);
-        let max_cmd_sn = u32::from_be_bytes(buf[32..36].try_into()?);
-        let exp_data_sn = u32::from_be_bytes(buf[36..40].try_into()?);
-        let bidirectional_read_residual_count =
-            u32::from_be_bytes(buf[40..44].try_into()?);
-        let residual_count = u32::from_be_bytes(buf[44..48].try_into()?);
-
-        Ok(ScsiCommandResponse {
-            opcode,
-            flags,
-            response,
-            status,
-            total_ahs_length,
-            data_segment_length,
-            reserved,
-            initiator_task_tag,
-            snack_tag,
-            stat_sn,
-            exp_cmd_sn,
-            max_cmd_sn,
-            exp_data_sn,
-            bidirectional_read_residual_count,
-            residual_count,
-        })
+        Ok(hdr)
     }
 }
 
 impl SendingData for ScsiCommandResponse {
     fn get_final_bit(&self) -> bool {
-        true
+        self.flags.fin()
     }
 
     fn set_final_bit(&mut self) {
         warn!("ScsiCommand Response must contain Final");
-        self.flags.insert(ScsiCommandResponseFlags::FINAL);
+        self.flags.set_fin(true);
     }
 
     fn get_continue_bit(&self) -> bool {
@@ -121,25 +82,25 @@ impl SendingData for ScsiCommandResponse {
 }
 
 impl FromBytes for ScsiCommandResponse {
-    fn from_bhs_bytes(bytes: &[u8]) -> Result<Self> {
-        Self::from_bhs_bytes(bytes)
+    fn from_bhs_bytes(bytes: &mut [u8]) -> Result<&mut Self> {
+        ScsiCommandResponse::from_bhs_bytes(bytes)
     }
 }
 
 impl BasicHeaderSegment for ScsiCommandResponse {
     #[inline]
-    fn to_bhs_bytes(&self) -> Result<[u8; HEADER_LEN]> {
-        Ok(self.to_bhs_bytes())
+    fn to_bhs_bytes(&self, buf: &mut [u8]) -> Result<()> {
+        self.to_bhs_bytes(buf)
     }
 
     #[inline]
-    fn get_opcode(&self) -> &BhsOpcode {
-        &self.opcode
+    fn get_opcode(&self) -> Result<BhsOpcode> {
+        BhsOpcode::try_from(self.opcode.raw())
     }
 
     #[inline]
     fn get_initiator_task_tag(&self) -> u32 {
-        self.initiator_task_tag
+        self.initiator_task_tag.get()
     }
 
     #[inline]
@@ -168,3 +129,5 @@ impl BasicHeaderSegment for ScsiCommandResponse {
         self.data_segment_length = [be[1], be[2], be[3]];
     }
 }
+
+impl ZeroCopyType for ScsiCommandResponse {}
