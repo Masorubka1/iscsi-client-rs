@@ -9,9 +9,7 @@ use iscsi_client_rs::{
         config::{AuthConfig, Config},
         logger::init_logger,
     },
-    control_block::report_luns::{
-        fill_report_luns, select_report,
-    },
+    control_block::report_luns::{fill_report_luns, select_report},
     state_machine::{
         login_states::{LoginCtx, LoginStates, run_login, start_chap, start_plain},
         read_states::{ReadCtx, ReadStart, ReadStates, run_read},
@@ -31,8 +29,13 @@ async fn login_tur_report_luns() -> Result<()> {
     let conn = connect_cfg(&cfg).await?;
 
     let isid = test_isid();
-    let mut lctx =
-        LoginCtx::new(conn.clone(), &cfg, isid, /* cid */ 1, /* tsih */ 0);
+    let mut lctx = LoginCtx::new(
+        conn.clone(),
+        &cfg,
+        isid,
+        /* cid */ 1,
+        /* tsih */ 0,
+    );
 
     let login_state: LoginStates = match cfg.login.auth {
         AuthConfig::Chap(_) => start_chap(),
