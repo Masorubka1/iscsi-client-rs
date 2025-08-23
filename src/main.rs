@@ -21,6 +21,7 @@ use iscsi_client_rs::{
             parse_read_capacity10_zerocopy, parse_read_capacity16_zerocopy,
         },
         report_luns::{fill_report_luns, select_report},
+        request_sense::fill_request_sense_simple,
         write::build_write10,
     },
     models::{logout::common::LogoutReason, nop::request::NopOutRequest},
@@ -313,23 +314,70 @@ async fn main() -> Result<()> {
         let _wd1 = run_write(WriteStates::IssueCmd(IssueCmd), &mut wctx).await?;
     }
 
-    // ============ READ(10) back & verify ============
-    /*let mut cdb_rd2 = [0u8; 16];
-    build_read10(&mut cdb_rd2, lba, blocks, 0, 0);
-    let mut rctx2 = ReadCtx::new(
-        conn.clone(),
-        lun,
-        &itt,
-        &cmd_sn,
-        &exp_stat_sn,
-        (blk_sz * blocks as usize) as u32,
-        cdb_rd2,
-    );
-    let rd2 = run_read(ReadStates::Start(ReadStart), &mut rctx2).await?;
-    assert_eq!(
-        rd2.data, payload,
-        "read-back data differs from what was written"
-    );*/
+    {
+        let mut bad_rl_cdb = [0u8; 16];
+        // invalid SELECT value 0x7F, allocation 16
+        fill_report_luns(&mut bad_rl_cdb, 0x7F, 16, 0x00);
+
+        let mut rctx_bad = ReadCtx::new(
+            conn.clone(),
+            lun,
+            &itt,
+            &cmd_sn,
+            &exp_stat_sn,
+            16,
+            bad_rl_cdb,
+        );
+
+        // We EXPECT an error here (CHECK CONDITION); do not fail the test.
+        let _ = run_read(ReadStates::Start(ReadStart), &mut rctx_bad).await;
+
+        // === Step 2: REQUEST SENSE (header pass: 8 bytes) using ReadCtx ===
+        let mut rs_hdr_cdb = [0u8; 16];
+        fill_request_sense_simple(&mut rs_hdr_cdb, /* alloc */ 8);
+
+        let mut rctx_rs8 = ReadCtx::new(
+            conn.clone(),
+            lun,
+            &itt,
+            &cmd_sn,
+            &exp_stat_sn,
+            8,
+            rs_hdr_cdb,
+        );
+        let s8 = run_read(ReadStates::Start(ReadStart), &mut rctx_rs8).await?;
+        assert_eq!(s8.data.len(), 8, "REQUEST SENSE header must be 8 bytes");
+
+        let add_len = s8.data[7] as usize; // Additional Sense Length (byte 7)
+        let total_needed = 8 + add_len;
+
+        // === Step 3: REQUEST SENSE (full pass) ===
+        let mut rs_full_cdb = [0u8; 16];
+        fill_request_sense_simple(&mut rs_full_cdb, total_needed as u8);
+
+        let mut rctx_rs_full = ReadCtx::new(
+            conn.clone(),
+            lun,
+            &itt,
+            &cmd_sn,
+            &exp_stat_sn,
+            total_needed as u32,
+            rs_full_cdb,
+        );
+        let sfull = run_read(ReadStates::Start(ReadStart), &mut rctx_rs_full).await?;
+        assert_eq!(
+            sfull.data.len(),
+            total_needed,
+            "unexpected REQUEST SENSE length"
+        );
+
+        // quick sanity on sense format
+        let resp_code = sfull.data[0] & 0x7F;
+        assert!(
+            resp_code == 0x70 || resp_code == 0x71,
+            "unexpected sense response code"
+        );
+    }
 
     // LOGOUT — close the whole session
     {

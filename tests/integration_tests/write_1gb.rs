@@ -8,7 +8,7 @@ use iscsi_client_rs::{
     cfg::{config::AuthConfig, logger::init_logger},
     control_block::{read::build_read16, write::build_write16},
     state_machine::{
-        login_states::{LoginCtx, LoginStates, run_login, start_plain},
+        login_states::{LoginCtx, LoginStates, run_login, start_chap, start_plain},
         read_states::{ReadCtx, ReadStart, ReadStates, run_read},
         write_states::{IssueCmd, WriteCtx, WriteStates, run_write},
     },
@@ -39,9 +39,6 @@ fn fill_pattern(buf: &mut [u8], lba_start: u64) {
 async fn write16_read16_1_gib_plain() -> Result<()> {
     let _ = init_logger(&test_path());
     let cfg = Arc::new(load_config()?);
-    if !matches!(cfg.login.auth, AuthConfig::None) {
-        return Ok(());
-    }
 
     let total_bytes: usize = 1usize << 30; // 1 GiB
     assert!(total_bytes % BLK == 0);
@@ -50,19 +47,17 @@ async fn write16_read16_1_gib_plain() -> Result<()> {
     let conn = connect_cfg(&cfg).await?;
     let isid = test_isid();
 
-    let mut lctx = LoginCtx::new(
-        conn.clone(),
-        &cfg,
-        isid,
-        /* cid= */ 1,
-        /* tsih= */ 1,
-    );
-    let login_state: LoginStates = start_plain();
-    let ls = run_login(login_state, &mut lctx).await?;
+    let mut lctx =
+        LoginCtx::new(conn.clone(), &cfg, isid, /* cid */ 1, /* tsih */ 0);
+    let login_state: LoginStates = match cfg.login.auth {
+        AuthConfig::Chap(_) => start_chap(),
+        AuthConfig::None => start_plain(),
+    };
+    let login_status = run_login(login_state, &mut lctx).await?;
 
-    let cmd_sn = AtomicU32::new(ls.exp_cmd_sn);
-    let exp_stat_sn = AtomicU32::new(ls.stat_sn.wrapping_add(1));
-    let itt = AtomicU32::new(ls.itt.wrapping_add(1));
+    let cmd_sn = AtomicU32::new(login_status.exp_cmd_sn);
+    let exp_stat_sn = AtomicU32::new(login_status.stat_sn.wrapping_add(1));
+    let itt = AtomicU32::new(login_status.itt.wrapping_add(1));
     let lun = 1 << 48;
     let lba = pick_lba_from_isid(isid);
 

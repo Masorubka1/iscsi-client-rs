@@ -5,5 +5,6 @@ pub mod mod_sense;
 pub mod read;
 pub mod read_capacity;
 pub mod report_luns;
+pub mod request_sense;
 pub mod test_unit_ready;
 pub mod write;
