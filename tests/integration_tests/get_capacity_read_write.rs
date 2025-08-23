@@ -42,8 +42,13 @@ async fn read_capacity_then_write10_plain() -> Result<()> {
     let isid = test_isid();
 
     // -------- Login ----------
-    let mut lctx =
-        LoginCtx::new(conn.clone(), &cfg, isid, /* cid */ 1, /* tsih */ 0);
+    let mut lctx = LoginCtx::new(
+        conn.clone(),
+        &cfg,
+        isid,
+        /* cid */ 1,
+        /* tsih */ 0,
+    );
     let login_state: LoginStates = match cfg.login.auth {
         AuthConfig::Chap(_) => start_chap(),
         AuthConfig::None => start_plain(),

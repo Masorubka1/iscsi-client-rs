@@ -30,8 +30,13 @@ async fn login_ua_request_sense_then_clear_with_tur() -> Result<()> {
     let conn = connect_cfg(&cfg).await?;
     let isid = test_isid();
 
-    let mut lctx =
-        LoginCtx::new(conn.clone(), &cfg, isid, /* cid */ 1, /* tsih */ 0);
+    let mut lctx = LoginCtx::new(
+        conn.clone(),
+        &cfg,
+        isid,
+        /* cid */ 1,
+        /* tsih */ 0,
+    );
     let login_state: LoginStates = match cfg.login.auth {
         AuthConfig::Chap(_) => start_chap(),
         AuthConfig::None => start_plain(),
