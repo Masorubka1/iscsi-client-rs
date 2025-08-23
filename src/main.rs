@@ -30,7 +30,7 @@ use iscsi_client_rs::{
         logout_states::{self, LogoutCtx, LogoutStates, run_logout},
         nop_states::{self, NopCtx, NopStates, run_nop},
         read_states::{ReadCtx, ReadStart, ReadStates, run_read},
-        test_unit_ready::{Idle, TurCtx, TurStates, run_tur},
+        tur_states::{Idle, TurCtx, TurStates, run_tur},
         write_states::{IssueCmd, WriteCtx, WriteStates, run_write},
     },
     utils::generate_isid,

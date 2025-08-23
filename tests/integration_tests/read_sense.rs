@@ -13,7 +13,7 @@ use iscsi_client_rs::{
     state_machine::{
         login_states::{LoginCtx, LoginStates, run_login, start_chap, start_plain},
         read_states::{ReadCtx, ReadStart, ReadStates, run_read},
-        test_unit_ready::{Idle as TurIdle, TurCtx, TurStates, run_tur},
+        tur_states::{Idle as TurIdle, TurCtx, TurStates, run_tur},
     },
 };
 
