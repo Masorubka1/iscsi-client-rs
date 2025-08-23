@@ -27,6 +27,7 @@ A pure‑Rust iSCSI initiator **library** (with example CLI) for interacting wit
   * **SCSI MODE SENSE(6/10)**
   * **SCSI REPORT LUNS(12)**
   * **SCSI REQUEST SENSE(6)**
+  * **SCSI INQUIRY EVPD/VPD (6)**
   * **Logout**
 * Zero C dependencies
 
