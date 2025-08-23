@@ -11,7 +11,7 @@ use iscsi_client_rs::{
     cfg::{config::AuthConfig, logger::init_logger},
     control_block::{read::build_read10, write::build_write10},
     state_machine::{
-        login_states::{LoginCtx, LoginStates, run_login, start_plain},
+        login_states::{LoginCtx, LoginStates, run_login, start_chap, start_plain},
         read_states::{ReadCtx, ReadStart, ReadStates, run_read},
         write_states::{IssueCmd, WriteCtx, WriteStates, run_write},
     },
@@ -30,13 +30,6 @@ async fn read10_write10_read10_plain() -> Result<()> {
     let _ = init_logger(&test_path());
 
     let cfg = Arc::new(load_config()?);
-    if !matches!(cfg.login.auth, AuthConfig::None) {
-        eprintln!(
-            "⏭️  skip: auth.method != none in TEST_CONFIG (этот тест только для \
-             login_plain)"
-        );
-        return Ok(());
-    }
 
     let conn = connect_cfg(&cfg).await?;
     let isid = test_isid();
@@ -45,10 +38,13 @@ async fn read10_write10_read10_plain() -> Result<()> {
         conn.clone(),
         &cfg,
         isid,
-        /* cid= */ 1,
-        /* tsih= */ 1,
+        /* cid */ 1,
+        /* tsih */ 0,
     );
-    let login_state: LoginStates = start_plain();
+    let login_state: LoginStates = match cfg.login.auth {
+        AuthConfig::Chap(_) => start_chap(),
+        AuthConfig::None => start_plain(),
+    };
     let login_status = run_login(login_state, &mut lctx).await?;
 
     let cmd_sn = AtomicU32::new(login_status.exp_cmd_sn);
