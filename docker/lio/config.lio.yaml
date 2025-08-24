@@ -1,0 +1,44 @@
+login:
+  # 1) Security Negotiation
+  security:
+    session_type: "Normal" # SessionType
+    portal_group_tag: 1 # TargetPortalGroupTag
+
+    initiator_name: "iqn.2004-10.com.ubuntu:01:c676ed18968f" # InitiatorName
+    initiator_alias: "ubuntu" # InitiatorAlias
+
+    target_name: "iqn.2024-01.com.example:disk0" # TargetName
+    target_alias: "iscsi-target-vm" # TargetAlias
+    target_address: "127.0.0.1:3261" # TargetAddress
+
+  auth:
+    method: "none"
+
+  # 2) Operational Parameter Negotiation
+  negotiation:
+    version_max: 0 # VersionMax
+    version_min: 0 # VersionMin
+    header_digest: "None" # HeaderDigest ("None" или "CRC32C")
+    data_digest: "None" # DataDigest
+
+    # Performance-related
+    max_recv_data_segment_length: 262144 # MaxRecvDataSegmentLength
+    max_burst_length: 16776192 # MaxBurstLength
+    first_burst_length: 262144 # FirstBurstLength
+
+    data_pdu_in_order: "Yes" # DataPDUInOrder ("Yes"/"No")
+    data_sequence_in_order: "Yes" # DataSequenceInOrder ("Yes"/"No")
+    error_recovery_level: 1 # ErrorRecoveryLevel (0–2)
+
+extra_data:
+  markers:
+    IFMarker: "No" # IFMarker=No\x00
+    OFMarker: "No" # OFMarker=No\x00
+  r2t:
+    initial_r2t: "No" # InitialR2T=No\x00
+    immediate_data: "No" # ImmediateData=Yes\x00
+    max_outstanding_r2t: 1 # MaxOutstandingR2T=1\x00
+    default_time2wait: 2 # DefaultTime2Wait (секунды)
+    default_time2retain: 0 # DefaultTime2Retain (секунды)
+  connections:
+    max_connections: 1 # MaxConnections=1\x00

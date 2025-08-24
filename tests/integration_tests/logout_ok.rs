@@ -26,13 +26,8 @@ async fn logout_close_session() -> Result<()> {
     let conn = connect_cfg(&cfg).await?;
 
     let isid = test_isid();
-    let mut lctx = LoginCtx::new(
-        conn.clone(),
-        &cfg,
-        isid,
-        /* cid= */ 1,
-        /* tsih= */ 2,
-    );
+    let cid = 1u16;
+    let mut lctx = LoginCtx::new(conn.clone(), &cfg, isid, cid, /* tsih= */ 2);
 
     let login_state: LoginStates = match cfg.login.auth {
         AuthConfig::Chap(_) => start_chap(),
@@ -44,7 +39,6 @@ async fn logout_close_session() -> Result<()> {
     let exp_stat_sn = AtomicU32::new(login_status.stat_sn.wrapping_add(1));
     let itt = AtomicU32::new(login_status.itt.wrapping_add(1));
 
-    let cid = 0u16;
     let reason = LogoutReason::CloseSession;
 
     let mut loctx =

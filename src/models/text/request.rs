@@ -32,7 +32,7 @@ pub struct TextRequest {
     /// Bytes 8..15
     pub lun: U64<BigEndian>,
     /// Bytes 16..19
-    pub initiator_task_tag: U32<BigEndian>,
+    pub initiator_task_tag: u32,
     /// Bytes 20..23
     pub target_task_tag: U32<BigEndian>,
     /// Bytes 24..27
@@ -134,7 +134,7 @@ impl TextRequestBuilder {
 
     /// Sets the initiator task tag, a unique identifier for this command.
     pub fn initiator_task_tag(mut self, tag: u32) -> Self {
-        self.header.initiator_task_tag.set(tag);
+        self.header.initiator_task_tag = tag;
         self
     }
 
@@ -208,7 +208,7 @@ impl BasicHeaderSegment for TextRequest {
 
     #[inline]
     fn get_initiator_task_tag(&self) -> u32 {
-        self.initiator_task_tag.get()
+        self.initiator_task_tag
     }
 
     #[inline]

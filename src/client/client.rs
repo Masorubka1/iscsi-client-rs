@@ -4,7 +4,7 @@
 use std::{
     any::type_name,
     fmt::{self, Debug},
-    sync::Arc,
+    sync::{Arc, atomic::AtomicU32},
 };
 
 use anyhow::{Result, anyhow};
@@ -28,8 +28,10 @@ use crate::{
     models::{
         common::{BasicHeaderSegment, HEADER_LEN, SendingData},
         data_fromat::{PDUWithData, ZeroCopyType},
+        nop::response::NopInResponse,
         parse::Pdu,
     },
+    state_machine::nop_states::{NopCtx, NopStates, Reply, run_nop},
 };
 
 /// A simple iSCSI connection wrapper over a TCP stream.
@@ -43,6 +45,14 @@ pub struct ClientConnection {
     pub cfg: Config,
     sending: DashMap<u32, mpsc::Sender<RawPdu>>,
     reciver: DashMap<u32, mpsc::Receiver<RawPdu>>,
+    pub counters: Counters,
+}
+
+#[derive(Debug, Default)]
+pub struct Counters {
+    pub itt: AtomicU32,
+    pub cmd_sn: AtomicU32,
+    pub exp_stat_sn: AtomicU32,
 }
 
 impl ClientConnection {
@@ -76,6 +86,7 @@ impl ClientConnection {
             cfg,
             sending: DashMap::new(),
             reciver: DashMap::new(),
+            counters: Counters::default(),
         })
     }
 
@@ -85,7 +96,7 @@ impl ClientConnection {
         mut req: impl ToBytes<Header = Vec<u8>> + fmt::Debug,
     ) -> Result<()> {
         let mut w = self.writer.lock().await;
-        let (mut out_header, out_data) = req.to_bytes(
+        let (out_header, out_data) = req.to_bytes(
             self.cfg.login.negotiation.max_recv_data_segment_length as usize,
             self.cfg
                 .login
@@ -104,11 +115,8 @@ impl ClientConnection {
             out_header.len(),
             out_data.len()
         );
-        if out_data.is_empty() || self.cfg.extra_data.r2t.immediate_data == "Yes" {
-            out_header.extend_from_slice(&out_data);
-            io_with_timeout("write header and data", w.write_all(&out_header)).await?;
-        } else {
-            io_with_timeout("write header", w.write_all(&out_header)).await?;
+        io_with_timeout("write header", w.write_all(&out_header)).await?;
+        if !out_data.is_empty() {
             io_with_timeout("write data", w.write_all(&out_data)).await?;
         }
         Ok(())
@@ -259,10 +267,53 @@ impl ClientConnection {
                     self.sending.insert(itt, tx);
                 }
             } else {
+                if self.try_handle_unsolicited_nop_in(hdr).await {
+                    continue;
+                }
                 warn!(
                     "Failed attempt to write to unexisted sender channel with itt {itt}"
                 );
             }
         }
+    }
+
+    async fn try_handle_unsolicited_nop_in(
+        self: &Arc<Self>,
+        hdr: [u8; HEADER_LEN],
+    ) -> bool {
+        let mut hdr_copy = hdr;
+        let nop_in = match NopInResponse::from_bhs_bytes(&mut hdr_copy) {
+            Ok(n) => n,
+            Err(_) => return false,
+        };
+
+        let ttt = nop_in.target_task_tag.get();
+        let lun = nop_in.lun.get();
+        let stat_sn_in = nop_in.stat_sn.get();
+        let exp_cmd_in = nop_in.exp_cmd_sn.get();
+
+        if ttt == 0xffff_ffff {
+            debug!("NOP-In (TTT=0xffffffff): reply not required");
+            return true;
+        }
+        let conn = Arc::clone(self);
+        tokio::spawn(async move {
+            let mut ctx = NopCtx::for_reply(
+                conn.clone(),
+                lun,
+                &conn.counters.itt,
+                &conn.counters.cmd_sn,
+                &conn.counters.exp_stat_sn,
+                ttt,
+                exp_cmd_in,
+                stat_sn_in,
+            );
+            if let Err(e) = run_nop(NopStates::Reply(Reply), &mut ctx).await {
+                tracing::warn!("NOP-In auto-reply failed: {e}");
+            } else {
+                tracing::debug!("NOP-In auto-replied (TTT=0x{ttt:08x})");
+            }
+        });
+        true
     }
 }

@@ -254,7 +254,7 @@ A high-level plan, trimmed for GitHub readability. We track delivery as **Now â†
   * [ ] Back-pressure & graceful shutdown
 * **Testing & CI**
 
-  * [ ] Multi-target matrix: **tgt**, **LIO/targetcli**, **SCST**
+  * [x] Multi-target matrix: **tgt**, **LIO/targetcli**, **SCST**
   * [x] Byte-exact fixtures for each login hop
   * [ ] Fuzzing (cargo-fuzz / proptest) for PDUs & text keys
 

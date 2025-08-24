@@ -253,9 +253,9 @@ impl TryFrom<RawDataInFlags> for DataInFlags {
 // ---------- RawDataOutFlags ----------
 impl fmt::Debug for RawDataOutFlags {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "RawDataOutFlags {{ raw: 0b{:08b}", self.raw())?;
+        write!(f, "RawDataOutFlags {{ ")?;
         if self.fin() {
-            write!(f, ", FIN")?;
+            write!(f, "FIN")?;
         }
         write!(f, " }}")
     }
@@ -266,32 +266,32 @@ impl fmt::Debug for RawDataInFlags {
         let raw = self.raw();
         let reserved_bits = (raw & Self::RESERVED_MASK) >> 3;
 
-        write!(f, "RawDataInFlags {{ raw: 0b{:08b}", raw)?;
+        write!(f, "RawDataInFlags {{ ")?;
 
         if self.fin() {
-            write!(f, ", FIN")?;
+            write!(f, "FIN|")?;
         }
         if self.ack() {
-            write!(f, ", A")?;
+            write!(f, "A|")?;
         }
         if self.o() {
-            write!(f, ", O")?;
+            write!(f, "O|")?;
         }
         if self.u() {
-            write!(f, ", U")?;
+            write!(f, "U|")?;
         }
         if self.s() {
-            write!(f, ", S")?;
+            write!(f, "S|")?;
         }
 
         if reserved_bits != 0 {
-            write!(f, ", reserved_bits=0b{:03b}", reserved_bits)?;
+            write!(f, "reserved_bits=0b{:03b}|", reserved_bits)?;
         }
         if self.u() && self.o() {
-            write!(f, ", INVALID:U&O")?;
+            write!(f, "INVALID:U&O|")?;
         }
         if self.s() && !self.fin() {
-            write!(f, ", INVALID:S_without_F")?;
+            write!(f, "INVALID:S_without_F|")?;
         }
 
         write!(f, " }}")

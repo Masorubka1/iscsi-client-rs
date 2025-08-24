@@ -30,14 +30,14 @@ pub struct ScsiDataIn {
     pub data_segment_length: [u8; 3],  // 5..7
     pub lun: U64<BigEndian>,           /* 8..15  (LUN or reserved; if A=1 must
                                         * present) */
-    pub initiator_task_tag: U32<BigEndian>, // 16..19
+    pub initiator_task_tag: u32,             // 16..19
     pub target_transfer_tag: U32<BigEndian>, // 20..23 (TTT or 0xffffffff)
-    pub stat_sn_or_rsvd: U32<BigEndian>,    // 24..27 (StatSN, if S=1; else 0)
-    pub exp_cmd_sn: U32<BigEndian>,         // 28..31
-    pub max_cmd_sn: U32<BigEndian>,         // 32..35
-    pub data_sn: U32<BigEndian>,            // 36..39
-    pub buffer_offset: U32<BigEndian>,      // 40..43
-    pub residual_count: U32<BigEndian>,     // 44..47 (valid only if S=1; else 0)
+    pub stat_sn_or_rsvd: U32<BigEndian>,     // 24..27 (StatSN, if S=1; else 0)
+    pub exp_cmd_sn: U32<BigEndian>,          // 28..31
+    pub max_cmd_sn: U32<BigEndian>,          // 32..35
+    pub data_sn: U32<BigEndian>,             // 36..39
+    pub buffer_offset: U32<BigEndian>,       // 40..43
+    pub residual_count: U32<BigEndian>,      // 44..47 (valid only if S=1; else 0)
 }
 
 impl ScsiDataIn {
@@ -127,7 +127,7 @@ impl SendingData for ScsiDataIn {
         // Keep your previous semantics: final only when F=1 and either S not set,
         // or status is Good.
         debug!(
-            "TUT~ {} {}",
+            "DataIn is finnal:{} status:{}",
             self.flags.fin(),
             !matches!(self.scsi_status(), None | Some(ScsiStatus::Good))
         );
@@ -169,7 +169,7 @@ impl BasicHeaderSegment for ScsiDataIn {
 
     #[inline]
     fn get_initiator_task_tag(&self) -> u32 {
-        self.initiator_task_tag.get()
+        self.initiator_task_tag
     }
 
     #[inline]

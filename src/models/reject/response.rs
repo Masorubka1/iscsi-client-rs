@@ -21,20 +21,20 @@ use crate::{
 #[repr(C)]
 #[derive(Debug, Default, PartialEq, ZFromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct RejectPdu {
-    pub opcode: RawBhsOpcode,               // 0
-    reserved1: u8,                          // 1
-    pub reason: RawRejectReason,            // 2
-    pub reserved2: u8,                      // 3
-    pub total_ahs_length: u8,               // 4
-    pub data_segment_length: [u8; 3],       // 5..8
-    pub reserved3: U64<BigEndian>,          // 8..16
-    pub initiator_task_tag: U32<BigEndian>, // 16..20
-    pub reserved4: U32<BigEndian>,          // 20..24
-    pub stat_sn: U32<BigEndian>,            // 24..28
-    pub exp_cmd_sn: U32<BigEndian>,         // 28..32
-    pub max_cmd_sn: U32<BigEndian>,         // 32..36
-    pub data_sn_or_r2_sn: U32<BigEndian>,   // 36..40
-    pub reserved5: U64<BigEndian>,          // 40..48
+    pub opcode: RawBhsOpcode,             // 0
+    reserved1: u8,                        // 1
+    pub reason: RawRejectReason,          // 2
+    pub reserved2: u8,                    // 3
+    pub total_ahs_length: u8,             // 4
+    pub data_segment_length: [u8; 3],     // 5..8
+    pub reserved3: U64<BigEndian>,        // 8..16
+    pub initiator_task_tag: u32,          // 16..20
+    pub reserved4: U32<BigEndian>,        // 20..24
+    pub stat_sn: U32<BigEndian>,          // 24..28
+    pub exp_cmd_sn: U32<BigEndian>,       // 28..32
+    pub max_cmd_sn: U32<BigEndian>,       // 32..36
+    pub data_sn_or_r2_sn: U32<BigEndian>, // 36..40
+    pub reserved5: U64<BigEndian>,        // 40..48
 }
 
 impl RejectPdu {
@@ -96,7 +96,7 @@ impl BasicHeaderSegment for RejectPdu {
 
     #[inline]
     fn get_initiator_task_tag(&self) -> u32 {
-        self.initiator_task_tag.get()
+        self.initiator_task_tag
     }
 
     #[inline]

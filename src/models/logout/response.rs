@@ -21,22 +21,22 @@ use crate::{
 #[repr(C)]
 #[derive(Debug, Default, PartialEq, ZFromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct LogoutResponse {
-    pub opcode: RawBhsOpcode,               // byte 0: 0x26
-    pub flags: u8,                          // byte 1: F-bit at bit7, others reserved
-    pub response: RawLogoutResponseCode,    // byte 2: response code
-    reserved0: u8,                          // byte 3: reserved
-    pub total_ahs_length: u8,               // byte 4: must be 0
-    pub data_segment_length: [u8; 3],       // bytes 5..8: must be [0,0,0]
-    reserved1: [u8; 8],                     // bytes 8..16: reserved
-    pub initiator_task_tag: U32<BigEndian>, // bytes 16..20: ITT
-    reserved2: [u8; 4],                     // bytes 20..24: reserved
-    pub stat_sn: U32<BigEndian>,            // bytes 24..28
-    pub exp_cmd_sn: U32<BigEndian>,         // bytes 28..32
-    pub max_cmd_sn: U32<BigEndian>,         // bytes 32..36
-    reserved3: [u8; 4],                     // bytes 36..40: reserved
-    pub time2wait: U16<BigEndian>,          // bytes 40..42
-    pub time2retain: U16<BigEndian>,        // bytes 42..44
-    reserved4: [u8; 4],                     // bytes 44..48: reserved
+    pub opcode: RawBhsOpcode,            // byte 0: 0x26
+    pub flags: u8,                       // byte 1: F-bit at bit7, others reserved
+    pub response: RawLogoutResponseCode, // byte 2: response code
+    reserved0: u8,                       // byte 3: reserved
+    pub total_ahs_length: u8,            // byte 4: must be 0
+    pub data_segment_length: [u8; 3],    // bytes 5..8: must be [0,0,0]
+    reserved1: [u8; 8],                  // bytes 8..16: reserved
+    pub initiator_task_tag: u32,         // bytes 16..20: ITT
+    reserved2: [u8; 4],                  // bytes 20..24: reserved
+    pub stat_sn: U32<BigEndian>,         // bytes 24..28
+    pub exp_cmd_sn: U32<BigEndian>,      // bytes 28..32
+    pub max_cmd_sn: U32<BigEndian>,      // bytes 32..36
+    reserved3: [u8; 4],                  // bytes 36..40: reserved
+    pub time2wait: U16<BigEndian>,       // bytes 40..42
+    pub time2retain: U16<BigEndian>,     // bytes 42..44
+    reserved4: [u8; 4],                  // bytes 44..48: reserved
 }
 
 impl LogoutResponse {
@@ -110,7 +110,7 @@ impl BasicHeaderSegment for LogoutResponse {
 
     #[inline]
     fn get_initiator_task_tag(&self) -> u32 {
-        self.initiator_task_tag.get()
+        self.initiator_task_tag
     }
 
     #[inline]

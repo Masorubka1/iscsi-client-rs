@@ -9,7 +9,7 @@ use std::{
     },
 };
 
-use anyhow::{Result, bail};
+use anyhow::{Result, anyhow, bail};
 
 use crate::{
     client::client::ClientConnection,
@@ -33,6 +33,8 @@ pub struct NopCtx<'a> {
     pub exp_stat_sn: &'a AtomicU32,
     pub ttt: u32,
     pub buf: [u8; HEADER_LEN],
+
+    pub reply_from_in: Option<(u32, u32)>,
 }
 
 #[derive(Debug, Clone)]
@@ -59,7 +61,24 @@ impl<'a> NopCtx<'a> {
             exp_stat_sn,
             ttt,
             buf: [0u8; HEADER_LEN],
+            reply_from_in: None,
         }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn for_reply(
+        conn: Arc<ClientConnection>,
+        lun: u64,
+        itt: &'a AtomicU32,
+        cmd_sn: &'a AtomicU32,
+        exp_stat_sn: &'a AtomicU32,
+        ttt: u32,
+        exp_cmd_sn_from_in: u32,
+        stat_sn_from_in: u32,
+    ) -> Self {
+        let mut s = Self::new(conn, lun, itt, cmd_sn, exp_stat_sn, ttt);
+        s.reply_from_in = Some((exp_cmd_sn_from_in, stat_sn_from_in));
+        s
     }
 
     async fn send_nop_out(&mut self) -> Result<NopStatus> {
@@ -109,10 +128,12 @@ pub struct Idle;
 pub struct Wait {
     pending: NopStatus,
 }
+pub struct Reply;
 
 pub enum NopStates {
     Idle(Idle),
     Wait(Wait),
+    Reply(Reply),
 }
 
 type NopStepOut = Transition<NopStates, Result<NopStatus>>;
@@ -156,11 +177,76 @@ impl<'ctx> StateMachine<NopCtx<'ctx>, NopStepOut> for Wait {
     }
 }
 
+impl<'ctx> StateMachine<NopCtx<'ctx>, Transition<NopStates, Result<NopStatus>>>
+    for Reply
+{
+    type StepResult<'a>
+        = Pin<
+        Box<dyn Future<Output = Transition<NopStates, Result<NopStatus>>> + Send + 'a>,
+    >
+    where
+        Self: 'a,
+        NopCtx<'ctx>: 'a;
+
+    fn step<'a>(&'a mut self, ctx: &'a mut NopCtx<'ctx>) -> Self::StepResult<'a> {
+        Box::pin(async move {
+            let (exp_cmd_from_in, stat_sn_from_in) = match ctx.reply_from_in {
+                Some(v) => v,
+                None => {
+                    return Transition::Done(Err(anyhow!(
+                        "Reply state requires reply_from_in"
+                    )));
+                },
+            };
+
+            // immediate: CmdSN берём ИЗ NOP-In (exp_cmd_sn), не инкрементим общий cmd_sn
+            // ExpStatSN = max(cur, stat_sn_from_in + 1) — чтобы не откатываться при
+            // гонках
+            let want_exp_stat = stat_sn_from_in.wrapping_add(1);
+            let _ =
+                ctx.exp_stat_sn
+                    .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |cur| {
+                        Some(cur.max(want_exp_stat))
+                    });
+            let exp_stat_to_send = ctx.exp_stat_sn.load(Ordering::SeqCst);
+
+            // ITT для ответа на NOP-In = 0xFFFF_FFFF (спецификация)
+            // TTT — копируем из пришедшего NOP-In (уже лежит в ctx.ttt)
+            let hdr = NopOutRequestBuilder::new()
+                .immediate()
+                .lun(ctx.lun)
+                .initiator_task_tag(u32::MAX)
+                .target_task_tag(ctx.ttt)
+                .cmd_sn(exp_cmd_from_in)
+                .exp_stat_sn(exp_stat_to_send)
+                .header;
+
+            if let Err(e) = hdr.to_bhs_bytes(ctx.buf.as_mut_slice()) {
+                return Transition::Done(Err(e));
+            }
+            let pdu: PDUWithData<NopOutRequest> = PDUWithData::from_header_slice(ctx.buf);
+
+            // Response — fire-and-forget
+            if let Err(e) = ctx.conn.send_segment(pdu).await {
+                return Transition::Done(Err(e));
+            }
+
+            let st = NopStatus {
+                itt: u32::MAX,
+                cmd_sn: exp_cmd_from_in,
+                exp_stat_sn: exp_stat_to_send,
+            };
+            Transition::Done(Ok(st))
+        })
+    }
+}
+
 pub async fn run_nop(mut state: NopStates, ctx: &mut NopCtx<'_>) -> Result<NopStatus> {
     loop {
         let trans = match &mut state {
             NopStates::Idle(s) => s.step(ctx).await,
             NopStates::Wait(s) => s.step(ctx).await,
+            NopStates::Reply(s) => s.step(ctx).await,
         };
 
         match trans {

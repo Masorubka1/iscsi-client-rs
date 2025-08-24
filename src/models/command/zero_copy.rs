@@ -417,26 +417,24 @@ impl From<ScsiStatus> for RawScsiStatus {
 // ---------- RawTaskAttribute ----------
 impl fmt::Debug for RawTaskAttribute {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("RawTaskAttribute")
-            .field("decoded", &self.decode())
-            .finish()
+        write!(f, "RawTaskAttribute {{ {:?} }}", self.decode())
     }
 }
 
 // ---------- RawScsiCmdReqFlags ----------
 impl fmt::Debug for RawScsiCmdReqFlags {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut tmp = f.debug_struct("RawScsiCmdReqFlags");
+        write!(f, "RawScsiCmdReqFlags {{ ")?;
         if self.fin() {
-            tmp.field("FIN", &self.fin());
+            write!(f, "FIN|")?;
         }
         if self.read() {
-            tmp.field("READ", &self.read());
+            write!(f, "READ|")?;
         }
         if self.write() {
-            tmp.field("WRITE", &self.write());
+            write!(f, "WRITE|")?;
         }
-        tmp.field("ATTR", &self.task_attr()).finish()
+        write!(f, "ATTR={:?} }}", self.task_attr())
     }
 }
 
@@ -444,24 +442,23 @@ impl fmt::Debug for RawScsiCmdReqFlags {
 impl fmt::Debug for RawScsiCmdRespFlags {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let valid = self.validate().is_ok();
-
-        let mut tmp = f.debug_struct("RawScsiCmdRespFlags");
+        write!(f, "RawScsiCmdRespFlags {{ ")?;
         if self.fin() {
-            tmp.field("FIN", &self.fin());
+            write!(f, "FIN|")?;
         }
         if self.o_small() {
-            tmp.field("O_SMALL", &self.o_small());
+            write!(f, "O_SMALL|")?;
         }
         if self.u_small() {
-            tmp.field("U_SMALL", &self.u_small());
+            write!(f, "U_SMALL|")?;
         }
         if self.u_small() {
-            tmp.field("O_BIG", &self.o_big());
+            write!(f, "O_BIG|")?;
         }
         if self.u_small() {
-            tmp.field("U_BIG", &self.u_big());
+            write!(f, "U_BIG|")?;
         }
-        tmp.field("valid", &valid).finish()
+        write!(f, "valid{} }}", &valid)
     }
 }
 
@@ -486,8 +483,6 @@ impl fmt::Debug for RawScsiStatus {
             Err(_e) => format!("invalid(0x{:02X})", self.raw()),
         };
 
-        f.debug_struct("RawScsiStatus")
-            .field("decoded", &decoded)
-            .finish()
+        write!(f, "RawScsiStatus {{ {:?} }}", decoded)
     }
 }

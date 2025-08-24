@@ -20,16 +20,16 @@ use crate::{
 #[repr(C)]
 #[derive(Debug, Default, PartialEq, ZFromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct NopOutRequest {
-    pub opcode: RawBhsOpcode,               // 0
-    reserved1: [u8; 3],                     // 1..4
-    pub total_ahs_length: u8,               // 4
-    pub data_segment_length: [u8; 3],       // 5..8
-    pub lun: U64<BigEndian>,                // 8..16
-    pub initiator_task_tag: U32<BigEndian>, // 16..20
-    pub target_task_tag: U32<BigEndian>,    // 20..24
-    pub cmd_sn: U32<BigEndian>,             // 24..28
-    pub exp_stat_sn: U32<BigEndian>,        // 28..32
-    reserved2: [u8; 16],                    // 32..48
+    pub opcode: RawBhsOpcode,            // 0
+    reserved1: [u8; 3],                  // 1..4
+    pub total_ahs_length: u8,            // 4
+    pub data_segment_length: [u8; 3],    // 5..8
+    pub lun: U64<BigEndian>,             // 8..16
+    pub initiator_task_tag: u32,         // 16..20
+    pub target_task_tag: U32<BigEndian>, // 20..24
+    pub cmd_sn: U32<BigEndian>,          // 24..28
+    pub exp_stat_sn: U32<BigEndian>,     // 28..32
+    reserved2: [u8; 16],                 // 32..48
 }
 
 impl NopOutRequest {
@@ -136,7 +136,7 @@ impl NopOutRequestBuilder {
 
     /// Sets the initiator task tag, a unique identifier for this command.
     pub fn initiator_task_tag(mut self, tag: u32) -> Self {
-        self.header.initiator_task_tag.set(tag);
+        self.header.initiator_task_tag = tag;
         self
     }
 
@@ -202,7 +202,7 @@ impl BasicHeaderSegment for NopOutRequest {
 
     #[inline]
     fn get_initiator_task_tag(&self) -> u32 {
-        self.initiator_task_tag.get()
+        self.initiator_task_tag
     }
 
     #[inline]

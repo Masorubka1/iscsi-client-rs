@@ -26,7 +26,7 @@ pub struct ScsiCommandRequest {
     pub total_ahs_length: u8,                          // 4
     pub data_segment_length: [u8; 3],                  // 5..8
     pub lun: U64<BigEndian>,                           // 8..16
-    pub initiator_task_tag: U32<BigEndian>,            // 16..20
+    pub initiator_task_tag: u32,                       // 16..20
     pub expected_data_transfer_length: U32<BigEndian>, // 20..24
     pub cmd_sn: U32<BigEndian>,                        // 24..28
     pub exp_stat_sn: U32<BigEndian>,                   // 28..32
@@ -140,7 +140,7 @@ impl ScsiCommandRequestBuilder {
 
     /// Sets the initiator task tag, a unique identifier for this command.
     pub fn initiator_task_tag(mut self, tag: u32) -> Self {
-        self.header.initiator_task_tag.set(tag);
+        self.header.initiator_task_tag = tag;
         self
     }
 
@@ -215,7 +215,7 @@ impl BasicHeaderSegment for ScsiCommandRequest {
     }
 
     fn get_initiator_task_tag(&self) -> u32 {
-        self.initiator_task_tag.get()
+        self.initiator_task_tag
     }
 
     #[inline]

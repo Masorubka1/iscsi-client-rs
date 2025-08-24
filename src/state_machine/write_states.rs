@@ -41,8 +41,6 @@ pub struct WriteCtx<'a> {
     pub cmd_sn: &'a AtomicU32,
     pub exp_stat_sn: &'a AtomicU32,
 
-    pub initial_r2t: bool,
-
     pub cdb: [u8; 16],
     pub payload: Vec<u8>,
     pub buf: [u8; HEADER_LEN],
@@ -75,7 +73,6 @@ impl<'a> WriteCtx<'a> {
             itt,
             cmd_sn,
             exp_stat_sn,
-            initial_r2t: false,
             cdb,
             payload: payload.into(),
             buf: [0u8; HEADER_LEN],
@@ -153,14 +150,20 @@ impl<'a> WriteCtx<'a> {
         if mrdsl == 0 {
             bail!("MRDSL is zero");
         }
-        let max_burst = self.cfg.login.negotiation.max_burst_length as usize;
-        let to_send_total = len.min(max_burst);
+        let to_send_total = if ttt == ScsiDataOutBuilder::DEFAULT_TTT {
+            // unsolicited burst (первый) — ограничение FirstBurst/MaxBurst обеспечь в
+            // вызывающем коде
+            len
+        } else {
+            // R2T — отправляем ровно окно, без дополнительного min()
+            len
+        };
 
         let mut sent = 0usize;
         while sent < to_send_total {
             let take = (to_send_total - sent).min(mrdsl);
             let off = offset + sent;
-            let last = sent + take == to_send_total;
+            let last_chunk_in_window = sent + take == to_send_total;
 
             let header = ScsiDataOutBuilder::new()
                 .lun(self.lun)
@@ -183,7 +186,7 @@ impl<'a> WriteCtx<'a> {
             let header = pdu.header_view_mut()?;
 
             header.set_data_length_bytes(take as u32);
-            if last {
+            if last_chunk_in_window {
                 header.set_final_bit();
             } else {
                 header.set_continue_bit();
@@ -261,8 +264,39 @@ impl<'ctx> StateMachine<WriteCtx<'ctx>, WriteStep> for IssueCmd {
     fn step<'a>(&'a mut self, ctx: &'a mut WriteCtx<'ctx>) -> Self::StepResult<'a> {
         Box::pin(async move {
             match ctx.send_write_command().await {
-                Ok(st) => {
-                    if st.total_bytes == 0 {
+                Ok(st0) => {
+                    let mut st = st0;
+
+                    let allow_unsolicited = ctx
+                        .cfg
+                        .extra_data
+                        .r2t
+                        .immediate_data
+                        .eq_ignore_ascii_case("Yes")
+                        && ctx
+                            .cfg
+                            .extra_data
+                            .r2t
+                            .initial_r2t
+                            .eq_ignore_ascii_case("No");
+
+                    if st.total_bytes > 0 && allow_unsolicited {
+                        let first = st
+                            .total_bytes
+                            .min(ctx.cfg.login.negotiation.first_burst_length as usize);
+                        if first > 0 {
+                            // Unsolicited Data-Out: TTT = 0xFFFF_FFFF, offset=0
+                            match ctx.send_data(st.itt, 0, 0xFFFF_FFFF, 0, first).await {
+                                Ok((sent, next_sn)) => {
+                                    st.next_data_sn = next_sn;
+                                    st.sent_bytes += sent;
+                                },
+                                Err(e) => return Transition::Done(Err(e)),
+                            }
+                        }
+                    }
+
+                    if st.sent_bytes >= st.total_bytes {
                         Transition::Next(
                             WriteStates::WaitResp(WaitResp { st: st.clone() }),
                             Ok(st),
@@ -359,13 +393,7 @@ impl<'ctx> StateMachine<WriteCtx<'ctx>, WriteStep> for SendWindow {
             // ScsiDataOutBuilder will split into MRDSL-sized PDUs and
             // set F/DataSN/BufferOffset per-chunk.
             let (sent, next_sn) = match ctx
-                .send_data(
-                    self.st.itt,
-                    self.st.next_data_sn,
-                    self.ttt,
-                    self.offset,
-                    self.len,
-                )
+                .send_data(self.st.itt, 0, self.ttt, self.offset, self.len)
                 .await
             {
                 Ok(x) => x,

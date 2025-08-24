@@ -26,7 +26,7 @@ pub struct ScsiDataOut {
     pub total_ahs_length: u8,                // 4
     pub data_segment_length: [u8; 3],        // 5..8
     pub lun: U64<BigEndian>,                 // 8..16
-    pub initiator_task_tag: U32<BigEndian>,  // 16..20
+    pub initiator_task_tag: u32,             // 16..20
     pub target_transfer_tag: U32<BigEndian>, // 20..23
     pub exp_stat_sn: U32<BigEndian>,         // 24..28
     pub reserved3: [u8; 8],                  // 28..36
@@ -46,11 +46,11 @@ impl ScsiDataOut {
     }
 
     pub fn from_bhs_bytes(buf: &mut [u8]) -> Result<&mut Self> {
-        let hdr = <Self as zerocopy::FromBytes>::mut_from_bytes(buf)
-            .map_err(|e| anyhow::anyhow!("failed convert buffer LoginRequest: {e}"))?;
-        if hdr.opcode.opcode_known() != Some(Opcode::LoginReq) {
+        let hdr = Self::mut_from_bytes(buf)
+            .map_err(|e| anyhow::anyhow!("failed convert buffer ScsiDataOut: {e}"))?;
+        if hdr.opcode.opcode_known() != Some(Opcode::ScsiDataOut) {
             anyhow::bail!(
-                "LoginRequest: invalid opcode 0x{:02x}",
+                "ScsiDataOut: invalid opcode 0x{:02x}",
                 hdr.opcode.opcode_raw()
             );
         }
@@ -94,7 +94,7 @@ impl BasicHeaderSegment for ScsiDataOut {
     }
 
     fn get_initiator_task_tag(&self) -> u32 {
-        self.initiator_task_tag.get()
+        self.initiator_task_tag
     }
 
     #[inline]
@@ -181,7 +181,7 @@ impl ScsiDataOutBuilder {
 
     /// Set Initiator Task Tag (ITT) identifying this stream.
     pub fn initiator_task_tag(mut self, itt: u32) -> Self {
-        self.header.initiator_task_tag.set(itt);
+        self.header.initiator_task_tag = itt;
         self
     }
 

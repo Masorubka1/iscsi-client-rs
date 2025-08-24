@@ -263,7 +263,7 @@ fn chap_step2_chap_a() -> Result<()> {
     let s2_hdr = LoginRequestBuilder::new(ISID, r1_header.tsih.get())
         .csg(Stage::Security)
         .nsg(Stage::Security)
-        .initiator_task_tag(r1_header.initiator_task_tag.get())
+        .initiator_task_tag(r1_header.initiator_task_tag)
         .connection_id(1)
         .cmd_sn(r1_header.exp_cmd_sn.get())
         .exp_stat_sn(r1_header.exp_cmd_sn.get().wrapping_add(1));
@@ -306,7 +306,7 @@ fn chap_step3_chap_response() -> Result<()> {
         .transit()
         .csg(Stage::Security)
         .nsg(Stage::Operational)
-        .initiator_task_tag(r2_header.initiator_task_tag.get())
+        .initiator_task_tag(r2_header.initiator_task_tag)
         .connection_id(1)
         .cmd_sn(r2_header.exp_cmd_sn.get())
         .exp_stat_sn(r2_header.stat_sn.get().wrapping_add(1));

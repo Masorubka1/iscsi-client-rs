@@ -114,7 +114,9 @@ async fn login_tur_report_luns() -> Result<()> {
     );
 
     let entries = lun_list_len / 8;
-    assert!(entries == 2);
+    println!("lun_list_len {lun_list_len:?}");
+    // FOR lio entries == 1; for tgt entries == 2
+    assert!(entries == 2 || entries == 1);
 
     Ok(())
 }

@@ -28,7 +28,7 @@ pub struct ScsiCommandResponse {
     pub total_ahs_length: u8,                              // 4
     pub data_segment_length: [u8; 3],                      // 5..8
     reserved: [u8; 8],                                     // 8..16
-    pub initiator_task_tag: U32<BigEndian>,                // 16..20
+    pub initiator_task_tag: u32,                           // 16..20
     pub snack_tag: U32<BigEndian>,                         // 20..24
     pub stat_sn: U32<BigEndian>,                           // 24..28
     pub exp_cmd_sn: U32<BigEndian>,                        // 28..32
@@ -100,7 +100,7 @@ impl BasicHeaderSegment for ScsiCommandResponse {
 
     #[inline]
     fn get_initiator_task_tag(&self) -> u32 {
-        self.initiator_task_tag.get()
+        self.initiator_task_tag
     }
 
     #[inline]

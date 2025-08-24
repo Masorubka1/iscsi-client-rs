@@ -20,20 +20,20 @@ use crate::{
 #[repr(C)]
 #[derive(Debug, Default, PartialEq, ZFromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct LoginRequest {
-    pub opcode: RawBhsOpcode,               // 0
-    pub flags: RawLoginFlags,               // 1
-    pub version_max: u8,                    // 2
-    pub version_min: u8,                    // 3
-    pub total_ahs_length: u8,               // 4
-    pub data_segment_length: [u8; 3],       // 5..8
-    pub isid: [u8; 6],                      // 8..14
-    pub tsih: U16<BigEndian>,               // 14..16
-    pub initiator_task_tag: U32<BigEndian>, // 16..20
-    pub cid: U16<BigEndian>,                // 20..22
-    reserved1: [u8; 2],                     // 22..24
-    pub cmd_sn: U32<BigEndian>,             // 24..28
-    pub exp_stat_sn: U32<BigEndian>,        // 28..32
-    reserved2: [u8; 16],                    // 32..48
+    pub opcode: RawBhsOpcode,         // 0
+    pub flags: RawLoginFlags,         // 1
+    pub version_max: u8,              // 2
+    pub version_min: u8,              // 3
+    pub total_ahs_length: u8,         // 4
+    pub data_segment_length: [u8; 3], // 5..8
+    pub isid: [u8; 6],                // 8..14
+    pub tsih: U16<BigEndian>,         // 14..16
+    pub initiator_task_tag: u32,      // 16..20
+    pub cid: U16<BigEndian>,          // 20..22
+    reserved1: [u8; 2],               // 22..24
+    pub cmd_sn: U32<BigEndian>,       // 24..28
+    pub exp_stat_sn: U32<BigEndian>,  // 28..32
+    reserved2: [u8; 16],              // 32..48
 }
 
 impl LoginRequest {
@@ -133,7 +133,7 @@ impl LoginRequestBuilder {
 
     /// Sets the initiator task tag, a unique identifier for this command.
     pub fn initiator_task_tag(mut self, tag: u32) -> Self {
-        self.header.initiator_task_tag.set(tag);
+        self.header.initiator_task_tag = tag;
         self
     }
 
@@ -197,7 +197,7 @@ impl BasicHeaderSegment for LoginRequest {
     }
 
     fn get_initiator_task_tag(&self) -> u32 {
-        self.initiator_task_tag.get()
+        self.initiator_task_tag
     }
 
     fn get_ahs_length_bytes(&self) -> usize {

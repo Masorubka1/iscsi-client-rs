@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
-use std::{
-    sync::atomic::{AtomicU32, Ordering},
-    time::Duration,
-};
+use std::{sync::atomic::Ordering, time::Duration};
 
 use anyhow::{Context, Result};
 use iscsi_client_rs::{
@@ -45,7 +42,11 @@ use tracing::info;
 async fn main() -> Result<()> {
     let _init_logger = init_logger("tests/config_logger.yaml")?;
 
-    let cfg = resolve_config_path("tests/config.yaml")
+    /*let cfg = resolve_config_path("tests/config.yaml")
+    .and_then(Config::load_from_file)
+    .context("failed to resolve or load config")?;*/
+
+    let cfg = resolve_config_path("docker/lio/config.lio.yaml")
         .and_then(Config::load_from_file)
         .context("failed to resolve or load config")?;
 
@@ -55,8 +56,9 @@ async fn main() -> Result<()> {
     let (_isid, _isid_str) = generate_isid();
     info!("{_isid:?} {_isid_str}");
     let isid = [0, 2, 61, 0, 0, 14];
+    let cid = 1;
 
-    let mut lctx = LoginCtx::new(conn.clone(), &cfg, isid, 1, 0);
+    let mut lctx = LoginCtx::new(conn.clone(), &cfg, isid, cid, 0);
 
     let state: LoginStates = match cfg.login.auth {
         AuthConfig::Chap(_) => start_chap(),
@@ -68,23 +70,43 @@ async fn main() -> Result<()> {
     time::sleep(Duration::from_millis(2000)).await;
 
     // seed our three counters:
-    let cmd_sn = AtomicU32::new(login_status.exp_cmd_sn);
-    let exp_stat_sn = AtomicU32::new(login_status.stat_sn.wrapping_add(1));
-    let itt = AtomicU32::new(login_status.itt.wrapping_add(1));
+    conn.counters
+        .cmd_sn
+        .store(login_status.exp_cmd_sn, Ordering::SeqCst);
+    conn.counters
+        .exp_stat_sn
+        .store(login_status.stat_sn.wrapping_add(1), Ordering::SeqCst);
+    conn.counters
+        .itt
+        .store(login_status.itt.wrapping_add(1), Ordering::SeqCst);
+
     let lun = 1u64 << 48;
 
     let ttt = NopOutRequest::DEFAULT_TAG;
     {
-        let mut ctx = NopCtx::new(conn.clone(), lun, &itt, &cmd_sn, &exp_stat_sn, ttt);
+        let mut ctx = NopCtx::new(
+            conn.clone(),
+            lun,
+            &conn.counters.itt,
+            &conn.counters.cmd_sn,
+            &conn.counters.exp_stat_sn,
+            ttt,
+        );
 
-        while itt.load(Ordering::SeqCst) != 2 {
+        while conn.counters.itt.load(Ordering::SeqCst) != 2 {
             run_nop(NopStates::Idle(nop_states::Idle), &mut ctx).await?;
         }
     }
 
     {
         // ---- TEST UNIT READY ----
-        let mut tctx = TurCtx::new(conn.clone(), &itt, &cmd_sn, &exp_stat_sn, lun);
+        let mut tctx = TurCtx::new(
+            conn.clone(),
+            &conn.counters.itt,
+            &conn.counters.cmd_sn,
+            &conn.counters.exp_stat_sn,
+            lun,
+        );
         let _tur_status = run_tur(TurStates::Idle(Idle), &mut tctx).await;
         let _tur_status = run_tur(TurStates::Idle(Idle), &mut tctx).await?;
     }
@@ -115,9 +137,9 @@ async fn main() -> Result<()> {
         let mut rctx_hdr = ReadCtx::new(
             conn.clone(),
             lun_report,
-            &itt,
-            &cmd_sn,
-            &exp_stat_sn,
+            &conn.counters.itt,
+            &conn.counters.cmd_sn,
+            &conn.counters.exp_stat_sn,
             16,
             cdb_hdr,
         );
@@ -142,9 +164,9 @@ async fn main() -> Result<()> {
         let mut rctx_full = ReadCtx::new(
             conn.clone(),
             lun_report,
-            &itt,
-            &cmd_sn,
-            &exp_stat_sn,
+            &conn.counters.itt,
+            &conn.counters.cmd_sn,
+            &conn.counters.exp_stat_sn,
             total_needed as u32,
             cdb_full,
         );
@@ -184,9 +206,9 @@ async fn main() -> Result<()> {
         let mut rc10_ctx = ReadCtx::new(
             conn.clone(),
             lun,
-            &itt,
-            &cmd_sn,
-            &exp_stat_sn,
+            &conn.counters.itt,
+            &conn.counters.cmd_sn,
+            &conn.counters.exp_stat_sn,
             8, // RC(10) returns 8 bytes
             cdb_rc10,
         );
@@ -220,9 +242,9 @@ async fn main() -> Result<()> {
             let mut rc16_ctx = ReadCtx::new(
                 conn.clone(),
                 lun,
-                &itt,
-                &cmd_sn,
-                &exp_stat_sn,
+                &conn.counters.itt,
+                &conn.counters.cmd_sn,
+                &conn.counters.exp_stat_sn,
                 32, // обычно 32 байта
                 cdb_rc16,
             );
@@ -280,9 +302,9 @@ async fn main() -> Result<()> {
         let mut rctx1 = ReadCtx::new(
             conn.clone(),
             lun,
-            &itt,
-            &cmd_sn,
-            &exp_stat_sn,
+            &conn.counters.itt,
+            &conn.counters.cmd_sn,
+            &conn.counters.exp_stat_sn,
             (blk_sz * blocks as usize) as u32,
             cdb_rd1,
         );
@@ -304,9 +326,9 @@ async fn main() -> Result<()> {
             conn.clone(),
             cfg.clone().into(),
             lun,
-            &itt,
-            &cmd_sn,
-            &exp_stat_sn,
+            &conn.counters.itt,
+            &conn.counters.cmd_sn,
+            &conn.counters.exp_stat_sn,
             cdb_wr,
             payload.clone(),
         );
@@ -322,9 +344,9 @@ async fn main() -> Result<()> {
         let mut rctx_bad = ReadCtx::new(
             conn.clone(),
             lun,
-            &itt,
-            &cmd_sn,
-            &exp_stat_sn,
+            &conn.counters.itt,
+            &conn.counters.cmd_sn,
+            &conn.counters.exp_stat_sn,
             16,
             bad_rl_cdb,
         );
@@ -339,9 +361,9 @@ async fn main() -> Result<()> {
         let mut rctx_rs8 = ReadCtx::new(
             conn.clone(),
             lun,
-            &itt,
-            &cmd_sn,
-            &exp_stat_sn,
+            &conn.counters.itt,
+            &conn.counters.cmd_sn,
+            &conn.counters.exp_stat_sn,
             8,
             rs_hdr_cdb,
         );
@@ -358,9 +380,9 @@ async fn main() -> Result<()> {
         let mut rctx_rs_full = ReadCtx::new(
             conn.clone(),
             lun,
-            &itt,
-            &cmd_sn,
-            &exp_stat_sn,
+            &conn.counters.itt,
+            &conn.counters.cmd_sn,
+            &conn.counters.exp_stat_sn,
             total_needed as u32,
             rs_full_cdb,
         );
@@ -381,11 +403,16 @@ async fn main() -> Result<()> {
 
     // LOGOUT — close the whole session
     {
-        let cid = 0u16;
         let reason = LogoutReason::CloseSession;
 
-        let mut lctx =
-            LogoutCtx::new(conn.clone(), &itt, &cmd_sn, &exp_stat_sn, cid, reason);
+        let mut lctx = LogoutCtx::new(
+            conn.clone(),
+            &conn.counters.itt,
+            &conn.counters.cmd_sn,
+            &conn.counters.exp_stat_sn,
+            cid,
+            reason,
+        );
 
         let status =
             run_logout(LogoutStates::Idle(logout_states::Idle), &mut lctx).await?;

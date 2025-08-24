@@ -20,17 +20,17 @@ use crate::{
 #[repr(C)]
 #[derive(Debug, Default, PartialEq, ZFromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct NopInResponse {
-    pub opcode: RawBhsOpcode,               // 0
-    reserved1: [u8; 3],                     // 1..4
-    pub total_ahs_length: u8,               // 4
-    pub data_segment_length: [u8; 3],       // 5..8
-    pub lun: U64<BigEndian>,                // 8..16
-    pub initiator_task_tag: U32<BigEndian>, // 16..20
-    pub target_task_tag: U32<BigEndian>,    // 20..24
-    pub stat_sn: U32<BigEndian>,            // 24..28
-    pub exp_cmd_sn: U32<BigEndian>,         // 28..32
-    pub max_cmd_sn: U32<BigEndian>,         // 32..36
-    reserved2: [u8; 12],                    // 36..48
+    pub opcode: RawBhsOpcode,            // 0
+    reserved1: [u8; 3],                  // 1..4
+    pub total_ahs_length: u8,            // 4
+    pub data_segment_length: [u8; 3],    // 5..8
+    pub lun: U64<BigEndian>,             // 8..16
+    pub initiator_task_tag: u32,         // 16..20
+    pub target_task_tag: U32<BigEndian>, // 20..24
+    pub stat_sn: U32<BigEndian>,         // 24..28
+    pub exp_cmd_sn: U32<BigEndian>,      // 28..32
+    pub max_cmd_sn: U32<BigEndian>,      // 32..36
+    reserved2: [u8; 12],                 // 36..48
 }
 
 impl NopInResponse {
@@ -93,7 +93,7 @@ impl BasicHeaderSegment for NopInResponse {
 
     #[inline]
     fn get_initiator_task_tag(&self) -> u32 {
-        self.initiator_task_tag.get()
+        self.initiator_task_tag
     }
 
     #[inline]

@@ -1,37 +1,65 @@
 services:
+  # --- Userspace TGT ---
   iscsi-target:
+    profiles: ["tgt"]
     build:
-      context: ./docker
+      context: ./docker/tgt
       dockerfile: Dockerfile
     container_name: iscsi-target
-    ports:
-      - "3260:3260/tcp"
     environment:
       TGT_IQN: ${TGT_IQN:-iqn.2025-08.example:disk0}
       TGT_SIZE_MB: ${TGT_SIZE_MB:-1050}
       TGT_LUN: ${TGT_LUN:-1}
       TGT_PGT: ${TGT_PGT:-1}
-
-      # CHAP (optional)
       TGT_CHAP_USER: ${TGT_CHAP_USER:-}
       TGT_CHAP_PASS: ${TGT_CHAP_PASS:-}
-
-      # Mutual‑CHAP
       TGT_MUTUAL_USER: ${TGT_MUTUAL_USER:-}
       TGT_MUTUAL_PASS: ${TGT_MUTUAL_PASS:-}
-
+    ports:
+      - "3260:3260/tcp"
     restart: unless-stopped
-
-    # readiness/health
     healthcheck:
       test: ["CMD", "test", "-S", "/run/tgtd/socket.0"]
       interval: 1s
       timeout: 1s
       retries: 60
       start_period: 2s
-
     tmpfs:
       - /run/tgtd
-
     labels:
       com.iscsi.role: "target"
+
+  # --- Kernel LIO / targetcli ---
+  iscsi-lio:
+    profiles: ["lio"] # можем использовать тот же профиль lio
+    build:
+      context: ./docker/lio
+    container_name: iscsi-lio
+    # Нужен доступ к ядру/устройствам (LIO + LVM)
+    privileged: true
+    network_mode: host # targetd слушает 18700, LIO — 3260
+    volumes:
+      - /sys/kernel/config:/sys/kernel/config
+      - /lib/modules:/lib/modules:ro
+      - /dev:/dev
+      - /etc/target:/etc/target # тут лежит targetd.yaml (или генерим)
+      - /run/lvm:/run/lvm
+    environment:
+      TARGETD_GENERATE_CONFIG: "true"
+      TARGETD_USER: ${TARGETD_USER:-admin}
+      TARGETD_PASSWORD: ${TARGETD_PASSWORD:-storagepass}
+      TARGETD_POOLNAME: ${TARGETD_POOLNAME:-vg-targetd}
+      TARGETD_THINPOOL: ${TARGETD_THINPOOL:-thin_pool}
+      TARGETD_TARGETNAME: ${LIO_IQN:-iqn.2025-08.example:disk0}
+      TARGETD_SSL: "false"
+      TARGETD_LOGLEVEL: "info"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/ready"]
+      interval: 2s
+      timeout: 2s
+      retries: 60
+      start_period: 2s
+
+volumes:
+  lio-data:

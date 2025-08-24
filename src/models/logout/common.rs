@@ -180,9 +180,7 @@ impl fmt::Display for LogoutResponseCode {
 /// Use this in your BHS structs:
 /// `pub response_code: RawLogoutResponseCode`
 #[repr(transparent)]
-#[derive(
-    Copy, Clone, Debug, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable,
-)]
+#[derive(Copy, Clone, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct RawLogoutResponseCode(u8);
 
 impl Default for RawLogoutResponseCode {
@@ -236,5 +234,16 @@ impl From<&LogoutResponseCode> for RawLogoutResponseCode {
     #[inline]
     fn from(r: &LogoutResponseCode) -> Self {
         Self(r.as_u8())
+    }
+}
+
+impl fmt::Debug for RawLogoutResponseCode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let decoded = match self.decode() {
+            Ok(st) => format!("{st:?}"),
+            Err(_e) => format!("invalid(0x{:02X})", self.raw()),
+        };
+
+        write!(f, "RawScsiStatus {{ {:?} }}", decoded)
     }
 }

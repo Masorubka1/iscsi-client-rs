@@ -69,7 +69,7 @@ impl From<&PDUWithData<LoginResponse>> for LoginStatus {
         let header = r.header_view().expect("failed to parse header");
 
         Self {
-            itt: header.initiator_task_tag.get(),
+            itt: header.initiator_task_tag,
             tsih: header.tsih.get(),
             exp_cmd_sn: header.exp_cmd_sn.get(),
             stat_sn: header.stat_sn.get(),
@@ -109,7 +109,7 @@ impl From<&PDUWithData<LoginResponse>> for LastHdr {
 
         Self {
             tsih: header.tsih.get(),
-            itt: header.initiator_task_tag.get(),
+            itt: header.initiator_task_tag,
             exp_cmd_sn: header.exp_cmd_sn.get(),
             stat_sn: header.stat_sn.get(),
             ver_max: header.version_max,

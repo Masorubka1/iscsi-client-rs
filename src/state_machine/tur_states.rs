@@ -16,7 +16,7 @@ use crate::{
     control_block::test_unit_ready::build_test_unit_ready,
     models::{
         command::{
-            common::ScsiStatus,
+            common::{ScsiStatus, TaskAttribute},
             request::{ScsiCommandRequest, ScsiCommandRequestBuilder},
             response::ScsiCommandResponse,
         },
@@ -60,7 +60,7 @@ impl<'a> TurCtx<'a> {
         build_test_unit_ready(&mut self.cbd, 0);
 
         let itt = self.itt.fetch_add(1, Ordering::SeqCst);
-        let cmd_sn = self.cmd_sn.load(Ordering::SeqCst);
+        let cmd_sn = self.cmd_sn.fetch_add(1, Ordering::SeqCst);
         let exp_stat_sn = self.exp_stat_sn.fetch_add(1, Ordering::SeqCst);
 
         let header = ScsiCommandRequestBuilder::new()
@@ -68,10 +68,10 @@ impl<'a> TurCtx<'a> {
             .lun(self.lun)
             .cmd_sn(cmd_sn)
             .exp_stat_sn(exp_stat_sn)
+            .task_attribute(TaskAttribute::Simple)
             .read()
             .write()
             .expected_data_transfer_length(0)
-            .immediate()
             .scsi_descriptor_block(&self.cbd);
 
         header.header.to_bhs_bytes(self.buf.as_mut_slice())?;
