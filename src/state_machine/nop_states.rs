@@ -199,9 +199,6 @@ impl<'ctx> StateMachine<NopCtx<'ctx>, Transition<NopStates, Result<NopStatus>>>
                 },
             };
 
-            // immediate: CmdSN берём ИЗ NOP-In (exp_cmd_sn), не инкрементим общий cmd_sn
-            // ExpStatSN = max(cur, stat_sn_from_in + 1) — чтобы не откатываться при
-            // гонках
             let want_exp_stat = stat_sn_from_in.wrapping_add(1);
             let _ =
                 ctx.exp_stat_sn
@@ -210,8 +207,8 @@ impl<'ctx> StateMachine<NopCtx<'ctx>, Transition<NopStates, Result<NopStatus>>>
                     });
             let exp_stat_to_send = ctx.exp_stat_sn.load(Ordering::SeqCst);
 
-            // ITT для ответа на NOP-In = 0xFFFF_FFFF (спецификация)
-            // TTT — копируем из пришедшего NOP-In (уже лежит в ctx.ttt)
+            // ITT for response NOP-In = 0xFFFF_FFFF
+            // TTT — copy from NOP-In (ctx.ttt)
             let hdr = NopOutRequestBuilder::new()
                 .immediate()
                 .lun(ctx.lun)

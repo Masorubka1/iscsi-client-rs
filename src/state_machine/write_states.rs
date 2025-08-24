@@ -150,14 +150,7 @@ impl<'a> WriteCtx<'a> {
         if mrdsl == 0 {
             bail!("MRDSL is zero");
         }
-        let to_send_total = if ttt == ScsiDataOutBuilder::DEFAULT_TTT {
-            // unsolicited burst (первый) — ограничение FirstBurst/MaxBurst обеспечь в
-            // вызывающем коде
-            len
-        } else {
-            // R2T — отправляем ровно окно, без дополнительного min()
-            len
-        };
+        let to_send_total = len;
 
         let mut sent = 0usize;
         while sent < to_send_total {
