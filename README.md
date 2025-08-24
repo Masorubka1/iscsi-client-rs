@@ -7,7 +7,7 @@
 
 A pure‑Rust iSCSI initiator **library** (with example CLI) for interacting with iSCSI targets over TCP. Build/parse PDUs, perform login (plain or CHAP), and exchange SCSI commands asynchronously.
 
-> ⚠️ **Status**: tested against Linux `tgt` only. Other targets may behave differently. Use with care.
+> ⚠️ **Status**: tested against Linux `tgt/targetcli` only. Other targets may behave differently. Use with care.
 
 ---
 
@@ -271,7 +271,7 @@ A high-level plan, trimmed for GitHub readability. We track delivery as **Now �
   * [ ] Optional TLS/TCP (when target supports it)
 * **SCSI coverage**
 
-  * [ ] REPORT LUNS, INQUIRY VPD, MODE SENSE/SELECT
+  * [x] REPORT LUNS, INQUIRY VPD, MODE SENSE/SELECT
   * [ ] UNMAP, WRITE SAME, COMPARE-AND-WRITE
   * [ ] TMFs: ABORT TASK, LUN RESET, CLEAR TASK SET
   * [ ] AEN / Unit Attention flow
