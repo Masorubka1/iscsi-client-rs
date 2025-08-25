@@ -3,7 +3,9 @@
 
 use anyhow::{Result, bail};
 use tracing::warn;
-use zerocopy::{BigEndian, FromBytes as ZFromBytes, Immutable, IntoBytes, KnownLayout, U32, U64};
+use zerocopy::{
+    BigEndian, FromBytes as ZFromBytes, Immutable, IntoBytes, KnownLayout, U32, U64,
+};
 
 use crate::{
     client::pdu_connection::FromBytes,

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
 use std::{
@@ -18,7 +18,7 @@ use iscsi_client_rs::{
         write::build_write10,
     },
     state_machine::{
-        login_states::{LoginCtx, LoginStates, run_login, start_chap, start_plain},
+        login_states::{LoginCtx, LoginStates, run_login, start_plain},
         read_states::{ReadCtx, ReadStart, ReadStates, run_read},
         write_states::{IssueCmd, WriteCtx, WriteStates, run_write},
     },
@@ -37,6 +37,10 @@ async fn read_capacity_then_write10_plain() -> Result<()> {
     let _ = init_logger(&test_path());
 
     let cfg = Arc::new(load_config()?);
+    if !matches!(cfg.login.auth, AuthConfig::None) {
+        eprintln!("⏭️  skip: auth.method != none in TEST_CONFIG (test for login_plain)");
+        return Ok(());
+    }
 
     let conn = connect_cfg(&cfg).await?;
     let isid = test_isid();
@@ -46,13 +50,10 @@ async fn read_capacity_then_write10_plain() -> Result<()> {
         conn.clone(),
         &cfg,
         isid,
-        /* cid */ 1,
-        /* tsih */ 0,
+        /* cid= */ 1,
+        /* tsih= */ 1,
     );
-    let login_state: LoginStates = match cfg.login.auth {
-        AuthConfig::Chap(_) => start_chap(),
-        AuthConfig::None => start_plain(),
-    };
+    let login_state: LoginStates = start_plain();
     let login_status = run_login(login_state, &mut lctx).await?;
 
     let cmd_sn = AtomicU32::new(login_status.exp_cmd_sn);
@@ -86,8 +87,8 @@ async fn read_capacity_then_write10_plain() -> Result<()> {
     assert_eq!(rc10_pdu.data.len(), 8, "RC(10) must return 8 bytes");
     eprintln!("RC10 raw: {:02X?}", &rc10_pdu.data);
 
-    let rc10: &Rc10Raw =
-        parse_read_capacity10_zerocopy(&rc10_pdu.data).context("failed to parse RC(10) payload")?;
+    let rc10: &Rc10Raw = parse_read_capacity10_zerocopy(&rc10_pdu.data)
+        .context("failed to parse RC(10) payload")?;
     let blk_len_10 = rc10.block_len.get();
     assert!(
         blk_len_10.is_power_of_two(),
@@ -139,11 +140,11 @@ async fn read_capacity_then_write10_plain() -> Result<()> {
                 }
 
                 (blk16, rc16.max_lba.get())
-            }
+            },
             Err(e) => {
                 eprintln!("ℹ️  READ CAPACITY(16) skipped: {e}");
                 (blk_len_10, max_lba_10 as u64)
-            }
+            },
         }
     };
 
@@ -196,12 +197,12 @@ async fn read_capacity_then_write10_plain() -> Result<()> {
     );
 
     match run_write(WriteStates::IssueCmd(IssueCmd), &mut wctx).await {
-        Ok(_) => {}
+        Ok(_) => {},
         Err(_) => {
             sleep(Duration::from_millis(100)).await;
             let mut wctx2 = WriteCtx { ..wctx };
             run_write(WriteStates::IssueCmd(IssueCmd), &mut wctx2).await?;
-        }
+        },
     }
 
     // ============ READ(10) back & verify ============

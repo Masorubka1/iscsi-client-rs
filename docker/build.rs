@@ -20,7 +20,8 @@ fn parse_hex2(s: &str) -> Option<u16> {
     let t = trimq(s).trim_end_matches(['h', 'H']);
     if let Some(hex) = t.strip_prefix("0x").or_else(|| t.strip_prefix("0X")) {
         u16::from_str_radix(hex, 16).ok()
-    } else if (t.chars().all(|c| c.is_ascii_hexdigit()) && s.to_ascii_lowercase().ends_with('h'))
+    } else if (t.chars().all(|c| c.is_ascii_hexdigit())
+        && s.to_ascii_lowercase().ends_with('h'))
         || (t.len() <= 3 && t.chars().all(|c| c.is_ascii_hexdigit()))
     {
         u16::from_str_radix(t, 16).ok()
@@ -86,31 +87,37 @@ fn parse_line(line: &str, file: &Path, lineno: usize) -> Vec<(u16, u16, String)>
     }
 
     // Try combined "ASC/ASCQ"
-    let (asc_opt, ascq_tok_opt, consumed) = if let Some((a, b)) = trimq(toks[0]).split_once('/') {
-        (parse_hex2(a), Some(b), 1usize)
-    } else {
-        (parse_hex2(toks[0]), toks.get(1).copied(), 2usize)
-    };
+    let (asc_opt, ascq_tok_opt, consumed) =
+        if let Some((a, b)) = trimq(toks[0]).split_once('/') {
+            (parse_hex2(a), Some(b), 1usize)
+        } else {
+            (parse_hex2(toks[0]), toks.get(1).copied(), 2usize)
+        };
 
     let asc = match asc_opt {
         Some(v) => v,
         None => {
             // Strict TSV fallback: ASC\tASCQ\tDESC...
-            let parts: Vec<&str> = l.split('\t').filter(|s| !s.trim().is_empty()).collect();
+            let parts: Vec<&str> =
+                l.split('\t').filter(|s| !s.trim().is_empty()).collect();
             if parts.len() >= 2
                 && let (Some(a), Some(b)) = (parse_hex2(parts[0]), parse_hex2(parts[1]))
             {
                 let desc = if parts.len() >= 3 {
                     trimq(&parts[2..].join("\t")).to_string()
                 } else {
-                    eprintln!("warning: {}:{} has no description", file.display(), lineno);
+                    eprintln!(
+                        "warning: {}:{} has no description",
+                        file.display(),
+                        lineno
+                    );
                     "<unknown>".into()
                 };
                 out.push((a, b, desc));
                 return out;
             }
             panic!("bad ASC '{}' at {}:{}", l, file.display(), lineno);
-        }
+        },
     };
 
     let i = consumed;
@@ -142,7 +149,8 @@ fn parse_line(line: &str, file: &Path, lineno: usize) -> Vec<(u16, u16, String)>
         Some(v) => v,
         None => {
             // Maybe strict TSV fallback if 2nd token wasn't the ASCQ
-            let parts: Vec<&str> = l.split('\t').filter(|s| !s.trim().is_empty()).collect();
+            let parts: Vec<&str> =
+                l.split('\t').filter(|s| !s.trim().is_empty()).collect();
             if parts.len() >= 2
                 && let Some(b) = parse_hex2(parts[1])
             {
@@ -150,14 +158,18 @@ fn parse_line(line: &str, file: &Path, lineno: usize) -> Vec<(u16, u16, String)>
                 let desc = if parts.len() >= 3 {
                     trimq(&parts[2..].join("\t")).to_string()
                 } else {
-                    eprintln!("warning: {}:{} has no description", file.display(), lineno);
+                    eprintln!(
+                        "warning: {}:{} has no description",
+                        file.display(),
+                        lineno
+                    );
                     "<unknown>".into()
                 };
                 out.push((a, b, desc));
                 return out;
             }
             panic!("bad ASC/ASCQ '{}' at {}:{}", l, file.display(), lineno);
-        }
+        },
     };
 
     // Description = everything after the two tokens

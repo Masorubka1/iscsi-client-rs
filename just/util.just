@@ -1,5 +1,6 @@
 # just/util.just
 
+# Ждём, пока порт станет доступным
 wait-port host port:
 	#!/usr/bin/env bash
 	set -eu -o pipefail

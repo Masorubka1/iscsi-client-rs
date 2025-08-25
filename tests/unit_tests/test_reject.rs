@@ -20,7 +20,8 @@ fn load_fixture(path: &str) -> Result<Vec<u8>> {
 
 #[test]
 fn test_reject_parse() -> Result<()> {
-    let bytes = load_fixture("tests/unit_tests/fixtures/scsi_commands/reject_example.hex")?;
+    let bytes =
+        load_fixture("tests/unit_tests/fixtures/scsi_commands/reject_example.hex")?;
     assert!(bytes.len() >= HEADER_LEN);
 
     let mut hdr_buf = [0u8; HEADER_LEN];

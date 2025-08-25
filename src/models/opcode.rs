@@ -179,7 +179,7 @@ impl fmt::Debug for RawBhsOpcode {
                     tmp.field("I", &bhs.flags);
                 }
                 tmp.field("opcode", &bhs.opcode).finish()
-            }
+            },
             Err(_) => {
                 let mut tmp = f.debug_struct("RawBhsOpcode");
                 if self.i() {
@@ -187,7 +187,7 @@ impl fmt::Debug for RawBhsOpcode {
                 }
                 tmp.field("opcode_raw", &format_args!("0x{:02X}", self.opcode_raw()))
                     .finish()
-            }
+            },
         }
     }
 }

@@ -49,7 +49,13 @@ pub fn build_read_capacity10(cdb: &mut [u8; 16], lba: u32, pmi: bool, control: u
 /// Typical use:
 /// - For full device capacity: `lba = 0`, `pmi = false`, `alloc_len = 32`.
 #[inline]
-pub fn build_read_capacity16(cdb: &mut [u8; 16], lba: u64, pmi: bool, alloc_len: u32, control: u8) {
+pub fn build_read_capacity16(
+    cdb: &mut [u8; 16],
+    lba: u64,
+    pmi: bool,
+    alloc_len: u32,
+    control: u8,
+) {
     cdb.fill(0);
     cdb[0] = 0x9E; // SERVICE ACTION IN(16)
     cdb[1] = 0x10; // Service Action = READ CAPACITY(16)

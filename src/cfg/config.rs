@@ -120,7 +120,8 @@ pub struct ConnectionConfig {
 impl Config {
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
         let s = fs::read_to_string(path)?;
-        let cfg: Config = serde_yaml::from_str(&s).context("failed to parse config YAML")?;
+        let cfg: Config =
+            serde_yaml::from_str(&s).context("failed to parse config YAML")?;
         Ok(cfg)
     }
 }
@@ -234,7 +235,7 @@ pub fn login_keys_security(cfg: &Config) -> Vec<u8> {
         AuthConfig::None => keys.push(kvz("AuthMethod", "None")),
         AuthConfig::Chap(_) => {
             keys.push(kvz("AuthMethod", "CHAP,None"));
-        }
+        },
     }
 
     join_bytes(&keys)

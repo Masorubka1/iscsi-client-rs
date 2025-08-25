@@ -2,7 +2,9 @@
 // Copyright (C) 2012-2025 Andrei Maltsev
 
 use anyhow::{Result, bail};
-use zerocopy::{BigEndian, FromBytes as ZFromBytes, Immutable, IntoBytes, KnownLayout, U16, U32};
+use zerocopy::{
+    BigEndian, FromBytes as ZFromBytes, Immutable, IntoBytes, KnownLayout, U16, U32,
+};
 
 use crate::{
     client::pdu_connection::FromBytes,

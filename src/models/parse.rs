@@ -38,37 +38,37 @@ pub enum Pdu<'a> {
 
 impl<'a> Pdu<'a> {
     pub fn from_bhs_bytes(bytes: &'a mut [u8]) -> Result<Self> {
-        let bhs =
-            BhsOpcode::try_from(bytes[0]).map_err(|e| anyhow::anyhow!("invalid opcode: {}", e))?;
+        let bhs = BhsOpcode::try_from(bytes[0])
+            .map_err(|e| anyhow::anyhow!("invalid opcode: {}", e))?;
         match bhs.opcode {
             Opcode::NopOut => {
                 let req = NopOutRequest::from_bhs_bytes(bytes)?;
                 Ok(Pdu::NopOutRequest(req))
-            }
+            },
             Opcode::NopIn => {
                 let req = NopInResponse::from_bhs_bytes(bytes)?;
                 Ok(Pdu::NopInResponse(req))
-            }
+            },
             Opcode::ScsiCommandReq => {
                 let req = ScsiCommandRequest::from_bhs_bytes(bytes)?;
                 Ok(Pdu::ScsiCommandRequest(req))
-            }
+            },
             Opcode::ScsiCommandResp => {
                 let req = ScsiCommandResponse::from_bhs_bytes(bytes)?;
                 Ok(Pdu::ScsiCommandResponse(req))
-            }
+            },
             Opcode::TextReq => {
                 let req = TextRequest::from_bhs_bytes(bytes)?;
                 Ok(Pdu::TextRequest(req))
-            }
+            },
             Opcode::TextResp => {
                 let req = TextResponse::from_bhs_bytes(bytes)?;
                 Ok(Pdu::TextResponse(req))
-            }
+            },
             Opcode::LoginReq => {
                 let req = LoginRequest::from_bhs_bytes(bytes)?;
                 Ok(Pdu::LoginRequest(req))
-            }
+            },
             /*Opcode::ScsiDataOut => {
                 let req = ScsiDataOut::from_bhs_bytes(bytes)?;
                 Ok(Pdu::ScsiDataOut(req))
@@ -76,11 +76,11 @@ impl<'a> Pdu<'a> {
             Opcode::LoginResp => {
                 let rsp = LoginResponse::from_bhs_bytes(bytes)?;
                 Ok(Pdu::LoginResponse(rsp))
-            }
+            },
             Opcode::Reject => {
                 let rsp = RejectPdu::from_bhs_bytes(bytes)?;
                 Ok(Pdu::RejectPdu(rsp))
-            }
+            },
             /*Opcode::ScsiDataIn => {
                 let req = ScsiDataIn::from_bhs_bytes(bytes)?;
                 Ok(Pdu::ScsiDataIn(req))
@@ -88,15 +88,15 @@ impl<'a> Pdu<'a> {
             Opcode::ReadyToTransfer => {
                 let req = ReadyToTransfer::from_bhs_bytes(bytes)?;
                 Ok(Pdu::ReadyToTransfer(req))
-            }
+            },
             Opcode::LogoutReq => {
                 let req = LogoutRequest::from_bhs_bytes(bytes)?;
                 Ok(Pdu::LogoutRequest(req))
-            }
+            },
             Opcode::LogoutResp => {
                 let req = LogoutResponse::from_bhs_bytes(bytes)?;
                 Ok(Pdu::LogoutResponse(req))
-            }
+            },
             other => bail!("unsupported opcode: {:?}", other),
         }
     }

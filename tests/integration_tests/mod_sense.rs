@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
 use std::sync::atomic::AtomicU32;
@@ -60,7 +60,9 @@ async fn login_tur_mode_sense() -> Result<()> {
     // issues (target will truncate to allocation length if mode data is
     // larger).
     let mut cdb = [0u8; 16];
-    let _ = fill_mode_sense10_simple(&mut cdb, /* page_code= */ 0x3F, /* alloc= */ 8);
+    let _ = fill_mode_sense10_simple(
+        &mut cdb, /* page_code= */ 0x3F, /* alloc= */ 8,
+    );
 
     let mut rctx10 = ReadCtx::new(
         conn.clone(),
@@ -76,7 +78,9 @@ async fn login_tur_mode_sense() -> Result<()> {
 
     // --- MODE SENSE(6): request only the 4-byte header
     let mut cdb6 = [0u8; 16];
-    let _ = fill_mode_sense6_simple(&mut cdb6, /* page_code= */ 0x3F, /* alloc= */ 4);
+    let _ = fill_mode_sense6_simple(
+        &mut cdb6, /* page_code= */ 0x3F, /* alloc= */ 4,
+    );
 
     let mut rctx6 = ReadCtx::new(
         conn.clone(),

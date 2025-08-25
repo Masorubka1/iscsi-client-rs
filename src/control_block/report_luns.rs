@@ -35,7 +35,12 @@ pub mod select_report {
 
 /// Fill a REPORT LUNS CDB into `cdb[0..12]`.
 #[inline]
-pub fn fill_report_luns(cdb: &mut [u8; 16], select: u8, allocation_len: u32, control: u8) {
+pub fn fill_report_luns(
+    cdb: &mut [u8; 16],
+    select: u8,
+    allocation_len: u32,
+    control: u8,
+) {
     cdb.fill(0);
     cdb[0] = REPORT_LUNS;
     cdb[1] = 0x00; // Service Action = REPORT LUNS

@@ -20,7 +20,8 @@ fn load_fixture(path: &str) -> Result<Vec<u8>> {
 
 #[test]
 fn test_reject_parse() -> Result<()> {
-    let bytes = load_fixture("tests/unit_tests/fixtures/scsi_commands/ready_to_transfer.hex")?;
+    let bytes =
+        load_fixture("tests/unit_tests/fixtures/scsi_commands/ready_to_transfer.hex")?;
     assert!(bytes.len() >= HEADER_LEN);
 
     println!("{:?}", &bytes[HEADER_LEN..]);

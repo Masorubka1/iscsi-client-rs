@@ -60,7 +60,9 @@ impl fmt::Display for LogoutReason {
 /// Use this in BHS structs instead of `LogoutReason`:
 /// `pub reason: RawLogoutReason`
 #[repr(transparent)]
-#[derive(Copy, Clone, Debug, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
+#[derive(
+    Copy, Clone, Debug, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable,
+)]
 pub struct RawLogoutReason(u8);
 
 impl Default for RawLogoutReason {

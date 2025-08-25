@@ -72,7 +72,8 @@ impl<'a> ReadCtx<'a> {
     }
 
     pub async fn recv_any(&self, itt: u32) -> anyhow::Result<ReadPdu> {
-        let (p_any, data): (PDUWithData<Pdu>, Vec<u8>) = self.conn.read_response_raw(itt).await?;
+        let (p_any, data): (PDUWithData<Pdu>, Vec<u8>) =
+            self.conn.read_response_raw(itt).await?;
         let op = BhsOpcode::try_from(p_any.header_buf[0])?.opcode;
         let pdu_local = match op {
             Opcode::ScsiDataIn => Ok(ReadPdu::DataIn({
@@ -148,7 +149,8 @@ impl<'a> ReadCtx<'a> {
 
         header.header.to_bhs_bytes(self.buf.as_mut_slice())?;
 
-        let builder: PDUWithData<ScsiCommandRequest> = PDUWithData::from_header_slice(self.buf);
+        let builder: PDUWithData<ScsiCommandRequest> =
+            PDUWithData::from_header_slice(self.buf);
         self.conn.send_request(itt, builder).await?;
 
         Ok((PendingRead { itt, cmd_sn: sn }, esn))
@@ -175,7 +177,7 @@ impl<'a> ReadCtx<'a> {
                     buf[off..end].copy_from_slice(&pdu.data);
                     *filled_hi = (*filled_hi).max(end);
                 }
-            }
+            },
             _ => {
                 return Err(anyhow!(
                     "target sent more data than expected: off={} len={} cap={}",
@@ -183,7 +185,7 @@ impl<'a> ReadCtx<'a> {
                     len,
                     buf.len()
                 ));
-            }
+            },
         }
 
         if h.stat_sn_or_rsvd.get() != 0 {
@@ -325,8 +327,10 @@ impl<'ctx> StateMachine<ReadCtx<'ctx>, ReadStepOut> for ReadWaitData {
                 let p = match ctx.recv_any(self.pending.itt).await {
                     Ok(p) => p,
                     Err(e) => {
-                        return Transition::Done(Err(anyhow!("unexpected PDU while Data-In: {e}")));
-                    }
+                        return Transition::Done(Err(anyhow!(
+                            "unexpected PDU while Data-In: {e}"
+                        )));
+                    },
                 };
 
                 match p {
@@ -347,11 +351,11 @@ impl<'ctx> StateMachine<ReadCtx<'ctx>, ReadStepOut> for ReadWaitData {
                         if is_final {
                             break;
                         }
-                    }
+                    },
                     ReadPdu::CmdResp(rsp) => {
                         early_cmdresp = Some(rsp);
                         break;
-                    }
+                    },
                 }
             }
 
@@ -405,7 +409,10 @@ impl<'ctx> StateMachine<ReadCtx<'ctx>, ReadStepOut> for ReadWaitResp {
             if status != ScsiStatus::Good {
                 if let Some(sb) = sense_opt {
                     if let Ok(sense) = SenseData::parse(&sb) {
-                        return Transition::Done(Err(anyhow!("SCSI CheckCondition: {:?}", sense)));
+                        return Transition::Done(Err(anyhow!(
+                            "SCSI CheckCondition: {:?}",
+                            sense
+                        )));
                     } else {
                         return Transition::Done(Err(anyhow!(
                             "SCSI CheckCondition (sense {} bytes): {:02X?}",
@@ -444,7 +451,10 @@ impl<'ctx> StateMachine<ReadCtx<'ctx>, ReadStepOut> for ReadWaitResp {
     }
 }
 
-pub async fn run_read(mut state: ReadStates, ctx: &mut ReadCtx<'_>) -> Result<ReadResult> {
+pub async fn run_read(
+    mut state: ReadStates,
+    ctx: &mut ReadCtx<'_>,
+) -> Result<ReadResult> {
     loop {
         let tr = match &mut state {
             ReadStates::Start(s) => s.step(ctx).await,
@@ -455,8 +465,8 @@ pub async fn run_read(mut state: ReadStates, ctx: &mut ReadCtx<'_>) -> Result<Re
         match tr {
             Transition::Next(next, _r) => {
                 state = next;
-            }
-            Transition::Stay(Ok(_)) => { /* tick */ }
+            },
+            Transition::Stay(Ok(_)) => { /* tick */ },
             Transition::Stay(Err(e)) => return Err(e),
             Transition::Done(result) => return result,
         }

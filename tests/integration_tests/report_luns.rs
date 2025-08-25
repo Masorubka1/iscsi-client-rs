@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
 use std::sync::atomic::AtomicU32;
@@ -82,8 +82,8 @@ async fn login_tur_report_luns() -> Result<()> {
         u32::from_be_bytes([hdr.data[0], hdr.data[1], hdr.data[2], hdr.data[3]]) as usize;
     assert_eq!(lun_list_len % 8, 0, "LUN LIST LENGTH must be multiple of 8");
 
-    // --- REPORT LUNS (step 2): read all header
-    let total_needed = 8 + lun_list_len; // header + list
+    // --- REPORT LUNS (шаг 2): читаем весь список
+    let total_needed = 8 + lun_list_len; // header + список (кратен 8)
     let mut cdb_full = [0u8; 16];
     let _ = fill_report_luns(
         &mut cdb_full,
@@ -113,10 +113,9 @@ async fn login_tur_report_luns() -> Result<()> {
         "reserved bytes must be zero"
     );
 
+    // Можно посчитать записи
     let entries = lun_list_len / 8;
-    println!("lun_list_len {lun_list_len:?}");
-    // FOR lio entries == 1; for tgt entries == 2
-    assert!(entries == 2 || entries == 1);
+    assert!(entries == 2);
 
     Ok(())
 }

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
 use std::sync::atomic::AtomicU32;
@@ -26,8 +26,13 @@ async fn logout_close_session() -> Result<()> {
     let conn = connect_cfg(&cfg).await?;
 
     let isid = test_isid();
-    let cid = 1u16;
-    let mut lctx = LoginCtx::new(conn.clone(), &cfg, isid, cid, /* tsih= */ 2);
+    let mut lctx = LoginCtx::new(
+        conn.clone(),
+        &cfg,
+        isid,
+        /* cid= */ 1,
+        /* tsih= */ 2,
+    );
 
     let login_state: LoginStates = match cfg.login.auth {
         AuthConfig::Chap(_) => start_chap(),
@@ -39,9 +44,11 @@ async fn logout_close_session() -> Result<()> {
     let exp_stat_sn = AtomicU32::new(login_status.stat_sn.wrapping_add(1));
     let itt = AtomicU32::new(login_status.itt.wrapping_add(1));
 
+    let cid = 0u16;
     let reason = LogoutReason::CloseSession;
 
-    let mut loctx = LogoutCtx::new(conn.clone(), &itt, &cmd_sn, &exp_stat_sn, cid, reason);
+    let mut loctx =
+        LogoutCtx::new(conn.clone(), &itt, &cmd_sn, &exp_stat_sn, cid, reason);
     let status = run_logout(LogoutStates::Idle(logout_states::Idle), &mut loctx).await?;
 
     assert!(

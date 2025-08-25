@@ -31,7 +31,8 @@ fn test_write_pdu_build() -> Result<()> {
         .and_then(Config::load_from_file)
         .context("failed to resolve or load config")?;
 
-    let expected = load_fixture("tests/unit_tests/fixtures/scsi_commands/write10_request.hex")?;
+    let expected =
+        load_fixture("tests/unit_tests/fixtures/scsi_commands/write10_request.hex")?;
 
     let lun_bytes = [0, 1, 0, 0, 0, 0, 0, 0];
     let lun_be = u64::from_be_bytes(lun_bytes);
@@ -42,7 +43,6 @@ fn test_write_pdu_build() -> Result<()> {
     let mut cdb = [0u8; 16];
     build_write10(&mut cdb, 0x1234, 0, 0, 1);
 
-    // 512 байт immediate data (или первый burst — как в фикстуре)
     let write_buf = vec![0x01; 512];
 
     let header_builder = ScsiCommandRequestBuilder::new()
@@ -94,7 +94,8 @@ fn test_write_response_parse() -> Result<()> {
         .and_then(Config::load_from_file)
         .context("failed to resolve or load config")?;
 
-    let bytes = load_fixture("tests/unit_tests/fixtures/scsi_commands/write10_response.hex")?;
+    let bytes =
+        load_fixture("tests/unit_tests/fixtures/scsi_commands/write10_response.hex")?;
     assert!(bytes.len() >= HEADER_LEN);
 
     let hd = cfg

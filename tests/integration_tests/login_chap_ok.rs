@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
 use std::sync::{Arc, atomic::AtomicU32};
@@ -26,11 +26,11 @@ async fn login_chap_ok() -> Result<()> {
     let cfg: Config = load_config()?;
 
     match cfg.login.auth {
-        AuthConfig::Chap(_) => {}
+        AuthConfig::Chap(_) => {},
         _ => {
             eprintln!("⏭️  skip: auth.method != chap in TEST_CONFIG");
             return Ok(());
-        }
+        },
     }
 
     let conn: Arc<ClientConnection> = connect_cfg(&cfg).await?;

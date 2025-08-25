@@ -98,9 +98,12 @@ impl<'a> WriteCtx<'a> {
         let _ = header
             .header
             .to_bhs_bytes(self.buf.as_mut_slice())
-            .map_err(|e| Transition::<PDUWithData<ScsiCommandResponse>, anyhow::Error>::Done(e));
+            .map_err(|e| {
+                Transition::<PDUWithData<ScsiCommandResponse>, anyhow::Error>::Done(e)
+            });
 
-        let pdu: PDUWithData<ScsiCommandRequest> = PDUWithData::from_header_slice(self.buf);
+        let pdu: PDUWithData<ScsiCommandRequest> =
+            PDUWithData::from_header_slice(self.buf);
 
         self.conn.send_request(itt, pdu).await?;
 
@@ -170,7 +173,8 @@ impl<'a> WriteCtx<'a> {
                     Transition::<PDUWithData<ScsiCommandResponse>, anyhow::Error>::Done(e)
                 });
 
-            let mut pdu: PDUWithData<ScsiDataOut> = PDUWithData::from_header_slice(self.buf);
+            let mut pdu: PDUWithData<ScsiDataOut> =
+                PDUWithData::from_header_slice(self.buf);
 
             let header = pdu.header_view_mut()?;
 
@@ -279,18 +283,24 @@ impl<'ctx> StateMachine<WriteCtx<'ctx>, WriteStep> for IssueCmd {
                                 Ok((sent, next_sn)) => {
                                     st.next_data_sn = next_sn;
                                     st.sent_bytes += sent;
-                                }
+                                },
                                 Err(e) => return Transition::Done(Err(e)),
                             }
                         }
                     }
 
                     if st.sent_bytes >= st.total_bytes {
-                        Transition::Next(WriteStates::WaitResp(WaitResp { st: st.clone() }), Ok(st))
+                        Transition::Next(
+                            WriteStates::WaitResp(WaitResp { st: st.clone() }),
+                            Ok(st),
+                        )
                     } else {
-                        Transition::Next(WriteStates::WaitR2T(WaitR2T { st: st.clone() }), Ok(st))
+                        Transition::Next(
+                            WriteStates::WaitR2T(WaitR2T { st: st.clone() }),
+                            Ok(st),
+                        )
                     }
-                }
+                },
                 Err(e) => Transition::Done(Err(e)),
             }
         })
@@ -319,8 +329,10 @@ impl<'ctx> StateMachine<WriteCtx<'ctx>, WriteStep> for WaitR2T {
             let header = match r2t.header_view() {
                 Ok(header) => header,
                 Err(e) => {
-                    return Transition::Done(Err(anyhow!("failed read pdu ReadyToTransfer: {e}")));
-                }
+                    return Transition::Done(Err(anyhow!(
+                        "failed read pdu ReadyToTransfer: {e}"
+                    )));
+                },
             };
 
             let ttt = header.target_transfer_tag.get();
@@ -386,7 +398,10 @@ impl<'ctx> StateMachine<WriteCtx<'ctx>, WriteStep> for SendWindow {
             st.sent_bytes = st.sent_bytes.saturating_add(sent);
 
             if st.sent_bytes >= st.total_bytes {
-                Transition::Next(WriteStates::WaitResp(WaitResp { st: st.clone() }), Ok(st))
+                Transition::Next(
+                    WriteStates::WaitResp(WaitResp { st: st.clone() }),
+                    Ok(st),
+                )
             } else {
                 Transition::Next(WriteStates::WaitR2T(WaitR2T { st: st.clone() }), Ok(st))
             }
@@ -416,7 +431,10 @@ impl<'ctx> StateMachine<WriteCtx<'ctx>, WriteStep> for WaitResp {
 
 /// Drive the write state machine until it completes.
 /// Returns final `WriteStatus` or error.
-pub async fn run_write(mut state: WriteStates, ctx: &mut WriteCtx<'_>) -> Result<WriteStatus> {
+pub async fn run_write(
+    mut state: WriteStates,
+    ctx: &mut WriteCtx<'_>,
+) -> Result<WriteStatus> {
     loop {
         debug!("{state:?}");
         state = match state {
@@ -428,7 +446,9 @@ pub async fn run_write(mut state: WriteStates, ctx: &mut WriteCtx<'_>) -> Result
             },
             WriteStates::WaitR2T(ref mut s) => match s.step(ctx).await {
                 Transition::Next(next, _) => next,
-                Transition::Stay(Ok(_)) => WriteStates::WaitR2T(WaitR2T { st: s.st.clone() }),
+                Transition::Stay(Ok(_)) => {
+                    WriteStates::WaitR2T(WaitR2T { st: s.st.clone() })
+                },
                 Transition::Stay(Err(e)) | Transition::Done(Err(e)) => return Err(e),
                 Transition::Done(Ok(done)) => return Ok(done),
             },
@@ -445,7 +465,9 @@ pub async fn run_write(mut state: WriteStates, ctx: &mut WriteCtx<'_>) -> Result
             },
             WriteStates::WaitResp(ref mut s) => match s.step(ctx).await {
                 Transition::Next(next, _) => next,
-                Transition::Stay(Ok(_)) => WriteStates::WaitResp(WaitResp { st: s.st.clone() }),
+                Transition::Stay(Ok(_)) => {
+                    WriteStates::WaitResp(WaitResp { st: s.st.clone() })
+                },
                 Transition::Stay(Err(e)) | Transition::Done(Err(e)) => return Err(e),
                 Transition::Done(Ok(done)) => return Ok(done),
             },

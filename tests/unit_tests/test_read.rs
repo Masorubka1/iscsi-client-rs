@@ -31,7 +31,8 @@ fn test_read_pdu_build() -> Result<()> {
         .and_then(Config::load_from_file)
         .context("failed to resolve or load config")?;
 
-    let expected = load_fixture("tests/unit_tests/fixtures/scsi_commands/read10_request.hex")?;
+    let expected =
+        load_fixture("tests/unit_tests/fixtures/scsi_commands/read10_request.hex")?;
 
     let lun_bytes = [0, 1, 0, 0, 0, 0, 0, 0];
     let lun_be = u64::from_be_bytes(lun_bytes);
@@ -81,8 +82,9 @@ fn test_read_pdu_build() -> Result<()> {
 
 #[test]
 fn test_read_response_good() -> Result<()> {
-    let raw = load_fixture("tests/unit_tests/fixtures/scsi_commands/read10_response_good.hex")
-        .context("failed to load read_response_good fixture")?;
+    let raw =
+        load_fixture("tests/unit_tests/fixtures/scsi_commands/read10_response_good.hex")
+            .context("failed to load read_response_good fixture")?;
     assert!(
         raw.len() >= HEADER_LEN,
         "fixture too small: {} < {}",

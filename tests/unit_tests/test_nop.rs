@@ -44,7 +44,8 @@ fn parse_nop_in(bytes: &[u8]) -> Result<PDUWithData<NopInResponse>> {
 
 #[test]
 fn test_nop_out_minimal() -> Result<()> {
-    let cfg = resolve_config_path("tests/config.yaml").and_then(Config::load_from_file)?;
+    let cfg =
+        resolve_config_path("tests/config.yaml").and_then(Config::load_from_file)?;
 
     let bytes = load_fixture("tests/unit_tests/fixtures/nop/nop_out_request.hex")?;
     assert!(bytes.len() >= HEADER_LEN);
@@ -103,8 +104,8 @@ fn test_nop_in_parse() -> Result<()> {
     assert!(parsed.header_digest.is_none());
     assert!(parsed.data_digest.is_none());
 
-    let hdr =
-        <NopInResponse as FromBytes>::ref_from_bytes(&parsed.header_buf).expect("valid NOP-In BHS");
+    let hdr = <NopInResponse as FromBytes>::ref_from_bytes(&parsed.header_buf)
+        .expect("valid NOP-In BHS");
 
     let op = BhsOpcode::try_from(hdr.opcode.raw())?;
     assert_eq!(op.opcode, Opcode::NopIn, "expected NOP-IN opcode 0x20");

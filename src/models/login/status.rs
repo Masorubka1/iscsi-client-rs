@@ -184,11 +184,13 @@ impl TryFrom<(StatusClass, u8)> for StatusDetail {
             StatusClass::Success => StatusDetail::Success(SuccessDetail::try_from(raw)?),
             StatusClass::Redirection => {
                 StatusDetail::Redirection(RedirectionDetail::try_from(raw)?)
-            }
+            },
             StatusClass::InitiatorError => {
                 StatusDetail::InitiatorErr(InitiatorErrorDetail::try_from(raw)?)
-            }
-            StatusClass::TargetError => StatusDetail::TargetErr(TargetErrorDetail::try_from(raw)?),
+            },
+            StatusClass::TargetError => {
+                StatusDetail::TargetErr(TargetErrorDetail::try_from(raw)?)
+            },
             _ => bail!("invalid class"),
         })
     }
@@ -240,7 +242,9 @@ impl From<StatusDetail> for u8 {
 
 /// Wire-safe, zero-copy wrapper for **Status-Class** (1 byte on the wire).
 #[repr(transparent)]
-#[derive(Copy, Clone, PartialEq, Eq, Default, FromBytes, IntoBytes, KnownLayout, Immutable)]
+#[derive(
+    Copy, Clone, PartialEq, Eq, Default, FromBytes, IntoBytes, KnownLayout, Immutable,
+)]
 pub struct RawStatusClass(u8);
 
 impl RawStatusClass {
@@ -296,7 +300,9 @@ impl fmt::Debug for RawStatusClass {
 /// Note: decoding requires the corresponding `StatusClass` to interpret the
 /// byte.
 #[repr(transparent)]
-#[derive(Copy, Clone, PartialEq, Eq, Default, FromBytes, IntoBytes, KnownLayout, Immutable)]
+#[derive(
+    Copy, Clone, PartialEq, Eq, Default, FromBytes, IntoBytes, KnownLayout, Immutable,
+)]
 pub struct RawStatusDetail(u8);
 
 impl RawStatusDetail {
@@ -314,19 +320,21 @@ impl RawStatusDetail {
     #[inline]
     pub fn decode_with_class(self, class: StatusClass) -> Result<StatusDetail> {
         match class {
-            StatusClass::Success => Ok(StatusDetail::Success(SuccessDetail::try_from(self.0)?)),
-            StatusClass::Redirection => Ok(StatusDetail::Redirection(RedirectionDetail::try_from(
-                self.0,
-            )?)),
+            StatusClass::Success => {
+                Ok(StatusDetail::Success(SuccessDetail::try_from(self.0)?))
+            },
+            StatusClass::Redirection => Ok(StatusDetail::Redirection(
+                RedirectionDetail::try_from(self.0)?,
+            )),
             StatusClass::InitiatorError => Ok(StatusDetail::InitiatorErr(
                 InitiatorErrorDetail::try_from(self.0)?,
             )),
-            StatusClass::TargetError => Ok(StatusDetail::TargetErr(TargetErrorDetail::try_from(
-                self.0,
-            )?)),
+            StatusClass::TargetError => Ok(StatusDetail::TargetErr(
+                TargetErrorDetail::try_from(self.0)?,
+            )),
             StatusClass::Unknown(v) => {
                 bail!("cannot decode Status-Detail for unknown Status-Class {v:#04x}")
-            }
+            },
         }
     }
 
@@ -382,7 +390,7 @@ impl RawStatusPair {
             (StatusClass::Success, StatusDetail::Success(_))
             | (StatusClass::Redirection, StatusDetail::Redirection(_))
             | (StatusClass::InitiatorError, StatusDetail::InitiatorErr(_))
-            | (StatusClass::TargetError, StatusDetail::TargetErr(_)) => {}
+            | (StatusClass::TargetError, StatusDetail::TargetErr(_)) => {},
             _ => bail!("StatusDetail does not match StatusClass"),
         }
         self.class.encode(class);
