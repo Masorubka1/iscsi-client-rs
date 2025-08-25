@@ -1,0 +1,1 @@
+std::pin::Pin<std::boxed::Box<(dyn std::future::Future<Output = state_machine::common::Transition<state_machine::nop_states::NopStates, std::result::Result<state_machine::nop_states::NopStatus, anyhow::Error>>> + std::marker::Send + 'a)>>

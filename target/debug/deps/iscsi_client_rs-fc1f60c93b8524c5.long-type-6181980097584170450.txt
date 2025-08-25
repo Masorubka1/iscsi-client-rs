@@ -1,0 +1,1 @@
+std::result::Result<std::convert::Infallible, state_machine::common::Transition<_, std::result::Result<_, anyhow::Error>>>

@@ -1,0 +1,1 @@
+{"rustc":17575471286409424799,"features":"[\"default\", \"std\"]","declared_features":"[\"default\", \"std\"]","target":5587079638477664952,"profile":8276155916380437441,"path":11088656443964513518,"deps":[],"local":[{"CheckDepInfo":{"dep_info":"debug/.fingerprint/rtrb-5b60216ec3d4ef75/dep-lib-rtrb","checksum":false}}],"rustflags":[],"config":2069994364910194474,"compile_kind":0}

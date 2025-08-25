@@ -1,0 +1,1 @@
+state_machine::common::Transition<_, std::result::Result<state_machine::login_states::LoginStatus, anyhow::Error>>

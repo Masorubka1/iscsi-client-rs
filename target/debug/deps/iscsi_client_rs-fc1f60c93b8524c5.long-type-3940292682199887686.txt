@@ -1,0 +1,2 @@
+&(models::data_fromat::PDUWithData<models::login::response::LoginResponse>, std::vec::Vec<u8>)
+state_machine::login_states::LoginStatus: std::convert::From<&(models::data_fromat::PDUWithData<models::login::response::LoginResponse>, std::vec::Vec<u8>)>
