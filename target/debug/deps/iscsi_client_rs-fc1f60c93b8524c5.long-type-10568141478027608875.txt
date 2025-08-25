@@ -1,1 +1,0 @@
-zerocopy::ConvertError<zerocopy::AlignmentError<&mut [u8], models::command::request::ScsiCommandRequest>, zerocopy::SizeError<&mut [u8], models::command::request::ScsiCommandRequest>, std::convert::Infallible>

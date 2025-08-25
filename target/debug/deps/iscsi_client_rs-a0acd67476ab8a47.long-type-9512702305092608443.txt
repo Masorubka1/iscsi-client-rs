@@ -1,1 +1,0 @@
-(models::data_fromat::PDUWithData<models::logout::response::LogoutResponse>, std::vec::Vec<u8>)

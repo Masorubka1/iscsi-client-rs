@@ -1,1 +1,0 @@
-std::result::Result<models::data_fromat::PDUWithData<models::login::response::LoginResponse>, anyhow::Error>

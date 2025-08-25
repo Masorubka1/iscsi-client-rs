@@ -1,1 +1,0 @@
-zerocopy::ConvertError<zerocopy::AlignmentError<&mut [u8], models::data::request::ScsiDataOut>, zerocopy::SizeError<&mut [u8], models::data::request::ScsiDataOut>, std::convert::Infallible>

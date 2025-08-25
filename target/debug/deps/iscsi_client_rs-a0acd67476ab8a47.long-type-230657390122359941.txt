@@ -1,1 +1,0 @@
-std::result::Result<&mut models::text::request::TextRequest, zerocopy::ConvertError<zerocopy::AlignmentError<&mut [u8], models::text::request::TextRequest>, zerocopy::SizeError<&mut [u8], models::text::request::TextRequest>, std::convert::Infallible>>
