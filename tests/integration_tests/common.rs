@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later GPL-3.0-or-later
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
 use std::{path::PathBuf, sync::Arc};
@@ -15,8 +15,7 @@ pub fn test_path() -> String {
 pub fn load_config() -> Result<Config> {
     let path = test_path();
     let pb = PathBuf::from(path);
-    let cfg = Config::load_from_file(&pb)
-        .with_context(|| format!("failed to load {:?}", pb))?;
+    let cfg = Config::load_from_file(&pb).with_context(|| format!("failed to load {:?}", pb))?;
     Ok(cfg)
 }
 

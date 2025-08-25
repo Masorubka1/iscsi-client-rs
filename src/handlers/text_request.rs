@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later GPL-3.0-or-later
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -61,7 +61,7 @@ pub async fn send_text(
             let header = rsp.header_view()?;
             exp_stat_sn.store(header.stat_sn.get().wrapping_add(1), Ordering::SeqCst);
             Ok(rsp)
-        },
+        }
         Err(other) => bail!("got unexpected PDU: {:?}", other.to_string()),
     }
 }

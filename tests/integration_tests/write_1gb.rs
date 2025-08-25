@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later GPL-3.0-or-later
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
 use std::sync::{Arc, atomic::Ordering};
@@ -124,7 +124,7 @@ async fn write10_read10_1_gib_plain() -> Result<()> {
                     assert_eq!(bl, blk_len_10, "RC10/RC16 block size mismatch");
                 }
                 (bl, ml)
-            },
+            }
             Err(_) => (blk_len_10, max_lba_10),
         }
     };
@@ -218,8 +218,8 @@ async fn write10_read10_1_gib_plain() -> Result<()> {
     let mut read_back = Vec::with_capacity(total_bytes);
     let mut read_blocks: usize = 0;
     while read_blocks < need_blocks_total {
-        let blk_this = ((need_blocks_total - read_blocks) as u32)
-            .min(max_read_blocks_per_cmd as u32) as usize;
+        let blk_this =
+            ((need_blocks_total - read_blocks) as u32).min(max_read_blocks_per_cmd as u32) as usize;
 
         let len = blk_this * blk_sz;
 

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later GPL-3.0-or-later
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -48,8 +48,7 @@ pub async fn send_scsi_read(
         .read()
         .task_attribute(TaskAttribute::Simple);
 
-    let builder: PDUWithData<ScsiCommandRequest> =
-        PDUWithData::from_header(header.header);
+    let builder: PDUWithData<ScsiCommandRequest> = PDUWithData::from_header(header.header);
 
     //info!("{:?}, {}", builder.header, hex::encode(&builder.data));
 
@@ -57,10 +56,9 @@ pub async fn send_scsi_read(
 
     match conn.read_response::<ScsiDataIn>(itt).await {
         Ok(rsp) => {
-            exp_stat_sn
-                .store(rsp.header.stat_sn_or_rsvd.wrapping_add(1), Ordering::SeqCst);
+            exp_stat_sn.store(rsp.header.stat_sn_or_rsvd.wrapping_add(1), Ordering::SeqCst);
             Ok(rsp)
-        },
+        }
         Err(other) => bail!("got unexpected PDU: {:?}", other.to_string()),
     }
 }
@@ -96,8 +94,7 @@ pub async fn send_scsi_write(
         .write()
         .task_attribute(TaskAttribute::Simple);
 
-    let builder: PDUWithData<ScsiCommandRequest> =
-        PDUWithData::from_header(header.header);
+    let builder: PDUWithData<ScsiCommandRequest> = PDUWithData::from_header(header.header);
 
     //builder.append_data(write_data.clone());
 
@@ -113,8 +110,8 @@ pub async fn send_scsi_write(
         bail!("SCSI WRITE failed: response code = {:?}", hdr.response);
     }
     if hdr.status != ScsiStatus::Good {
-        let sense = SenseData::parse(&rsp.data)
-            .map_err(|e| anyhow!("failed parsing sense data: {}", e))?;
+        let sense =
+            SenseData::parse(&rsp.data).map_err(|e| anyhow!("failed parsing sense data: {}", e))?;
         bail!(
             "SCSI WRITE failed {:?}\nInfo from sense: ({:?})",
             hdr,

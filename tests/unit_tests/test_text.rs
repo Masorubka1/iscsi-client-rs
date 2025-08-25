@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later GPL-3.0-or-later
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
 use std::fs;
@@ -29,8 +29,7 @@ fn load_fixture(path: &str) -> Result<Vec<u8>> {
 
 #[test]
 fn test_text_request() -> Result<()> {
-    let cfg =
-        resolve_config_path("tests/config.yaml").and_then(Config::load_from_file)?;
+    let cfg = resolve_config_path("tests/config.yaml").and_then(Config::load_from_file)?;
 
     let bytes = load_fixture("tests/unit_tests/fixtures/text/text_request.hex")?;
     assert!(bytes.len() > HEADER_LEN);
@@ -80,9 +79,8 @@ fn test_text_request() -> Result<()> {
         "TextRequest body mismatch"
     );
 
-    let parsed_hdr_view =
-        <TextRequest as ZFromBytes>::ref_from_bytes(&parsed_fixture.header_buf)
-            .expect("valid TextRequest BHS view");
+    let parsed_hdr_view = <TextRequest as ZFromBytes>::ref_from_bytes(&parsed_fixture.header_buf)
+        .expect("valid TextRequest BHS view");
 
     assert_eq!(
         builder.header_view()?.get_data_length_bytes(),
@@ -115,8 +113,7 @@ fn test_text_response() -> Result<()> {
     assert!(parsed.data_digest.is_none());
 
     // Zerocopy view for header fields.
-    let hdr = <TextResponse as ZFromBytes>::ref_from_bytes(&parsed.header_buf)
-        .expect("valid BHS");
+    let hdr = <TextResponse as ZFromBytes>::ref_from_bytes(&parsed.header_buf).expect("valid BHS");
 
     // Check opcode.
     let op = BhsOpcode::try_from(hdr.opcode.raw())?;
@@ -130,8 +127,7 @@ fn test_text_response() -> Result<()> {
     assert_eq!(hdr.exp_cmd_sn.get(), 2);
 
     // Check payload contents.
-    let expected =
-        "TargetName=iqn.2025-07.com.example:target0\0TargetAddress=127.0.0.1:3260,1\0";
+    let expected = "TargetName=iqn.2025-07.com.example:target0\0TargetAddress=127.0.0.1:3260,1\0";
     let actual = String::from_utf8(parsed.data).context("Failed to decode TEXT data")?;
     assert_eq!(expected.to_string(), actual);
 

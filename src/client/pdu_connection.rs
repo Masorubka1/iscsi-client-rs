@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later GPL-3.0-or-later
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
 use anyhow::Result;
@@ -33,8 +33,8 @@ pub trait FromBytes: Sized + BasicHeaderSegment {
     /// The parsed `Response` (often a tuple of header struct, payload bytes,
     /// and digest), or an error if parsing fails.
     fn from_bhs_bytes(bytes: &mut [u8]) -> Result<&mut Self> {
-        let _ = BhsOpcode::try_from(bytes[0])
-            .map_err(|e| anyhow::anyhow!("invalid opcode: {}", e))?;
+        let _ =
+            BhsOpcode::try_from(bytes[0]).map_err(|e| anyhow::anyhow!("invalid opcode: {}", e))?;
         Self::from_bhs_bytes(bytes)
     }
 }

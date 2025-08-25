@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later GPL-3.0-or-later
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
 use std::fmt;
@@ -41,14 +41,14 @@ impl fmt::Debug for LoginFlags {
         }
 
         match (self.bits() & LoginFlags::CSG_MASK.bits()) >> 2 {
-            0 => {},
+            0 => {}
             1 => parts.push("CSG=Operational"),
             3 => parts.push("CSG=FullFeature"),
             _ => parts.push("CSG=Unknown"),
         }
 
         match self.bits() & LoginFlags::NSG_MASK.bits() {
-            0 => {},
+            0 => {}
             1 => parts.push("NSG=Operational"),
             3 => parts.push("NSG=FullFeature"),
             _ => parts.push("NSG=Unknown"),
@@ -87,9 +87,7 @@ impl Stage {
 /// 3=FullFeature]   bits1..0: NSG (Next Stage)     [values: 0=Security,
 /// 1=Operational, 3=FullFeature]
 #[repr(transparent)]
-#[derive(
-    Copy, Clone, PartialEq, Eq, Default, FromBytes, IntoBytes, KnownLayout, Immutable,
-)]
+#[derive(Copy, Clone, PartialEq, Eq, Default, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct RawLoginFlags(u8);
 
 impl RawLoginFlags {
@@ -170,8 +168,8 @@ impl RawLoginFlags {
     /// Set Next Stage (bits 1..0).
     #[inline]
     pub fn set_nsg(&mut self, s: Stage) {
-        self.0 = (self.0 & !LoginFlags::NSG_MASK.bits())
-            | ((s as u8) & LoginFlags::NSG_MASK.bits());
+        self.0 =
+            (self.0 & !LoginFlags::NSG_MASK.bits()) | ((s as u8) & LoginFlags::NSG_MASK.bits());
     }
 }
 

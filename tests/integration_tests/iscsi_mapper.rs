@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later GPL-3.0-or-later
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
 use std::{collections::HashMap, env, path::PathBuf, sync::Arc, time::Duration};
@@ -45,8 +45,7 @@ pub fn load_config() -> Result<Config> {
 async fn main() -> Result<()> {
     let _lg = init_logger("tests/config_logger.yaml").ok();
 
-    let listen =
-        std::env::var("MAPPER_LISTEN").unwrap_or_else(|_| "127.0.0.1:36260".into());
+    let listen = std::env::var("MAPPER_LISTEN").unwrap_or_else(|_| "127.0.0.1:36260".into());
     let target = std::env::var("TARGET_ADDR").unwrap_or_else(|_| "127.0.0.1:3260".into());
 
     let listener = TcpListener::bind(&listen).await?;
@@ -63,11 +62,11 @@ async fn main() -> Result<()> {
                     if let Err(e) = handle(&mut cli, srv).await {
                         warn!("session {addr} closed: {e:#}");
                     }
-                },
+                }
                 Err(e) => {
                     error!("connect to target failed: {e:#}");
                     let _ = cli.shutdown().await;
-                },
+                }
             }
         });
     }
@@ -333,7 +332,7 @@ async fn route_i2t(
                 try_update_negotiation_from_login_req(&mut st, &p);
             }
             build_and_send_i2t(p, state, conn).await
-        },
+        }
         Pdu::TextRequest(h) => {
             let p = PDUWithData::<TextRequest>::parse(h, &raw.data, hd, dd)?;
             {
@@ -347,7 +346,7 @@ async fn route_i2t(
                 }
             }
             build_and_send_i2t(p, state, conn).await
-        },
+        }
         Pdu::NopOutRequest(h) => {
             build_and_send_i2t(
                 PDUWithData::<NopOutRequest>::parse(h, &raw.data, hd, dd)?,
@@ -355,7 +354,7 @@ async fn route_i2t(
                 conn,
             )
             .await
-        },
+        }
         Pdu::ScsiCommandRequest(h) => {
             build_and_send_i2t(
                 PDUWithData::<ScsiCommandRequest>::parse(h, &raw.data, hd, dd)?,
@@ -363,7 +362,7 @@ async fn route_i2t(
                 conn,
             )
             .await
-        },
+        }
         Pdu::ScsiDataOut(h) => {
             build_and_send_i2t(
                 PDUWithData::<ScsiDataOut>::parse(h, &raw.data, hd, dd)?,
@@ -371,7 +370,7 @@ async fn route_i2t(
                 conn,
             )
             .await
-        },
+        }
         Pdu::LogoutRequest(h) => {
             build_and_send_i2t(
                 PDUWithData::<LogoutRequest>::parse(h, &raw.data, hd, dd)?,
@@ -379,7 +378,7 @@ async fn route_i2t(
                 conn,
             )
             .await
-        },
+        }
         Pdu::RejectPdu(h) => {
             build_and_send_i2t(
                 PDUWithData::<RejectPdu>::parse(h, &raw.data, hd, dd)?,
@@ -387,7 +386,7 @@ async fn route_i2t(
                 conn,
             )
             .await
-        },
+        }
         _ => bail!(
             "unexpected response PDU on initiator->target: opcode=0x{:02x}",
             opcode(&bhs_fixed)
@@ -414,7 +413,7 @@ async fn route_t2i(
                 try_update_negotiation_from_login_resp(&mut st, &p);
             }
             build_and_send_t2i(p, state, w).await
-        },
+        }
         Pdu::TextResponse(h) => {
             let p = PDUWithData::<TextResponse>::parse(h, &raw.data, hd, dd)?;
             {
@@ -428,7 +427,7 @@ async fn route_t2i(
                 }
             }
             build_and_send_t2i(p, state, w).await
-        },
+        }
         Pdu::NopInResponse(h) => {
             build_and_send_t2i(
                 PDUWithData::<NopInResponse>::parse(h, &raw.data, hd, dd)?,
@@ -436,7 +435,7 @@ async fn route_t2i(
                 w,
             )
             .await
-        },
+        }
         Pdu::ScsiCommandResponse(h) => {
             build_and_send_t2i(
                 PDUWithData::<ScsiCommandResponse>::parse(h, &raw.data, hd, dd)?,
@@ -444,7 +443,7 @@ async fn route_t2i(
                 w,
             )
             .await
-        },
+        }
         Pdu::ScsiDataIn(h) => {
             build_and_send_t2i(
                 PDUWithData::<ScsiDataIn>::parse(h, &raw.data, hd, dd)?,
@@ -452,7 +451,7 @@ async fn route_t2i(
                 w,
             )
             .await
-        },
+        }
         Pdu::ReadyToTransfer(h) => {
             build_and_send_t2i(
                 PDUWithData::<ReadyToTransfer>::parse(h, &raw.data, hd, dd)?,
@@ -460,7 +459,7 @@ async fn route_t2i(
                 w,
             )
             .await
-        },
+        }
         Pdu::LogoutResponse(h) => {
             build_and_send_t2i(
                 PDUWithData::<LogoutResponse>::parse(h, &raw.data, hd, dd)?,
@@ -468,7 +467,7 @@ async fn route_t2i(
                 w,
             )
             .await
-        },
+        }
         Pdu::RejectPdu(h) => {
             build_and_send_t2i(
                 PDUWithData::<RejectPdu>::parse(h, &raw.data, hd, dd)?,
@@ -476,7 +475,7 @@ async fn route_t2i(
                 w,
             )
             .await
-        },
+        }
         _ => bail!(
             "unexpected request PDU on target->initiator: opcode=0x{:02x}",
             opcode(&bhs_fixed)
@@ -508,7 +507,7 @@ async fn handle(cli: &mut TcpStream, srv: TcpStream) -> Result<()> {
                 Ok(Err(e)) if e.to_string().contains("read BHS") => {
                     debug!("I->T: {e}");
                     bail!("client closed");
-                },
+                }
                 Ok(Err(e)) => return Err(e),
                 Err(_) => bail!("I->T read timeout after {:?}", i2t_to),
             };
@@ -537,7 +536,7 @@ async fn handle(cli: &mut TcpStream, srv: TcpStream) -> Result<()> {
                 Ok(Err(e)) if e.to_string().contains("read BHS") => {
                     debug!("T->I: {e}");
                     bail!("target closed");
-                },
+                }
                 Ok(Err(e)) => return Err(e),
                 Err(_) => bail!("T->I read timeout after {:?}", t2i_to),
             };
@@ -562,10 +561,7 @@ async fn handle(cli: &mut TcpStream, srv: TcpStream) -> Result<()> {
     }
 }
 
-async fn send_reject(
-    w: &mut (impl AsyncWriteExt + Unpin),
-    reason: RejectReason,
-) -> Result<()> {
+async fn send_reject(w: &mut (impl AsyncWriteExt + Unpin), reason: RejectReason) -> Result<()> {
     let mut rej = RejectPdu::default();
     rej.opcode = BhsOpcode {
         flags: IfFlags::from_bits_truncate(0),

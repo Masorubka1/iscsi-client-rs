@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later GPL-3.0-or-later
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
 use std::{
@@ -75,11 +75,7 @@ impl ClientConnection {
         Ok(conn)
     }
 
-    pub fn from_split_no_reader(
-        r: OwnedReadHalf,
-        w: OwnedWriteHalf,
-        cfg: Config,
-    ) -> Arc<Self> {
+    pub fn from_split_no_reader(r: OwnedReadHalf, w: OwnedWriteHalf, cfg: Config) -> Arc<Self> {
         Arc::new(Self {
             reader: Mutex::new(r),
             writer: Mutex::new(w),
@@ -91,10 +87,7 @@ impl ClientConnection {
     }
 
     /// Helper to serialize and write a PDU to the socket.
-    async fn write(
-        &self,
-        mut req: impl ToBytes<Header = Vec<u8>> + fmt::Debug,
-    ) -> Result<()> {
+    async fn write(&self, mut req: impl ToBytes<Header = Vec<u8>> + fmt::Debug) -> Result<()> {
         let mut w = self.writer.lock().await;
         let (out_header, out_data) = req.to_bytes(
             self.cfg.login.negotiation.max_recv_data_segment_length as usize,
@@ -162,9 +155,10 @@ impl ClientConnection {
         let RawPdu {
             mut last_hdr_with_updated_data,
             data,
-        } = rx.recv().await.ok_or_else(|| {
-            anyhow!("Failed to read response: connection closed before answer")
-        })?;
+        } = rx
+            .recv()
+            .await
+            .ok_or_else(|| anyhow!("Failed to read response: connection closed before answer"))?;
 
         let pdu_header = Pdu::from_bhs_bytes(&mut last_hdr_with_updated_data)?;
         debug!(
@@ -181,9 +175,7 @@ impl ClientConnection {
         Ok((pdu, data))
     }
 
-    pub async fn read_response<
-        T: BasicHeaderSegment + FromBytes + Debug + ZeroCopyType,
-    >(
+    pub async fn read_response<T: BasicHeaderSegment + FromBytes + Debug + ZeroCopyType>(
         &self,
         initiator_task_tag: u32,
     ) -> Result<PDUWithData<T>> {
@@ -270,17 +262,12 @@ impl ClientConnection {
                 if self.try_handle_unsolicited_nop_in(hdr).await {
                     continue;
                 }
-                warn!(
-                    "Failed attempt to write to unexisted sender channel with itt {itt}"
-                );
+                warn!("Failed attempt to write to unexisted sender channel with itt {itt}");
             }
         }
     }
 
-    async fn try_handle_unsolicited_nop_in(
-        self: &Arc<Self>,
-        hdr: [u8; HEADER_LEN],
-    ) -> bool {
+    async fn try_handle_unsolicited_nop_in(self: &Arc<Self>, hdr: [u8; HEADER_LEN]) -> bool {
         let mut hdr_copy = hdr;
         let nop_in = match NopInResponse::from_bhs_bytes(&mut hdr_copy) {
             Ok(n) => n,

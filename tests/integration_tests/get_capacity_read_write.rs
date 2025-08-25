@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later GPL-3.0-or-later
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
 use std::{
@@ -86,8 +86,8 @@ async fn read_capacity_then_write10_plain() -> Result<()> {
     assert_eq!(rc10_pdu.data.len(), 8, "RC(10) must return 8 bytes");
     eprintln!("RC10 raw: {:02X?}", &rc10_pdu.data);
 
-    let rc10: &Rc10Raw = parse_read_capacity10_zerocopy(&rc10_pdu.data)
-        .context("failed to parse RC(10) payload")?;
+    let rc10: &Rc10Raw =
+        parse_read_capacity10_zerocopy(&rc10_pdu.data).context("failed to parse RC(10) payload")?;
     let blk_len_10 = rc10.block_len.get();
     assert!(
         blk_len_10.is_power_of_two(),
@@ -139,11 +139,11 @@ async fn read_capacity_then_write10_plain() -> Result<()> {
                 }
 
                 (blk16, rc16.max_lba.get())
-            },
+            }
             Err(e) => {
                 eprintln!("ℹ️  READ CAPACITY(16) skipped: {e}");
                 (blk_len_10, max_lba_10 as u64)
-            },
+            }
         }
     };
 
@@ -196,12 +196,12 @@ async fn read_capacity_then_write10_plain() -> Result<()> {
     );
 
     match run_write(WriteStates::IssueCmd(IssueCmd), &mut wctx).await {
-        Ok(_) => {},
+        Ok(_) => {}
         Err(_) => {
             sleep(Duration::from_millis(100)).await;
             let mut wctx2 = WriteCtx { ..wctx };
             run_write(WriteStates::IssueCmd(IssueCmd), &mut wctx2).await?;
-        },
+        }
     }
 
     // ============ READ(10) back & verify ============

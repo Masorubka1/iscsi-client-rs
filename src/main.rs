@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later GPL-3.0-or-later
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
 use std::{sync::atomic::Ordering, time::Duration};
@@ -147,8 +147,7 @@ async fn main() -> Result<()> {
         assert_eq!(hdr.data.len(), 16, "REPORT LUNS header must be 16 bytes");
 
         let lun_list_len =
-            u32::from_be_bytes([hdr.data[0], hdr.data[1], hdr.data[2], hdr.data[3]])
-                as usize;
+            u32::from_be_bytes([hdr.data[0], hdr.data[1], hdr.data[2], hdr.data[3]]) as usize;
         assert_eq!(lun_list_len % 8, 0, "LUN LIST LENGTH must be multiple of 8");
 
         // --- REPORT LUNS (шаг 2): читаем весь список
@@ -272,11 +271,11 @@ async fn main() -> Result<()> {
                     }
 
                     (blk16, rc16.max_lba.get())
-                },
+                }
                 Err(e) => {
                     eprintln!("ℹ️  READ CAPACITY(16) skipped: {e}");
                     (blk_len_10, max_lba_10 as u64)
-                },
+                }
             }
         };
 
@@ -414,8 +413,7 @@ async fn main() -> Result<()> {
             reason,
         );
 
-        let status =
-            run_logout(LogoutStates::Idle(logout_states::Idle), &mut lctx).await?;
+        let status = run_logout(LogoutStates::Idle(logout_states::Idle), &mut lctx).await?;
         info!(
             "LOGOUT done: itt={} cmd_sn={} exp_stat_sn={}",
             status.itt, status.cmd_sn, status.exp_stat_sn

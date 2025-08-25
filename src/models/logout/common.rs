@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later GPL-3.0-or-later
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
 use std::fmt;
@@ -60,9 +60,7 @@ impl fmt::Display for LogoutReason {
 /// Use this in BHS structs instead of `LogoutReason`:
 /// `pub reason: RawLogoutReason`
 #[repr(transparent)]
-#[derive(
-    Copy, Clone, Debug, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable,
-)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct RawLogoutReason(u8);
 
 impl Default for RawLogoutReason {

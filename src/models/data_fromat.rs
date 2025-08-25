@@ -1,19 +1,17 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later GPL-3.0-or-later
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
 use std::{any::type_name, fmt, marker::PhantomData};
 
 use anyhow::{Context, Result, anyhow, bail};
 use crc32c::crc32c_append;
-use zerocopy::{
-    BigEndian, FromBytes as ZFromBytes, Immutable, IntoBytes, KnownLayout, U32,
-};
+use zerocopy::{BigEndian, FromBytes as ZFromBytes, Immutable, IntoBytes, KnownLayout, U32};
 
 use crate::{
     client::pdu_connection::FromBytes,
     models::{
         common::{BasicHeaderSegment, Builder, HEADER_LEN, SendingData},
-        data::sense_data::SenseData,
+        //data::sense_data::SenseData,
         opcode::Opcode,
     },
 };
@@ -132,14 +130,12 @@ where
             None
         };
 
-        self.data_digest = if enable_data_digest
-            && !self.data.is_empty()
-            && opcode != Opcode::LoginReq
-        {
-            Some(U32::<BigEndian>::new(compute_data_digest(&self.data)))
-        } else {
-            None
-        };
+        self.data_digest =
+            if enable_data_digest && !self.data.is_empty() && opcode != Opcode::LoginReq {
+                Some(U32::<BigEndian>::new(compute_data_digest(&self.data)))
+            } else {
+                None
+            };
 
         if !self.aditional_heder.is_empty() {
             body.extend_from_slice(&self.aditional_heder);
@@ -195,15 +191,13 @@ where
     /// Mutable header view (`&mut T`) backed by `self.header_buf`.
     #[inline]
     pub fn header_view(&self) -> Result<&T> {
-        T::ref_from_bytes(self.header_buf.as_slice())
-            .map_err(|e| anyhow!("{}", e.to_string()))
+        T::ref_from_bytes(self.header_buf.as_slice()).map_err(|e| anyhow!("{}", e.to_string()))
     }
 
     /// Mutable header view (`&mut T`) backed by `self.header_buf`.
     #[inline]
     pub fn header_view_mut(&mut self) -> Result<&mut T> {
-        T::mut_from_bytes(self.header_buf.as_mut_slice())
-            .map_err(|e| anyhow!("{}", e.to_string()))
+        T::mut_from_bytes(self.header_buf.as_mut_slice()).map_err(|e| anyhow!("{}", e.to_string()))
     }
 
     /// Parse PDU: BHS(=48) + AHS + pad(AHS) + [HeaderDigest?] + Data +
@@ -375,23 +369,22 @@ where
             None => ds.field("data_digest", &r"None"),
         };
 
-        if header.get_opcode().expect("unable to get opcode").opcode
-            == Opcode::ScsiCommandResp
+        /*if header.get_opcode().expect("unable to get opcode").opcode == Opcode::ScsiCommandResp
             && !self.data.is_empty()
         {
             match SenseData::parse(&self.data) {
                 Ok(sense) => {
                     ds.field("sense", &sense);
-                },
+                }
                 Err(_e) => {
                     ds.field("data_preview", &HexPreview(&self.data));
-                },
+                }
             }
         } else if !self.data.is_empty() {
             ds.field("data_preview", &HexPreview(&self.data));
         } else {
             ds.field("data", &r"[]");
-        }
+        }*/
 
         ds.finish()
     }

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later GPL-3.0-or-later
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
 use std::fs;
@@ -35,9 +35,8 @@ fn test_read_capacity10_request_build() -> Result<()> {
         .and_then(Config::load_from_file)
         .context("failed to resolve or load config")?;
 
-    let expected = load_fixture(
-        "tests/unit_tests/fixtures/scsi_commands/read_capacity10_request.hex",
-    )?;
+    let expected =
+        load_fixture("tests/unit_tests/fixtures/scsi_commands/read_capacity10_request.hex")?;
 
     let lun_bytes = [0, 1, 0, 0, 0, 0, 0, 0];
     let lun_be = u64::from_be_bytes(lun_bytes);
@@ -92,9 +91,8 @@ fn test_read_capacity16_request_build() -> Result<()> {
         .and_then(Config::load_from_file)
         .context("failed to resolve or load config")?;
 
-    let expected = load_fixture(
-        "tests/unit_tests/fixtures/scsi_commands/read_capacity16_request.hex",
-    )?;
+    let expected =
+        load_fixture("tests/unit_tests/fixtures/scsi_commands/read_capacity16_request.hex")?;
 
     let lun_bytes = [0, 1, 0, 0, 0, 0, 0, 0];
     let lun_be = u64::from_be_bytes(lun_bytes);
@@ -146,10 +144,8 @@ fn test_read_capacity16_request_build() -> Result<()> {
 /// READ CAPACITY(10) — response
 #[test]
 fn test_rc10_response_parse() -> Result<()> {
-    let raw = load_fixture(
-        "tests/unit_tests/fixtures/scsi_commands/read_capacity10_response.hex",
-    )
-    .context("failed to load rc10_response fixture")?;
+    let raw = load_fixture("tests/unit_tests/fixtures/scsi_commands/read_capacity10_response.hex")
+        .context("failed to load rc10_response fixture")?;
     assert!(
         raw.len() >= HEADER_LEN,
         "fixture too small: {} < {}",
@@ -207,10 +203,8 @@ fn test_rc10_response_parse() -> Result<()> {
 /// READ CAPACITY(16) — response
 #[test]
 fn test_rc16_response_parse() -> Result<()> {
-    let raw = load_fixture(
-        "tests/unit_tests/fixtures/scsi_commands/read_capacity16_response.hex",
-    )
-    .context("failed to load rc16_response fixture")?;
+    let raw = load_fixture("tests/unit_tests/fixtures/scsi_commands/read_capacity16_response.hex")
+        .context("failed to load rc16_response fixture")?;
     assert!(
         raw.len() >= HEADER_LEN,
         "fixture too small: {} < {}",

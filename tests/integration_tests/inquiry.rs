@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later GPL-3.0-or-later
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
 //! Integration: login -> TUR (expect UA/CC) -> REQUEST SENSE (8 + full)
@@ -15,9 +15,8 @@ use iscsi_client_rs::{
     },
     control_block::{
         inquiry::{
-            VpdPage, fill_inquiry_standard_simple, fill_inquiry_vpd_simple,
-            parse_inquiry_standard, parse_vpd_device_id, parse_vpd_supported_pages,
-            parse_vpd_unit_serial,
+            VpdPage, fill_inquiry_standard_simple, fill_inquiry_vpd_simple, parse_inquiry_standard,
+            parse_vpd_device_id, parse_vpd_supported_pages, parse_vpd_unit_serial,
         },
         request_sense::fill_request_sense_simple,
     },
@@ -66,8 +65,7 @@ async fn login_tur_sense_inquiry_vpd() -> Result<()> {
     // === Step 2: REQUEST SENSE (8 bytes header) to learn additional length
     let mut cdb = [0u8; 16];
     fill_request_sense_simple(&mut cdb, 8);
-    let mut rctx_rs8 =
-        ReadCtx::new(conn.clone(), lun, &itt, &cmd_sn, &exp_stat_sn, 8, cdb);
+    let mut rctx_rs8 = ReadCtx::new(conn.clone(), lun, &itt, &cmd_sn, &exp_stat_sn, 8, cdb);
     let s8 = run_read(ReadStates::Start(ReadStart), &mut rctx_rs8).await?;
     assert_eq!(s8.data.len(), 8, "REQUEST SENSE header must be 8 bytes");
     let add_len = s8.data[7] as usize;
@@ -94,8 +92,7 @@ async fn login_tur_sense_inquiry_vpd() -> Result<()> {
     // === Step 5: Standard INQUIRY (6) — 36 bytes
     let mut inq_cdb = [0u8; 16];
     fill_inquiry_standard_simple(&mut inq_cdb, 36);
-    let mut rctx_inq =
-        ReadCtx::new(conn.clone(), lun, &itt, &cmd_sn, &exp_stat_sn, 36, inq_cdb);
+    let mut rctx_inq = ReadCtx::new(conn.clone(), lun, &itt, &cmd_sn, &exp_stat_sn, 36, inq_cdb);
     let inq = run_read(ReadStates::Start(ReadStart), &mut rctx_inq).await?;
     assert_eq!(inq.data.len(), 36, "INQUIRY should return 36 bytes here");
 
@@ -138,8 +135,7 @@ async fn login_tur_sense_inquiry_vpd() -> Result<()> {
         // header
         let mut cdb = [0u8; 16];
         fill_inquiry_vpd_simple(&mut cdb, VpdPage::UnitSerial, 4);
-        let mut rctx_hdr =
-            ReadCtx::new(conn.clone(), lun, &itt, &cmd_sn, &exp_stat_sn, 4, cdb);
+        let mut rctx_hdr = ReadCtx::new(conn.clone(), lun, &itt, &cmd_sn, &exp_stat_sn, 4, cdb);
         let hdr = run_read(ReadStates::Start(ReadStart), &mut rctx_hdr).await?;
         let len = u16::from_be_bytes([hdr.data[2], hdr.data[3]]) as usize;
         let total = 4 + len;
@@ -167,8 +163,7 @@ async fn login_tur_sense_inquiry_vpd() -> Result<()> {
         // header
         let mut cdb = [0u8; 16];
         fill_inquiry_vpd_simple(&mut cdb, VpdPage::DeviceId, 4);
-        let mut rctx_hdr =
-            ReadCtx::new(conn.clone(), lun, &itt, &cmd_sn, &exp_stat_sn, 4, cdb);
+        let mut rctx_hdr = ReadCtx::new(conn.clone(), lun, &itt, &cmd_sn, &exp_stat_sn, 4, cdb);
         let hdr = run_read(ReadStates::Start(ReadStart), &mut rctx_hdr).await?;
         let len = u16::from_be_bytes([hdr.data[2], hdr.data[3]]) as usize;
         let total = 4 + len;

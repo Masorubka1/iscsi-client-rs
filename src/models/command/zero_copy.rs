@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later GPL-3.0-or-later
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
 use core::fmt;
@@ -7,8 +7,8 @@ use anyhow::{Result, bail};
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 use crate::models::command::common::{
-    ResponseCode, ScsiCommandRequestFlags, ScsiCommandResponseFlags, ScsiStatus,
-    TaskAttribute, UnknownResponseCode, UnknownScsiStatus,
+    ResponseCode, ScsiCommandRequestFlags, ScsiCommandResponseFlags, ScsiStatus, TaskAttribute,
+    UnknownResponseCode, UnknownScsiStatus,
 };
 
 /// 3-bit SCSI Task Attribute (lower bits of the request flags).
@@ -158,9 +158,8 @@ impl TryFrom<RawScsiCmdReqFlags> for ScsiCommandRequestFlags {
 
     #[inline]
     fn try_from(r: RawScsiCmdReqFlags) -> Result<Self> {
-        ScsiCommandRequestFlags::from_bits(r.raw()).ok_or_else(|| {
-            anyhow::anyhow!("invalid ScsiCommandRequestFlags: {:#010b}", r.raw())
-        })
+        ScsiCommandRequestFlags::from_bits(r.raw())
+            .ok_or_else(|| anyhow::anyhow!("invalid ScsiCommandRequestFlags: {:#010b}", r.raw()))
     }
 }
 

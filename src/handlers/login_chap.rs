@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later GPL-3.0-or-later
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
 use anyhow::{Context, Result, bail};
@@ -6,8 +6,7 @@ use md5::{Digest, Md5};
 
 use crate::{
     cfg::config::{
-        AuthConfig, Config, login_keys_chap_response, login_keys_operational,
-        login_keys_security,
+        AuthConfig, Config, login_keys_chap_response, login_keys_operational, login_keys_security,
     },
     client::client::Connection,
     models::{
@@ -48,8 +47,8 @@ fn parse_chap_challenge(txt_bytes: &[u8]) -> Result<(u8, Vec<u8>)> {
                     .or_else(|| s.strip_prefix("0X"))
                     .unwrap_or(s);
                 chap_c_hex = Some(s.to_string());
-            },
-            _ => {},
+            }
+            _ => {}
         }
     }
 
@@ -58,8 +57,7 @@ fn parse_chap_challenge(txt_bytes: &[u8]) -> Result<(u8, Vec<u8>)> {
     if hex.len() % 2 != 0 {
         bail!("CHAP_C hex length must be even, got {}", hex.len());
     }
-    let chal =
-        hex::decode(&hex).with_context(|| format!("failed to decode CHAP_C: {hex}"))?;
+    let chal = hex::decode(&hex).with_context(|| format!("failed to decode CHAP_C: {hex}"))?;
     Ok((id, chal))
 }
 

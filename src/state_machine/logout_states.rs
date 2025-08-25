@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later GPL-3.0-or-later
+// SSPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
 use std::{
@@ -68,12 +68,9 @@ impl<'a> LogoutCtx<'a> {
         let _ = header
             .header
             .to_bhs_bytes(self.buf.as_mut_slice())
-            .map_err(|e| {
-                Transition::<PDUWithData<LogoutResponse>, anyhow::Error>::Done(e)
-            });
+            .map_err(|e| Transition::<PDUWithData<LogoutResponse>, anyhow::Error>::Done(e));
 
-        let builder: PDUWithData<LogoutRequest> =
-            PDUWithData::from_header_slice(self.buf);
+        let builder: PDUWithData<LogoutRequest> = PDUWithData::from_header_slice(self.buf);
         self.conn.send_request(itt, builder).await?;
 
         Ok(LogoutStatus {
@@ -92,7 +89,7 @@ impl<'a> LogoutCtx<'a> {
                     bail!("LogoutResp: target returned {:?}", rsp.header_view()?);
                 }
                 Ok(())
-            },
+            }
             Err(other) => bail!("got unexpected PDU: {}", other),
         }
     }
@@ -156,10 +153,7 @@ impl<'ctx> StateMachine<LogoutCtx<'ctx>, LogoutStepOut> for Wait {
     }
 }
 
-pub async fn run_logout(
-    mut state: LogoutStates,
-    ctx: &mut LogoutCtx<'_>,
-) -> Result<LogoutStatus> {
+pub async fn run_logout(mut state: LogoutStates, ctx: &mut LogoutCtx<'_>) -> Result<LogoutStatus> {
     loop {
         let trans = match &mut state {
             LogoutStates::Idle(s) => s.step(ctx).await,
@@ -168,7 +162,7 @@ pub async fn run_logout(
 
         match trans {
             Transition::Next(next_state, _r) => state = next_state,
-            Transition::Stay(Ok(_)) => {},
+            Transition::Stay(Ok(_)) => {}
             Transition::Stay(Err(e)) => return Err(e),
             Transition::Done(r) => return r,
         }

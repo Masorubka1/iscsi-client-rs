@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later GPL-3.0-or-later
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
 use std::fs;
@@ -31,8 +31,7 @@ fn test_write_pdu_build() -> Result<()> {
         .and_then(Config::load_from_file)
         .context("failed to resolve or load config")?;
 
-    let expected =
-        load_fixture("tests/unit_tests/fixtures/scsi_commands/write10_request.hex")?;
+    let expected = load_fixture("tests/unit_tests/fixtures/scsi_commands/write10_request.hex")?;
 
     let lun_bytes = [0, 1, 0, 0, 0, 0, 0, 0];
     let lun_be = u64::from_be_bytes(lun_bytes);
@@ -95,8 +94,7 @@ fn test_write_response_parse() -> Result<()> {
         .and_then(Config::load_from_file)
         .context("failed to resolve or load config")?;
 
-    let bytes =
-        load_fixture("tests/unit_tests/fixtures/scsi_commands/write10_response.hex")?;
+    let bytes = load_fixture("tests/unit_tests/fixtures/scsi_commands/write10_response.hex")?;
     assert!(bytes.len() >= HEADER_LEN);
 
     let hd = cfg

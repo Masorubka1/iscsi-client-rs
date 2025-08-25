@@ -1,11 +1,9 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later GPL-3.0-or-later
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
 use anyhow::{Result, bail};
 use tracing::warn;
-use zerocopy::{
-    BigEndian, FromBytes as ZFromBytes, Immutable, IntoBytes, KnownLayout, U32,
-};
+use zerocopy::{BigEndian, FromBytes as ZFromBytes, Immutable, IntoBytes, KnownLayout, U32};
 
 use crate::{
     client::pdu_connection::FromBytes,
@@ -49,9 +47,8 @@ impl ScsiCommandResponse {
     }
 
     pub fn from_bhs_bytes(buf: &mut [u8]) -> Result<&mut Self> {
-        let hdr = <Self as zerocopy::FromBytes>::mut_from_bytes(buf).map_err(|e| {
-            anyhow::anyhow!("failed convert buffer ScsiCommandResponse: {e}")
-        })?;
+        let hdr = <Self as zerocopy::FromBytes>::mut_from_bytes(buf)
+            .map_err(|e| anyhow::anyhow!("failed convert buffer ScsiCommandResponse: {e}"))?;
         if hdr.opcode.opcode_known() != Some(Opcode::ScsiCommandResp) {
             anyhow::bail!(
                 "ScsiCommandResponse: invalid opcode 0x{:02x}",

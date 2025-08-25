@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later GPL-3.0-or-later
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
 use std::sync::atomic::AtomicU32;
@@ -55,8 +55,7 @@ async fn login_ua_request_sense_then_clear_with_tur() -> Result<()> {
     // === Step 2: REQUEST SENSE
     let mut rs_hdr = [0u8; 16];
     let _ = fill_request_sense_simple(&mut rs_hdr, 8);
-    let mut rctx_rs8 =
-        ReadCtx::new(conn.clone(), lun, &itt, &cmd_sn, &exp_stat_sn, 8, rs_hdr);
+    let mut rctx_rs8 = ReadCtx::new(conn.clone(), lun, &itt, &cmd_sn, &exp_stat_sn, 8, rs_hdr);
     let s8 = run_read(ReadStates::Start(ReadStart), &mut rctx_rs8).await?;
     assert_eq!(s8.data.len(), 8, "REQUEST SENSE header must be 8 bytes");
     let add_len = s8.data[7] as usize;
@@ -95,8 +94,7 @@ async fn login_ua_request_sense_then_clear_with_tur() -> Result<()> {
     inq_cdb[..6].fill(0);
     inq_cdb[0] = 0x12; // INQUIRY(6)
     inq_cdb[4] = 36;
-    let mut rctx_inq =
-        ReadCtx::new(conn.clone(), lun, &itt, &cmd_sn, &exp_stat_sn, 36, inq_cdb);
+    let mut rctx_inq = ReadCtx::new(conn.clone(), lun, &itt, &cmd_sn, &exp_stat_sn, 36, inq_cdb);
     let inq = run_read(ReadStates::Start(ReadStart), &mut rctx_inq).await?;
     assert_eq!(
         inq.data.len(),

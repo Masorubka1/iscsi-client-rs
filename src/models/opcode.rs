@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later GPL-3.0-or-later
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
 //! Helpers for encoding / decoding the very first byte of every iSCSI
@@ -179,7 +179,7 @@ impl fmt::Debug for RawBhsOpcode {
                     tmp.field("I", &bhs.flags);
                 }
                 tmp.field("opcode", &bhs.opcode).finish()
-            },
+            }
             Err(_) => {
                 let mut tmp = f.debug_struct("RawBhsOpcode");
                 if self.i() {
@@ -187,7 +187,7 @@ impl fmt::Debug for RawBhsOpcode {
                 }
                 tmp.field("opcode_raw", &format_args!("0x{:02X}", self.opcode_raw()))
                     .finish()
-            },
+            }
         }
     }
 }

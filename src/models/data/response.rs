@@ -1,11 +1,9 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later GPL-3.0-or-later
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
 use anyhow::{Result, anyhow, bail};
 use tracing::debug;
-use zerocopy::{
-    BigEndian, FromBytes as ZFromBytes, Immutable, IntoBytes, KnownLayout, U32, U64,
-};
+use zerocopy::{BigEndian, FromBytes as ZFromBytes, Immutable, IntoBytes, KnownLayout, U32, U64};
 
 use crate::{
     client::pdu_connection::FromBytes,
@@ -59,13 +57,13 @@ impl ScsiDataIn {
                 self.flags.set_s(true); // S = 1
                 self.flags.set_fin(true); // S ⇒ F
                 self.status_or_rsvd.encode(s);
-            },
+            }
             None => {
                 self.flags.set_s(false); // S = 0
                 self.status_or_rsvd.encode(ScsiStatus::Good);
                 self.stat_sn_or_rsvd.set(0);
                 self.residual_count.set(0);
-            },
+            }
         }
     }
 

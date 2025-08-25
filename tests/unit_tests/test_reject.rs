@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later GPL-3.0-or-later
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
 use std::fs;
@@ -20,8 +20,7 @@ fn load_fixture(path: &str) -> Result<Vec<u8>> {
 
 #[test]
 fn test_reject_parse() -> Result<()> {
-    let bytes =
-        load_fixture("tests/unit_tests/fixtures/scsi_commands/reject_example.hex")?;
+    let bytes = load_fixture("tests/unit_tests/fixtures/scsi_commands/reject_example.hex")?;
     assert!(bytes.len() >= HEADER_LEN);
 
     let mut hdr_buf = [0u8; HEADER_LEN];

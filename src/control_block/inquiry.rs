@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later GPL-3.0-or-later
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
 //! INQUIRY (6) — CDB fillers that write into a provided 16-byte buffer.
@@ -76,12 +76,7 @@ pub fn fill_inquiry_standard_simple(cdb: &mut [u8; 16], allocation_len: u8) {
 
 /// Fill a **VPD INQUIRY (EVPD=1, subpage=0)** CDB.
 #[inline]
-pub fn fill_inquiry_vpd(
-    cdb: &mut [u8; 16],
-    page: VpdPage,
-    allocation_len: u8,
-    control: u8,
-) {
+pub fn fill_inquiry_vpd(cdb: &mut [u8; 16], page: VpdPage, allocation_len: u8, control: u8) {
     fill_inquiry_vpd_with_subpage(cdb, page, 0x00, allocation_len, control)
 }
 
@@ -105,11 +100,7 @@ pub fn fill_inquiry_vpd_with_subpage(
 
 /// Convenience: VPD INQUIRY (subpage=0) with control=0.
 #[inline]
-pub fn fill_inquiry_vpd_simple(
-    cdb: &mut [u8; 16],
-    page_code: VpdPage,
-    allocation_len: u8,
-) {
+pub fn fill_inquiry_vpd_simple(cdb: &mut [u8; 16], page_code: VpdPage, allocation_len: u8) {
     fill_inquiry_vpd(cdb, page_code, allocation_len, 0x00)
 }
 
@@ -262,7 +253,7 @@ pub fn parse_vpd_device_id(buf: &[u8]) -> Result<Vec<DeviceIdDescriptor>> {
         let id_bytes = &p[start..end];
 
         let identifier = match code_set {
-            0x02 => trim_ascii(id_bytes), // ASCII
+            0x02 => trim_ascii(id_bytes),                                 // ASCII
             0x03 => String::from_utf8_lossy(id_bytes).trim().to_string(), // UTF-8
             _ => hex_bytes(id_bytes),
         };

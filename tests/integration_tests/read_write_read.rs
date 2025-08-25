@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later GPL-3.0-or-later
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
 use std::{
@@ -87,12 +87,12 @@ async fn read10_write10_read10_plain() -> Result<()> {
     );
 
     match run_write(WriteStates::IssueCmd(IssueCmd), &mut wctx).await {
-        Ok(_) => {},
+        Ok(_) => {}
         Err(_) => {
             sleep(Duration::from_millis(100)).await;
             let mut wctx2 = WriteCtx { ..wctx };
             run_write(WriteStates::IssueCmd(IssueCmd), &mut wctx2).await?;
-        },
+        }
     }
 
     let mut cdb_rd2 = [0u8; 16];

@@ -1,0 +1,55 @@
+# .cliff.toml
+[changelog]
+header = """# Changelog
+
+"""
+body = """
+{% if version %}## [{{ version | trim }}] - {{ timestamp | date("%Y-%m-%d") }}{% else %}## Unreleased{% endif %}
+{% for section, commits in commits | group_by(attribute="section") %}
+### {{ section | upper_first }}
+{% for commit in commits -%}
+- {{ commit.message | first_line | trim }} ({{ commit.id | truncate(length=7, end="") }})
+{%- endfor %}
+
+{% endfor -%}
+"""
+
+[git]
+conventional_commits = true
+filter_unconventional = true
+
+[[commit_types]]
+type = "feat"
+section = "Features"
+
+[[commit_types]]
+type = "fix"
+section = "Bug Fixes"
+
+[[commit_types]]
+type = "perf"
+section = "Performance"
+
+[[commit_types]]
+type = "refactor"
+section = "Refactoring"
+
+[[commit_types]]
+type = "docs"
+section = "Docs"
+
+[[commit_types]]
+type = "test"
+section = "Tests"
+
+[[commit_types]]
+type = "ci"
+section = "CI"
+
+[[commit_types]]
+type = "build"
+section = "Build"
+
+[[commit_types]]
+type = "chore"
+section = "Chores"

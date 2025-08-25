@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later GPL-3.0-or-later
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
 use std::{
@@ -97,12 +97,9 @@ impl<'a> NopCtx<'a> {
         let _ = header
             .header
             .to_bhs_bytes(self.buf.as_mut_slice())
-            .map_err(|e| {
-                Transition::<PDUWithData<NopInResponse>, anyhow::Error>::Done(e)
-            });
+            .map_err(|e| Transition::<PDUWithData<NopInResponse>, anyhow::Error>::Done(e));
 
-        let builder: PDUWithData<NopOutRequest> =
-            PDUWithData::from_header_slice(self.buf);
+        let builder: PDUWithData<NopOutRequest> = PDUWithData::from_header_slice(self.buf);
         self.conn.send_request(itt, builder).await?;
         Ok(NopStatus {
             itt,
@@ -177,13 +174,9 @@ impl<'ctx> StateMachine<NopCtx<'ctx>, NopStepOut> for Wait {
     }
 }
 
-impl<'ctx> StateMachine<NopCtx<'ctx>, Transition<NopStates, Result<NopStatus>>>
-    for Reply
-{
+impl<'ctx> StateMachine<NopCtx<'ctx>, Transition<NopStates, Result<NopStatus>>> for Reply {
     type StepResult<'a>
-        = Pin<
-        Box<dyn Future<Output = Transition<NopStates, Result<NopStatus>>> + Send + 'a>,
-    >
+        = Pin<Box<dyn Future<Output = Transition<NopStates, Result<NopStatus>>> + Send + 'a>>
     where
         Self: 'a,
         NopCtx<'ctx>: 'a;
@@ -193,18 +186,16 @@ impl<'ctx> StateMachine<NopCtx<'ctx>, Transition<NopStates, Result<NopStatus>>>
             let (exp_cmd_from_in, stat_sn_from_in) = match ctx.reply_from_in {
                 Some(v) => v,
                 None => {
-                    return Transition::Done(Err(anyhow!(
-                        "Reply state requires reply_from_in"
-                    )));
-                },
+                    return Transition::Done(Err(anyhow!("Reply state requires reply_from_in")));
+                }
             };
 
             let want_exp_stat = stat_sn_from_in.wrapping_add(1);
-            let _ =
-                ctx.exp_stat_sn
-                    .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |cur| {
-                        Some(cur.max(want_exp_stat))
-                    });
+            let _ = ctx
+                .exp_stat_sn
+                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |cur| {
+                    Some(cur.max(want_exp_stat))
+                });
             let exp_stat_to_send = ctx.exp_stat_sn.load(Ordering::SeqCst);
 
             // ITT for response NOP-In = 0xFFFF_FFFF
@@ -249,8 +240,8 @@ pub async fn run_nop(mut state: NopStates, ctx: &mut NopCtx<'_>) -> Result<NopSt
         match trans {
             Transition::Next(next_state, _r) => {
                 state = next_state;
-            },
-            Transition::Stay(Ok(_)) => {},
+            }
+            Transition::Stay(Ok(_)) => {}
             Transition::Stay(Err(e)) => return Err(e),
             Transition::Done(r) => return r,
         }

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later GPL-3.0-or-later
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
 use std::{
@@ -309,11 +309,11 @@ fn make_writer(cfg: &LogConfig) -> anyhow::Result<(BoxMakeWriter, WorkerGuard)> 
         Output::Stdout => {
             let (w, g) = tracing_appender::non_blocking(std::io::stdout());
             (BoxMakeWriter::new(w), g)
-        },
+        }
         Output::Stderr => {
             let (w, g) = tracing_appender::non_blocking(std::io::stderr());
             (BoxMakeWriter::new(w), g)
-        },
+        }
         Output::File => {
             let fcfg = cfg
                 .file
@@ -329,14 +329,11 @@ fn make_writer(cfg: &LogConfig) -> anyhow::Result<(BoxMakeWriter, WorkerGuard)> 
                 RotationFreq::Never => Rotation::NEVER,
             };
 
-            let file_appender = RollingFileAppender::new(
-                rotation,
-                dir,
-                path.file_name().unwrap_or_default(),
-            );
+            let file_appender =
+                RollingFileAppender::new(rotation, dir, path.file_name().unwrap_or_default());
             let (w, g) = tracing_appender::non_blocking(file_appender);
             (BoxMakeWriter::new(w), g)
-        },
+        }
     })
 }
 
@@ -345,10 +342,7 @@ pub trait LoggableToFile {
         "unknown"
     }
 
-    fn save_to_file(
-        file_name: &str,
-        content: &str,
-    ) -> impl Future<Output = Result<()>> + Send {
+    fn save_to_file(file_name: &str, content: &str) -> impl Future<Output = Result<()>> + Send {
         perform_save_to_file(file_name, content)
     }
 }

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later GPL-3.0-or-later
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
 //! REQUEST SENSE — 6-byte CDB filler written into a provided 16-byte buffer.
@@ -18,12 +18,7 @@ pub const REQUEST_SENSE: u8 = 0x03;
 
 /// Fill a REQUEST SENSE (6) CDB into `cdb[0..6]`.
 #[inline]
-pub fn fill_request_sense(
-    cdb: &mut [u8; 16],
-    desc: bool,
-    allocation_len: u8,
-    control: u8,
-) {
+pub fn fill_request_sense(cdb: &mut [u8; 16], desc: bool, allocation_len: u8, control: u8) {
     cdb.fill(0);
     cdb[0] = REQUEST_SENSE;
     cdb[1] = (desc as u8) & 0x01; // DESC bit (bit 0)

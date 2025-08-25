@@ -1,0 +1,22 @@
+fn_params_layout = "Tall"
+fn_single_line = false
+format_strings = true
+format_macro_matchers = true
+
+imports_granularity = "Crate"
+reorder_impl_items = true
+use_field_init_shorthand = true
+
+blank_lines_upper_bound = 2
+max_width = 90
+
+match_block_trailing_comma = true
+
+hard_tabs = false
+tab_spaces = 4
+struct_lit_single_line = true
+where_single_line = true
+wrap_comments = true
+group_imports = "StdExternalCrate"
+newline_style = "Unix"
+edition = "2024"

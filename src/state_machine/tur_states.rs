@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later GPL-3.0-or-later
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
 use std::{
@@ -75,8 +75,7 @@ impl<'a> TurCtx<'a> {
             .scsi_descriptor_block(&self.cbd);
 
         header.header.to_bhs_bytes(self.buf.as_mut_slice())?;
-        let pdu: PDUWithData<ScsiCommandRequest> =
-            PDUWithData::from_header_slice(self.buf);
+        let pdu: PDUWithData<ScsiCommandRequest> = PDUWithData::from_header_slice(self.buf);
         self.conn.send_request(itt, pdu).await?;
 
         Ok(TurStatus {
@@ -168,7 +167,7 @@ pub async fn run_tur(mut state: TurStates, ctx: &mut TurCtx<'_>) -> Result<TurSt
 
         match trans {
             Transition::Next(next_state, _r) => state = next_state,
-            Transition::Stay(Ok(_)) => {},
+            Transition::Stay(Ok(_)) => {}
             Transition::Stay(Err(e)) => return Err(e),
             Transition::Done(r) => return r,
         }

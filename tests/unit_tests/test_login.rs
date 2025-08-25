@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later GPL-3.0-or-later
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
 use std::{collections::BTreeSet, fs};
@@ -9,8 +9,8 @@ use iscsi_client_rs::{
     cfg::{
         cli::resolve_config_path,
         config::{
-            AuthConfig, Config, ToLoginKeys, login_keys_chap_response,
-            login_keys_operational, login_keys_security,
+            AuthConfig, Config, ToLoginKeys, login_keys_chap_response, login_keys_operational,
+            login_keys_security,
         },
     },
     models::{

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later GPL-3.0-or-later
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
 //! REPORT LUNS — CDB filler (12-byte CDB written into a 16-byte buffer).
@@ -35,12 +35,7 @@ pub mod select_report {
 
 /// Fill a REPORT LUNS CDB into `cdb[0..12]`.
 #[inline]
-pub fn fill_report_luns(
-    cdb: &mut [u8; 16],
-    select: u8,
-    allocation_len: u32,
-    control: u8,
-) {
+pub fn fill_report_luns(cdb: &mut [u8; 16], select: u8, allocation_len: u32, control: u8) {
     cdb.fill(0);
     cdb[0] = REPORT_LUNS;
     cdb[1] = 0x00; // Service Action = REPORT LUNS
