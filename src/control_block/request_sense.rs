@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later GPL-3.0-or-later
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
 //! REQUEST SENSE — 6-byte CDB filler written into a provided 16-byte buffer.

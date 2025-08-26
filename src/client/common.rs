@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later GPL-3.0-or-later
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
 use std::time::Duration;
@@ -11,9 +11,7 @@ use crate::models::common::HEADER_LEN;
 const IO_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub async fn io_with_timeout<F, T>(label: &'static str, fut: F) -> Result<T>
-where
-    F: Future<Output = std::io::Result<T>>,
-{
+where F: Future<Output = std::io::Result<T>> {
     match timeout(IO_TIMEOUT, fut).await {
         Ok(Ok(v)) => Ok(v),
         Ok(Err(e)) => Err(e.into()),

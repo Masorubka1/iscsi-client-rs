@@ -1,0 +1,97 @@
+name: Rust
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - "*.*.*"
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    name: Lint (clippy + rustfmt)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          components: clippy, rustfmt
+
+      - name: rustfmt check
+        run: cargo +nightly fmt -- --check
+
+      - name: clippy check
+        run: cargo clippy --tests --examples --benches --no-deps --all-targets -- -D warnings
+
+  test:
+    name: Run tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+
+      - name: Run tests
+        run: cargo test --tests unit --no-fail-fast --verbose
+
+  publish:
+    name: Publish to crates.io
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Verify version matches tag
+        run: |
+          TAG=${GITHUB_REF#refs/tags/}
+          VERSION=$(grep '^version =' Cargo.toml | head -1 | sed 's/version = "\([^"]*\)"/\1/')
+          if [ "$TAG" != "$VERSION" ]; then
+            echo "Tag ($TAG) does not match version in Cargo.toml ($VERSION)"
+            exit 1
+          fi
+
+      - name: Publish to crates.io
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish --no-verify
+
+  release_notes:
+    name: Generate release notes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    needs: [publish]
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install git-cliff
+        run: cargo install git-cliff --locked
+
+      - name: Generate RELEASE_NOTES.md
+        run: |
+          TAG=${GITHUB_REF#refs/tags/}
+          git-cliff --tag "$TAG" -o RELEASE_NOTES.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          body_path: RELEASE_NOTES.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later GPL-3.0-or-later
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
 //! INQUIRY (6) — CDB fillers that write into a provided 16-byte buffer.
