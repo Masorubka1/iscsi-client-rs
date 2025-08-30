@@ -41,4 +41,5 @@ extra_data:
     default_time2wait: 2 # DefaultTime2Wait (секунды)
     default_time2retain: 0 # DefaultTime2Retain (секунды)
   connections:
-    max_connections: 1 # MaxConnections=1\x00
+    max_connections: 1 # MaxConnections=1\x00 // WARNING TGT DON`t SUPPORT MANY CONNECTIONS VIA SAME ISID
+    max_sessions: 2 # max_sessions=1\x00 // WARNING NOT INCLUDED IN RFC. MAY WORK UNSTABLE

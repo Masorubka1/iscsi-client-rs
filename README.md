@@ -45,35 +45,54 @@ iscsi-client-rs = "*"
 ### Connect + login (state machine)
 
 ```rust
+use std::sync::atomic::AtomicU32;
+
+use anyhow::Result;
+use iscsi_client_rs::{
+    cfg::{
+        cli::resolve_config_path,
+        config::{AuthConfig, Config},
+        logger::init_logger,
+    },
+    client::client::ClientConnection,
+    state_machine::login::common::LoginCtx,
+};
+
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    // Load config
+async fn main() -> Result<()> {
+    let _ = init_logger("tests/config_logger.yaml")?;
+
+    // --- Load config ---
     let cfg_path = resolve_config_path("./config.yaml")?;
     let cfg = Config::load_from_file(cfg_path)?;
 
-    // Connect
-    let conn = Connection::connect(cfg.clone()).await?; // Arc<Connection>
+    // --- TCP connect ---
+    let conn = ClientConnection::connect(cfg.clone()).await?; // Arc<ClientConnection>
 
-    // ISID and CID you control; ITT=0 for login flow
+    // --- ISID/CID (tsih=0 => новая сессия; ITT для логина не нужен) ---
     let isid: [u8; 6] = [0, 2, 61, 0, 0, 14];
     let cid: u16 = 1;
-    let itt: u32 = 0;
+    let tsih_hint: u16 = 0;
 
-    // Build context and choose branch by auth
-    let mut lctx = LoginCtx::new(Arc::clone(&conn), &cfg, isid, cid, itt);
-    let start: LoginStates = match cfg.login.auth {
-        AuthConfig::Chap(_) => start_chap(),
-        AuthConfig::None    => start_plain(),
-    };
+    // --- Build login context and pick branch by auth ---
+    let mut lctx = LoginCtx::new(conn.clone(), isid, cid, tsih_hint);
+    match cfg.login.auth {
+        AuthConfig::Chap(_) => lctx.set_chap_login(),
+        AuthConfig::None    => lctx.set_plain_login(),
+    }
 
-    let st = run_login(start, &mut lctx).await?; // LoginStatus
+    // --- Run login state machine; get final Login Response PDU ---
+    let login_pdu = lctx.execute().await?;
 
-    // Seed counters for SCSI traffic using login response
-    let cmd_sn = AtomicU32::new(st.exp_cmd_sn);
-    let exp_stat_sn = AtomicU32::new(st.stat_sn.wrapping_add(1));
-    let itt_ctr = AtomicU32::new(1); // non-zero ITT for I/O
+    // --- Seed counters for SCSI I/O from the login header ---
+    let h = login_pdu.header_view()?;
+    let cmd_sn     = AtomicU32::new(h.exp_cmd_sn.get());
+    let exp_stat_sn= AtomicU32::new(h.stat_sn.get().wrapping_add(1));
+    let itt_ctr    = AtomicU32::new(h.initiator_task_tag.get().wrapping_add(1));
 
-    // ... now you can run NOP/READ/WRITE state machines
+    // let mut nctx = NopCtx::new(conn.clone(), lun, &itt_ctr, &cmd_sn, &exp_stat_sn, ttt);
+    // nctx.execute().await?;
+
     Ok(())
 }
 ```
@@ -252,7 +271,7 @@ A high-level plan, trimmed for GitHub readability. We track delivery as **Now �
 
 * **Sessions & recovery**
 
-  * [ ] Multi-connection sessions (MC/S)
+  * [x] Multi-connection sessions (MC/S)
   * [ ] Reinstatement & session recovery
   * [ ] ERL1/ERL2: SNACKs, retransmit, CmdSN/StatSN windowing
 * **Security**
@@ -289,7 +308,7 @@ Issues and PRs are welcome. Please run:
 
 ```bash
 cargo fmt --all
-cargo clippy --tests --examples --benches -- -D warnings
+cargo clippy --tests --benches -- -D warnings
 cargo test
 ```
 

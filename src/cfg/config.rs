@@ -114,7 +114,9 @@ pub struct R2TConfig {
 #[derive(Deserialize, Debug, Clone)]
 pub struct ConnectionConfig {
     #[serde(rename = "max_connections")]
-    pub max_connections: u8,
+    pub max_connections: u16,
+    #[serde(rename = "max_sessions")]
+    pub max_sessions: u32,
 }
 
 impl Config {

@@ -1,11 +1,9 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later=
-// Copyright (C) 2012-2025 Andrei Maltsev
-
-use std::sync::{Arc, atomic::Ordering};
+use std::{sync::Arc, time::Duration};
 
 use anyhow::{Context, Result, bail};
 use iscsi_client_rs::{
-    cfg::{config::AuthConfig, logger::init_logger},
+    cfg::{config::Config, logger::init_logger},
+    client::{client::ClientConnection, pool_sessions::Pool},
     control_block::{
         read::build_read10,
         read_capacity::{
@@ -14,15 +12,12 @@ use iscsi_client_rs::{
         },
         write::build_write10,
     },
-    state_machine::{
-        common::StateMachineCtx, login::common::LoginCtx, read_states::ReadCtx,
-        write_states::WriteCtx,
-    },
+    state_machine::{read_states::ReadCtx, write_states::WriteCtx},
 };
+use serial_test::serial;
+use tokio::time::timeout;
 
-use crate::integration_tests::common::{
-    connect_cfg, get_lun, load_config, test_isid, test_path,
-};
+use crate::integration_tests::common::{connect_cfg, get_lun, load_config, test_path};
 
 fn fill_pattern(buf: &mut [u8], blk_sz: usize, lba_start: u64) {
     assert!(blk_sz > 0 && buf.len() % blk_sz == 0);
@@ -32,11 +27,11 @@ fn fill_pattern(buf: &mut [u8], blk_sz: usize, lba_start: u64) {
     }
 }
 
-fn choose_lba_safely(isid: [u8; 6], max_lba: u64, need_blocks: u64) -> Result<u32> {
-    let s: u64 = isid.iter().map(|&b| b as u64).sum();
-    let mut lba = 4096 + (s % 1024);
+fn choose_lba_safely(max_lba: u64, need_blocks: u64) -> Result<u32> {
+    // Берём «середину» устройства, чтобы сдвинуться от нуля и оставить запас.
+    // Можно заменить на любую вашу стратегию выбора.
     if need_blocks == 0 {
-        return Ok(lba as u32);
+        return Ok(1024);
     }
     if need_blocks - 1 > max_lba {
         bail!(
@@ -45,6 +40,7 @@ fn choose_lba_safely(isid: [u8; 6], max_lba: u64, need_blocks: u64) -> Result<u3
             max_lba + 1
         );
     }
+    let mut lba = (max_lba + 1) / 3;
     let max_start = max_lba + 1 - need_blocks;
     if lba > max_start {
         lba = max_start;
@@ -52,88 +48,87 @@ fn choose_lba_safely(isid: [u8; 6], max_lba: u64, need_blocks: u64) -> Result<u3
     Ok(lba as u32)
 }
 
-#[tokio::test]
-async fn write10_read10_1_gib_plain() -> Result<()> {
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[serial]
+async fn write10_read10_1_gib_plain_pool_multi_tsih_mcs() -> Result<()> {
     let _ = init_logger(&test_path());
-    let cfg = Arc::new(load_config()?);
+    let cfg: Arc<Config> = Arc::new(load_config()?);
 
-    let want_bytes_total: usize = 1usize << 30;
+    // --- Pool: логиним несколько сессий (tsih) из конфигурации ---
+    let pool = Arc::new(Pool::new(&cfg));
+    pool.attach_self();
 
-    let conn = connect_cfg(&cfg).await?;
-    let isid = test_isid();
+    let tsihs = pool
+        .login_sessions_from_cfg(&cfg)
+        .await
+        .context("login_sessions_from_cfg failed")?;
+    assert!(!tsihs.is_empty(), "no sessions created by pool");
 
-    let mut lctx = LoginCtx::new(conn.clone(), &cfg, isid, 1, 0);
-    match cfg.login.auth {
-        AuthConfig::Chap(_) => lctx.set_chap_login(),
-        AuthConfig::None => lctx.set_plain_login(),
+    // --- Для каждой сессии добавим дополнительные CIDs (MC/S) ---
+    let max_conns = cfg.extra_data.connections.max_connections.max(1);
+    for &tsih in &tsihs {
+        for cid in 1..max_conns {
+            // отдельный TCP для каждого CID
+            let conn_i: Arc<ClientConnection> = connect_cfg(&cfg).await?;
+            pool.add_connection_to_session(tsih, cid, conn_i)
+                .await
+                .with_context(|| {
+                    format!("add_connection_to_session(tsih={tsih}, cid={cid})")
+                })?;
+        }
     }
-    lctx.execute().await.context("login failed")?;
 
-    let login_pdu = lctx
-        .last_response
-        .as_ref()
-        .context("no login last_response")?;
-    let lh = login_pdu.header_view().context("login header")?;
-    conn.counters
-        .cmd_sn
-        .store(lh.exp_cmd_sn.get(), Ordering::SeqCst);
-    conn.counters
-        .exp_stat_sn
-        .store(lh.stat_sn.get().wrapping_add(1), Ordering::SeqCst);
-    conn.counters.itt.store(1, Ordering::SeqCst);
+    // --- Собираем список всех «воркеров»: (tsih, cid) ---
+    let mut workers: Vec<(u16, u16)> = Vec::new();
+    for &tsih in &tsihs {
+        for cid in 0..max_conns {
+            workers.push((tsih, cid));
+        }
+    }
+    assert!(!workers.is_empty());
 
     let lun = get_lun();
 
-    // READ CAPACITY(10)
-    let mut cdb_rc10 = [0u8; 16];
-    build_read_capacity10(&mut cdb_rc10, 0, false, 0);
-    let mut rc10_ctx = ReadCtx::new(
-        conn.clone(),
-        lun,
-        &conn.counters.itt,
-        &conn.counters.cmd_sn,
-        &conn.counters.exp_stat_sn,
-        8,
-        cdb_rc10,
-    );
-    let _ = rc10_ctx.execute().await;
-    let mut rc10_ctx = ReadCtx::new(
-        conn.clone(),
-        lun,
-        &conn.counters.itt,
-        &conn.counters.cmd_sn,
-        &conn.counters.exp_stat_sn,
-        8,
-        cdb_rc10,
-    );
-    rc10_ctx
-        .execute()
+    // --- Один раз снимаем READ CAPACITY (10/16) через первого воркера ---
+    for (tsih, cid) in &workers {
+        let _ = pool
+            .execute_with(*tsih, *cid, |c, itt, cmd_sn, exp_stat_sn| {
+                let mut cdb = [0u8; 16];
+                build_read_capacity10(&mut cdb, 0, false, 0);
+                ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, 8, cdb)
+            })
+            .await;
+    }
+    let (tsih0, cid0) = workers[0];
+
+    let rc10 = pool
+        .execute_with(tsih0, cid0, |c, itt, cmd_sn, exp_stat_sn| {
+            let mut cdb = [0u8; 16];
+            build_read_capacity10(&mut cdb, 0, false, 0);
+            ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, 8, cdb)
+        })
         .await
         .context("READ CAPACITY(10) failed")?;
-    let rc10_bytes = rc10_ctx.rt.acc;
-    let rc10: &Rc10Raw = parse_read_capacity10_zerocopy(&rc10_bytes)?;
-    let blk_len_10 = rc10.block_len.get();
-    let max_lba_10 = rc10.max_lba.get() as u64;
+    let rc10_raw: &Rc10Raw =
+        parse_read_capacity10_zerocopy(&rc10.data).context("parse RC10")?;
+    let blk_len_10 = rc10_raw.block_len.get();
+    let max_lba_10 = rc10_raw.max_lba.get() as u64;
 
-    // READ CAPACITY(16) (опционально)
     let (blk_len, max_lba_u64) = {
-        let mut cdb = [0u8; 16];
-        build_read_capacity16(&mut cdb, 0, false, 32, 0);
-        let mut rc16_ctx = ReadCtx::new(
-            conn.clone(),
-            lun,
-            &conn.counters.itt,
-            &conn.counters.cmd_sn,
-            &conn.counters.exp_stat_sn,
-            32,
-            cdb,
-        );
-        match rc16_ctx.execute().await {
-            Ok(()) => {
-                let rc16_bytes = rc16_ctx.rt.acc;
-                let rc16: &Rc16Raw = parse_read_capacity16_zerocopy(&rc16_bytes)?;
-                let bl = rc16.block_len.get();
-                let ml = rc16.max_lba.get();
+        let try16 = pool
+            .execute_with(tsih0, cid0, |c, itt, cmd_sn, exp_stat_sn| {
+                let mut cdb = [0u8; 16];
+                build_read_capacity16(&mut cdb, 0, false, 32, 0);
+                ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, 32, cdb)
+            })
+            .await;
+
+        match try16 {
+            Ok(rc16) => {
+                let rc16_raw: &Rc16Raw =
+                    parse_read_capacity16_zerocopy(&rc16.data).context("parse RC16")?;
+                let bl = rc16_raw.block_len.get();
+                let ml = rc16_raw.max_lba.get();
                 if max_lba_10 != u32::MAX as u64 {
                     assert_eq!(bl, blk_len_10, "RC10/RC16 block size mismatch");
                 }
@@ -146,21 +141,12 @@ async fn write10_read10_1_gib_plain() -> Result<()> {
     let blk_sz = blk_len as usize;
     assert!(blk_sz.is_power_of_two() && blk_sz > 0);
 
+    let want_bytes_total: usize = 1usize << 30;
     let need_blocks_total: usize = want_bytes_total / blk_sz;
     assert!(need_blocks_total > 0);
 
-    let lba0: u32 = choose_lba_safely(isid, max_lba_u64, need_blocks_total as u64)?;
+    let lba0: u32 = choose_lba_safely(max_lba_u64, need_blocks_total as u64)?;
 
-    // полезная нагрузка
-    let total_bytes = need_blocks_total * blk_sz;
-    let mut payload = vec![0u8; total_bytes];
-    fill_pattern(&mut payload, blk_sz, lba0 as u64);
-
-    // Ограничения на ОДНУ команду:
-    //  - SCSI WRITE/READ(10): максимум 65535 блоков
-    //  - FILEIO (страховка): 8 MiB
-    //  - iSCSI MaxBurstLength (байты)
-    //  - MRDSL ограничивает длину Data-In на одну READ-команду
     const FD_MAX_BYTES: usize = 8 * 1024 * 1024;
     let burst_bytes = cfg.login.negotiation.max_burst_length as usize;
     let mrdsl_bytes = cfg.login.negotiation.max_recv_data_segment_length as usize;
@@ -176,100 +162,131 @@ async fn write10_read10_1_gib_plain() -> Result<()> {
         .min(max_blocks_by_burst)
         .min(max_blocks_by_mrdsl);
 
-    {
-        let mut cdb = [0u8; 16];
-        build_write10(&mut cdb, lba0, 1, 0, 0);
-        let mut wctx = WriteCtx::new(
-            conn.clone(),
-            lun,
-            &conn.counters.itt,
-            &conn.counters.cmd_sn,
-            &conn.counters.exp_stat_sn,
-            cdb,
-            vec![0u8; blk_sz],
-        );
-        wctx.execute().await?;
-    }
+    // --- Дробим суммарный объём равномерно по всем (tsih, cid) воркерам ---
+    let n_workers = workers.len();
+    let per_worker_blocks = (need_blocks_total + n_workers - 1) / n_workers;
 
-    // WRITE(10)
-    let mut written_blocks: usize = 0;
-    while written_blocks < need_blocks_total {
-        let blk_this = ((need_blocks_total - written_blocks) as u32)
-            .min(max_write_blocks_per_cmd as u32) as usize;
-
-        let off = written_blocks * blk_sz;
-        let len = blk_this * blk_sz;
-
-        let mut cdb = [0u8; 16];
-        build_write10(
-            &mut cdb,
-            (lba0 as usize + written_blocks) as u32,
-            blk_this as u16,
-            0,
-            0,
-        );
-
-        let mut wctx = WriteCtx::new(
-            conn.clone(),
-            lun,
-            &conn.counters.itt,
-            &conn.counters.cmd_sn,
-            &conn.counters.exp_stat_sn,
-            cdb,
-            payload[off..off + len].to_vec(),
-        );
-        wctx.execute().await?;
-        written_blocks += blk_this;
-    }
-
-    // READ(10)
-    let mut read_back = Vec::with_capacity(total_bytes);
-    let mut read_blocks: usize = 0;
-    while read_blocks < need_blocks_total {
-        let blk_this = ((need_blocks_total - read_blocks) as u32)
-            .min(max_read_blocks_per_cmd as u32) as usize;
-
-        let len = blk_this * blk_sz;
-
-        let mut cdb = [0u8; 16];
-        build_read10(
-            &mut cdb,
-            (lba0 as usize + read_blocks) as u32,
-            blk_this as u16,
-            0,
-            0,
-        );
-
-        let mut rctx = ReadCtx::new(
-            conn.clone(),
-            lun,
-            &conn.counters.itt,
-            &conn.counters.cmd_sn,
-            &conn.counters.exp_stat_sn,
-            len as u32,
-            cdb,
-        );
-        rctx.execute().await?;
-        let rd = rctx.rt.acc;
-        assert_eq!(rd.len(), len);
-        read_back.extend_from_slice(&rd);
-
-        read_blocks += blk_this;
-    }
-
-    assert_eq!(read_back.len(), total_bytes);
-
-    for (i, chunk) in read_back.chunks_exact(blk_sz).enumerate() {
-        let expected = ((((lba0 as usize) + i) as u8) ^ 0xA5) as u8;
-        if !(chunk[0] == expected && chunk[blk_sz - 1] == expected) {
-            if chunk.iter().any(|&b| b != expected) {
-                panic!(
-                    "data mismatch at LBA {} (block #{})",
-                    lba0 as u64 + i as u64,
-                    i
-                );
-            }
+    // ===================== Parallel Write =====================
+    let mut write_handles = Vec::with_capacity(n_workers);
+    for (widx, (tsih, cid)) in workers.iter().copied().enumerate() {
+        let pool_cl = pool.clone();
+        let this_start_blocks = widx * per_worker_blocks;
+        if this_start_blocks >= need_blocks_total {
+            continue;
         }
+        let this_blocks = per_worker_blocks.min(need_blocks_total - this_start_blocks);
+        let start_lba = lba0 as usize + this_start_blocks;
+
+        write_handles.push(tokio::spawn(async move {
+            let mut written = 0usize;
+            while written < this_blocks {
+                let blk_this = ((this_blocks - written) as u32)
+                    .min(max_write_blocks_per_cmd as u32)
+                    as usize;
+
+                let start_lba_u32 = (start_lba + written) as u32;
+                let len_bytes = blk_this * blk_sz;
+
+                let mut payload = vec![0u8; len_bytes];
+                fill_pattern(&mut payload, blk_sz, start_lba_u32 as u64);
+
+                pool_cl
+                    .execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
+                        let mut cdb = [0u8; 16];
+                        build_write10(&mut cdb, start_lba_u32, blk_this as u16, 0, 0);
+                        WriteCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, cdb, payload)
+                    })
+                    .await
+                    .with_context(|| {
+                        format!(
+                            "WRITE chunk tsih={} cid={} lba={} blks={}",
+                            tsih, cid, start_lba_u32, blk_this
+                        )
+                    })?;
+
+                written += blk_this;
+            }
+            Ok::<(), anyhow::Error>(())
+        }));
+    }
+    for h in write_handles {
+        h.await.expect("join write task")?;
+    }
+
+    // ===================== Parallel read + verify =====================
+    let mut read_handles = Vec::with_capacity(n_workers);
+    for (widx, (tsih, cid)) in workers.iter().copied().enumerate() {
+        let pool_cl = pool.clone();
+        let this_start_blocks = widx * per_worker_blocks;
+        if this_start_blocks >= need_blocks_total {
+            continue;
+        }
+        let this_blocks = per_worker_blocks.min(need_blocks_total - this_start_blocks);
+        let start_lba = lba0 as usize + this_start_blocks;
+
+        read_handles.push(tokio::spawn(async move {
+            let mut done = 0usize;
+            while done < this_blocks {
+                let blk_this = ((this_blocks - done) as u32)
+                    .min(max_read_blocks_per_cmd as u32)
+                    as usize;
+
+                let start_lba_u32 = (start_lba + done) as u32;
+                let len_bytes = blk_this * blk_sz;
+
+                let chunk = pool_cl
+                    .execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
+                        let mut cdb = [0u8; 16];
+                        build_read10(&mut cdb, start_lba_u32, blk_this as u16, 0, 0);
+                        ReadCtx::new(
+                            c,
+                            lun,
+                            itt,
+                            cmd_sn,
+                            exp_stat_sn,
+                            len_bytes as u32,
+                            cdb,
+                        )
+                    })
+                    .await
+                    .with_context(|| {
+                        format!(
+                            "READ chunk tsih={} cid={} lba={} blks={}",
+                            tsih, cid, start_lba_u32, blk_this
+                        )
+                    })?;
+
+                // сверяем с эталоном
+                let mut expected = vec![0u8; len_bytes];
+                fill_pattern(&mut expected, blk_sz, start_lba_u32 as u64);
+                if chunk.data != expected {
+                    bail!(
+                        "data mismatch tsih={} cid={} lba={} blocks={}",
+                        tsih,
+                        cid,
+                        start_lba_u32,
+                        blk_this
+                    );
+                }
+
+                done += blk_this;
+            }
+            Ok::<(), anyhow::Error>(())
+        }));
+    }
+    for h in read_handles {
+        h.await.expect("join read task")?;
+    }
+
+    // --- Logout всех сессий и проверка очистки пула ---
+    for tsih in tsihs {
+        timeout(Duration::from_secs(30), pool.logout_session(tsih))
+            .await
+            .with_context(|| format!("logout timeout tsih={tsih}"))??;
+        assert!(
+            pool.sessions.get(&tsih).is_none(),
+            "session {tsih} must be removed from pool after CloseSession"
+        );
     }
 
     Ok(())

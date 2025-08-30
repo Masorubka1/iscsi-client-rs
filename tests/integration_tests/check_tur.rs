@@ -1,18 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
-use std::sync::atomic::AtomicU32;
+use std::{sync::Arc, time::Duration};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use iscsi_client_rs::{
-    cfg::{
-        config::{AuthConfig, Config},
-        logger::init_logger,
-    },
-    state_machine::{
-        common::StateMachineCtx, login::common::LoginCtx, tur_states::TurCtx,
-    },
+    cfg::{config::Config, logger::init_logger},
+    client::pool_sessions::Pool,
+    state_machine::tur_states::TurCtx,
 };
+use tokio::time::timeout;
 
 use crate::integration_tests::common::{
     connect_cfg, get_lun, load_config, test_isid, test_path,
@@ -25,36 +22,43 @@ async fn login_and_tur() -> Result<()> {
     let cfg: Config = load_config()?;
     let conn = connect_cfg(&cfg).await?;
 
-    // ---- Login ----
+    // ---- Pool ----
+    let pool = Arc::new(Pool::new(&cfg));
+    pool.attach_self();
+
+    // ---- Login via Pool ----
     let isid = test_isid();
-    let mut lctx = LoginCtx::new(
-        conn.clone(),
-        &cfg,
-        isid,
-        /* cid */ 1,
-        /* tsih */ 0,
-    );
+    let cid: u16 = 1;
+    let target_name: Arc<str> = Arc::from(cfg.login.security.target_name.clone());
 
-    match cfg.login.auth {
-        AuthConfig::Chap(_) => lctx.set_chap_login(),
-        AuthConfig::None => lctx.set_plain_login(),
-    };
+    let tsih = pool
+        .login_and_insert(target_name, isid, cid, conn.clone())
+        .await
+        .context("pool login failed")?;
 
-    lctx.execute().await?;
-
-    let login_status = lctx.last_response.as_ref().expect("Wee").header_view()?;
-
-    // ---- Counters and LUN ----
-    let cmd_sn = AtomicU32::new(login_status.exp_cmd_sn.get());
-    let exp_stat_sn = AtomicU32::new(login_status.stat_sn.get().wrapping_add(1));
-    let itt = AtomicU32::new(login_status.initiator_task_tag.wrapping_add(1));
     let lun = get_lun();
 
-    // ---- TEST UNIT READY ----
-    let mut tctx = TurCtx::new(conn.clone(), &itt, &cmd_sn, &exp_stat_sn, lun);
-    let _ = tctx.execute().await;
-    let mut tctx = TurCtx::new(conn.clone(), &itt, &cmd_sn, &exp_stat_sn, lun);
-    tctx.execute().await?;
+    // ---- TEST UNIT READY via Pool ----
+    let _ = pool
+        .execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
+            TurCtx::new(c, itt, cmd_sn, exp_stat_sn, lun)
+        })
+        .await;
+
+    pool.execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
+        TurCtx::new(c, itt, cmd_sn, exp_stat_sn, lun)
+    })
+    .await
+    .context("TUR failed")?;
+
+    timeout(Duration::from_secs(10), pool.logout_session(tsih))
+        .await
+        .context("logout timeout")??;
+
+    assert!(
+        pool.sessions.get(&tsih).is_none(),
+        "session must be removed from pool after CloseSession"
+    );
 
     Ok(())
 }

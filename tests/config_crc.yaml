@@ -42,3 +42,4 @@ extra_data:
     default_time2retain: 0 # DefaultTime2Retain (секунды)
   connections:
     max_connections: 1 # MaxConnections=1\x00
+    max_sessions: 1 # max_sessions=1\x00 // WARNING NOT INCLUDED IN RFC. MAY WORK UNSTABLE

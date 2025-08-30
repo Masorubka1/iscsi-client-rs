@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
-use std::sync::atomic::AtomicU32;
+use std::{sync::Arc, time::Duration};
 
 use anyhow::{Context, Result};
 use iscsi_client_rs::{
     cfg::{config::Config, logger::init_logger},
+    client::pool_sessions::Pool,
     models::nop::request::NopOutRequest,
-    state_machine::{
-        common::StateMachineCtx, login::common::LoginCtx, nop_states::NopCtx,
-    },
+    state_machine::nop_states::NopCtx,
 };
+use tokio::time::timeout;
 
 use crate::integration_tests::common::{
     connect_cfg, get_lun, load_config, test_isid, test_path,
@@ -21,33 +21,39 @@ async fn login_and_nop() -> Result<()> {
     let _ = init_logger(&test_path());
 
     let cfg: Config = load_config()?;
+    let pool = Arc::new(Pool::new(&cfg));
+    pool.attach_self();
 
+    // Use a pre-connected TCP (helper), then attach it as CID=0 into a new session
     let conn = connect_cfg(&cfg).await?;
-
-    // ---- Login (execute) ----
+    let target_name: Arc<str> = Arc::from(cfg.login.security.target_name.clone());
     let isid = test_isid();
-    let mut lctx = LoginCtx::new(
-        conn.clone(),
-        &cfg,
-        isid,
-        /* cid */ 1,
-        /* tsih */ 0,
-    );
-    lctx.set_plain_login();
-    lctx.execute().await.context("login failed")?;
+    let cid: u16 = 0;
 
-    let login_pdu = lctx.last_response.as_ref().expect("login last_response");
-    let lh = login_pdu.header_view().context("login header")?;
+    let tsih = pool
+        .login_and_insert(target_name, isid, cid, conn.clone())
+        .await
+        .context("pool login failed")?;
 
-    let cmd_sn = AtomicU32::new(lh.exp_cmd_sn.get());
-    let exp_stat_sn = AtomicU32::new(lh.stat_sn.get().wrapping_add(1));
-    let itt = AtomicU32::new(1);
     let lun = get_lun();
 
-    // ---- NOP (execute) ----
-    let ttt = NopOutRequest::DEFAULT_TAG;
-    let mut nctx = NopCtx::new(conn.clone(), lun, &itt, &cmd_sn, &exp_stat_sn, ttt);
-    nctx.execute().await.context("NOP failed")?;
+    // NOP-Out (keep-alive) via pool.execute_with
+    pool.execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
+        NopCtx::new(
+            c,
+            lun,
+            itt,         // Arc<AtomicU32>
+            cmd_sn,      // Arc<AtomicU32>
+            exp_stat_sn, // Arc<AtomicU32>
+            NopOutRequest::DEFAULT_TAG,
+        )
+    })
+    .await
+    .context("NOP failed")?;
+
+    timeout(Duration::from_secs(10), pool.logout_session(tsih))
+        .await
+        .context("logout timeout")??;
 
     Ok(())
 }

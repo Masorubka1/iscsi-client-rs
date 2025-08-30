@@ -4,11 +4,12 @@
 use std::{
     any::type_name,
     fmt::{self, Debug},
-    sync::{Arc, atomic::AtomicU32},
+    sync::{Arc, Weak},
 };
 
 use anyhow::{Result, anyhow, bail};
 use dashmap::DashMap;
+use once_cell::sync::OnceCell;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{
@@ -24,15 +25,23 @@ use crate::{
     client::{
         common::{RawPdu, io_with_timeout},
         pdu_connection::{FromBytes, ToBytes},
+        pool_sessions::Pool,
     },
     models::{
         common::{BasicHeaderSegment, HEADER_LEN, SendingData},
         data_fromat::{PDUWithData, ZeroCopyType},
-        nop::response::NopInResponse,
+        nop::{request::NopOutRequest, response::NopInResponse},
         parse::Pdu,
     },
-    state_machine::{common::StateMachineCtx, nop_states::NopCtx},
+    state_machine::nop_states::NopCtx,
 };
+
+#[derive(Debug, Clone)]
+struct SessionRef {
+    pool: Weak<Pool>,
+    tsih: u16,
+    cid: u16,
+}
 
 /// A simple iSCSI connection wrapper over a TCP stream.
 ///
@@ -45,14 +54,8 @@ pub struct ClientConnection {
     pub cfg: Config,
     sending: DashMap<u32, mpsc::Sender<RawPdu>>,
     reciver: DashMap<u32, mpsc::Receiver<RawPdu>>,
-    pub counters: Counters,
-}
 
-#[derive(Debug, Default)]
-pub struct Counters {
-    pub itt: AtomicU32,
-    pub cmd_sn: AtomicU32,
-    pub exp_stat_sn: AtomicU32,
+    session_ref: OnceCell<SessionRef>,
 }
 
 impl ClientConnection {
@@ -75,6 +78,10 @@ impl ClientConnection {
         Ok(conn)
     }
 
+    pub fn bind_pool_session(&self, pool: Weak<Pool>, tsih: u16, cid: u16) {
+        let _ = self.session_ref.set(SessionRef { pool, tsih, cid });
+    }
+
     pub fn from_split_no_reader(
         r: OwnedReadHalf,
         w: OwnedWriteHalf,
@@ -86,7 +93,7 @@ impl ClientConnection {
             cfg,
             sending: DashMap::new(),
             reciver: DashMap::new(),
-            counters: Counters::default(),
+            session_ref: OnceCell::new(),
         })
     }
 
@@ -277,42 +284,107 @@ impl ClientConnection {
         }
     }
 
+    pub async fn send_keepalive_via_pool_lun(self: &Arc<Self>, lun: u64) -> Result<()> {
+        let sr = self
+            .session_ref
+            .get()
+            .ok_or_else(|| anyhow!("connection is not bound to a pool/session"))?;
+        let pool = sr
+            .pool
+            .upgrade()
+            .ok_or_else(|| anyhow!("pool has been dropped"))?;
+
+        pool.execute_with(sr.tsih, sr.cid, move |conn, itt, cmd_sn, exp_stat_sn| {
+            NopCtx::new(
+                conn,
+                lun,
+                itt,
+                cmd_sn,
+                exp_stat_sn,
+                NopOutRequest::DEFAULT_TAG,
+            )
+        })
+        .await?;
+        Ok(())
+    }
+
+    /// Сахар: keep-alive на method-0 LUN=1 (1<<48).
+    pub async fn send_keepalive_via_pool(self: &Arc<Self>) -> Result<()> {
+        self.send_keepalive_via_pool_lun(1u64 << 48).await
+    }
+
     async fn try_handle_unsolicited_nop_in(
         self: &Arc<Self>,
         hdr: [u8; HEADER_LEN],
         payload: Vec<u8>,
     ) -> bool {
-        debug!("Try send NoOut");
         let mut pdu = PDUWithData::<NopInResponse>::from_header_slice(hdr);
-        pdu.parse_with_buff(payload.as_slice(), false, false)
-            .expect("failder to parse NopIn");
 
-        let ttt = {
-            let nop_in = pdu.header_view().expect("failder to parse NopIn");
-            nop_in.target_task_tag.get()
-        };
+        // --- вытащим всё нужное из header и сразу "уроним" заимствование
+        let (hd, dd, ttt) = {
+            let header = match pdu.header_view() {
+                Ok(h) => h,
+                Err(e) => {
+                    warn!("NOP-In header_view failed: {e}");
+                    return false;
+                },
+            };
+
+            let hd_en = self
+                .cfg
+                .login
+                .negotiation
+                .header_digest
+                .eq_ignore_ascii_case("CRC32C");
+            let dd_en = self
+                .cfg
+                .login
+                .negotiation
+                .data_digest
+                .eq_ignore_ascii_case("CRC32C");
+
+            let hd = header.get_header_diggest(hd_en);
+            let dd = header.get_data_diggest(dd_en);
+            let ttt = header.target_task_tag.get();
+            (hd, dd, ttt)
+        }; // <--- header больше не заимствует pdu
+
+        // Если не удалось распарсить — это был не NOP-In или битый PDU
+        if let Err(e) = pdu.parse_with_buff(payload.as_slice(), hd != 0, dd != 0) {
+            debug!("NOP-In parse failed (probably other opcode): {e}");
+            return false;
+        }
 
         if ttt == 0xffff_ffff {
+            // Ответ не требуется (NOP-In keep-alive без запроса ответа)
             debug!("NOP-In (TTT=0xffffffff): reply not required");
             return true;
         }
-        let conn = Arc::clone(self);
-        tokio::spawn(async move {
-            let mut ctx = NopCtx::for_reply(
-                conn.clone(),
-                &conn.counters.itt,
-                &conn.counters.cmd_sn,
-                &conn.counters.exp_stat_sn,
-                pdu,
-            )
-            .expect("Failde to convert NopIn into NopCtx");
 
-            if let Err(e) = ctx.execute().await {
+        let Some(sr) = self.session_ref.get().cloned() else {
+            warn!("NOP-In: missing Pool/session binding; cannot auto-reply");
+            return false;
+        };
+        let Some(pool) = sr.pool.upgrade() else {
+            warn!("NOP-In: Pool dropped; cannot auto-reply");
+            return false;
+        };
+
+        let pdu_for_reply = pdu; // переносим владение в задачу
+        tokio::spawn(async move {
+            let res = pool
+                .execute_with(sr.tsih, sr.cid, |conn, itt, cmd_sn, exp_stat_sn| {
+                    NopCtx::for_reply(conn, itt, cmd_sn, exp_stat_sn, pdu_for_reply)
+                        .expect("failed to build NopCtx::for_reply")
+                })
+                .await;
+            if let Err(e) = res {
                 warn!("NOP-In auto-reply failed: {e}");
             } else {
-                debug!("NOP-In auto-replied (TTT=0x{ttt:08x})");
+                debug!("NOP-In auto-replied (TSIH={}, CID={})", sr.tsih, sr.cid);
             }
         });
+
         true
     }
 }

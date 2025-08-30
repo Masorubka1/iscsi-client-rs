@@ -1,10 +1,9 @@
-use std::sync::Arc;
+use std::{marker::PhantomData, sync::Arc};
 
 use anyhow::{Context, Result, anyhow};
 use tracing::debug;
 
 use crate::{
-    cfg::config::Config,
     client::client::ClientConnection,
     models::{
         common::HEADER_LEN, data_fromat::PDUWithData, login::response::LoginResponse,
@@ -20,10 +19,12 @@ use crate::{
 
 #[derive(Debug)]
 pub struct LoginCtx<'a> {
+    _lt: PhantomData<&'a ()>,
+
     pub conn: Arc<ClientConnection>,
-    pub cfg: &'a Config,
     pub isid: [u8; 6],
     pub cid: u16,
+    pub tsih: u16,
     pub itt: u32,
     pub buf: [u8; HEADER_LEN],
 
@@ -33,22 +34,17 @@ pub struct LoginCtx<'a> {
 }
 
 impl<'a> LoginCtx<'a> {
-    pub fn new(
-        conn: Arc<ClientConnection>,
-        cfg: &'a Config,
-        isid: [u8; 6],
-        cid: u16,
-        itt: u32,
-    ) -> Self {
+    pub fn new(conn: Arc<ClientConnection>, isid: [u8; 6], cid: u16, tsih: u16) -> Self {
         Self {
             conn,
-            cfg,
             isid,
             cid,
-            itt,
+            tsih,
+            itt: 0,
             buf: [0u8; HEADER_LEN],
             last_response: None,
             state: None,
+            _lt: PhantomData,
         }
     }
 
@@ -91,8 +87,10 @@ pub enum LoginStates {
     ChapOpToFull(ChapOpToFull),
 }
 
-impl<'ctx> StateMachineCtx<LoginCtx<'ctx>> for LoginCtx<'ctx> {
-    async fn execute(&mut self) -> Result<()> {
+impl<'ctx> StateMachineCtx<LoginCtx<'ctx>, PDUWithData<LoginResponse>>
+    for LoginCtx<'ctx>
+{
+    async fn execute(&mut self) -> Result<PDUWithData<LoginResponse>> {
         debug!("Loop login");
         loop {
             let state = self.state.take().context("state must be set LoginCtx")?;
@@ -110,8 +108,12 @@ impl<'ctx> StateMachineCtx<LoginCtx<'ctx>> for LoginCtx<'ctx> {
                 },
                 Transition::Stay(Ok(_)) => {},
                 Transition::Stay(Err(e)) => return Err(e),
-                Transition::Done(err) => {
-                    return err;
+                Transition::Done(r) => {
+                    r?;
+                    return self
+                        .last_response
+                        .take()
+                        .ok_or_else(|| anyhow!("no last response in ctx"));
                 },
             }
         }

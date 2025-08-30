@@ -29,13 +29,13 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for PlainStart {
 
     fn step<'a>(&'a self, ctx: &'a mut LoginCtx<'ctx>) -> Self::StepResult<'a> {
         Box::pin(async move {
-            let header = LoginRequestBuilder::new(ctx.isid, 0)
+            let header = LoginRequestBuilder::new(ctx.isid, ctx.tsih)
                 .transit()
                 .csg(Stage::Operational)
                 .nsg(Stage::FullFeature)
                 .versions(
-                    ctx.cfg.login.negotiation.version_min,
-                    ctx.cfg.login.negotiation.version_max,
+                    ctx.conn.cfg.login.negotiation.version_min,
+                    ctx.conn.cfg.login.negotiation.version_max,
                 )
                 .initiator_task_tag(ctx.itt)
                 .connection_id(ctx.cid)
@@ -47,7 +47,7 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for PlainStart {
             }
 
             let mut pdu = PDUWithData::<LoginRequest>::from_header_slice(ctx.buf);
-            for key in ctx.cfg.to_login_keys() {
+            for key in ctx.conn.cfg.to_login_keys() {
                 pdu.append_data(key.into_bytes());
             }
 

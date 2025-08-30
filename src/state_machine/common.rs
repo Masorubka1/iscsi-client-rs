@@ -18,6 +18,6 @@ pub trait StateMachine<Ctx, Resp>: Sized {
     fn step<'a>(&'a self, ctx: &'a mut Ctx) -> Self::StepResult<'a>;
 }
 
-pub trait StateMachineCtx<Ctx>: Sized {
-    fn execute(&mut self) -> impl Future<Output = Result<()>>;
+pub trait StateMachineCtx<Ctx, Out = ()>: Sized {
+    fn execute(&mut self) -> impl Future<Output = Result<Out>>;
 }

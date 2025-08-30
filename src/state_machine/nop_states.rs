@@ -2,6 +2,7 @@
 // Copyright (C) 2012-2025 Andrei Maltsev
 
 use std::{
+    marker::PhantomData,
     pin::Pin,
     sync::{
         Arc,
@@ -27,11 +28,13 @@ use crate::{
 
 #[derive(Debug)]
 pub struct NopCtx<'a> {
+    _lt: PhantomData<&'a ()>,
+
     pub conn: Arc<ClientConnection>,
     pub lun: u64,
     pub itt: u32,
     pub cmd_sn: u32,
-    pub exp_stat_sn: &'a AtomicU32,
+    pub exp_stat_sn: Arc<AtomicU32>,
     pub ttt: u32,
     pub buf: [u8; HEADER_LEN],
 
@@ -43,9 +46,9 @@ impl<'a> NopCtx<'a> {
     pub fn new(
         conn: Arc<ClientConnection>,
         lun: u64,
-        itt: &'a AtomicU32,
-        cmd_sn: &'a AtomicU32,
-        exp_stat_sn: &'a AtomicU32,
+        itt: Arc<AtomicU32>,
+        cmd_sn: Arc<AtomicU32>,
+        exp_stat_sn: Arc<AtomicU32>,
         ttt: u32,
     ) -> Self {
         Self {
@@ -58,6 +61,7 @@ impl<'a> NopCtx<'a> {
             buf: [0u8; HEADER_LEN],
             state: Some(NopStates::Start(Start)),
             last_response: None,
+            _lt: PhantomData,
         }
     }
 
@@ -81,9 +85,9 @@ impl<'a> NopCtx<'a> {
 
     pub fn for_reply(
         conn: Arc<ClientConnection>,
-        itt: &'a AtomicU32,
-        cmd_sn: &'a AtomicU32,
-        exp_stat_sn: &'a AtomicU32,
+        itt: Arc<AtomicU32>,
+        cmd_sn: Arc<AtomicU32>,
+        exp_stat_sn: Arc<AtomicU32>,
         response: PDUWithData<NopInResponse>,
     ) -> Result<Self> {
         let (lun, ttt) = {
@@ -117,9 +121,12 @@ impl<'a> NopCtx<'a> {
         Ok(())
     }
 
-    async fn recieve_nop_in(&self) -> Result<()> {
+    async fn recieve_nop_in(&mut self) -> Result<()> {
         match self.conn.read_response::<NopInResponse>(self.itt).await {
-            Ok(_rsp) => Ok(()),
+            Ok(rsp) => {
+                self.last_response = Some(rsp);
+                Ok(())
+            },
             Err(other) => bail!("got unexpected PDU: {:?}", other.to_string()),
         }
     }
@@ -220,8 +227,8 @@ impl<'ctx> StateMachine<NopCtx<'ctx>, NopStepOut> for Reply {
     }
 }
 
-impl<'ctx> StateMachineCtx<NopCtx<'ctx>> for NopCtx<'ctx> {
-    async fn execute(&mut self) -> Result<()> {
+impl<'s> StateMachineCtx<NopCtx<'s>, PDUWithData<NopInResponse>> for NopCtx<'s> {
+    async fn execute(&mut self) -> Result<PDUWithData<NopInResponse>> {
         debug!("Loop Nop");
         loop {
             let state = self.state.take().context("state must be set NopCtx")?;
@@ -232,14 +239,18 @@ impl<'ctx> StateMachineCtx<NopCtx<'ctx>> for NopCtx<'ctx> {
             };
 
             match trans {
-                Transition::Next(next_state, r) => {
+                Transition::Next(next, r) => {
                     r?;
-                    self.state = Some(next_state);
+                    self.state = Some(next);
                 },
                 Transition::Stay(Ok(_)) => {},
                 Transition::Stay(Err(e)) => return Err(e),
-                Transition::Done(err) => {
-                    return err;
+                Transition::Done(r) => {
+                    r?;
+                    return self
+                        .last_response
+                        .take()
+                        .ok_or_else(|| anyhow!("no last response in ctx"));
                 },
             }
         }

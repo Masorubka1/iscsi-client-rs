@@ -87,7 +87,7 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for ChapSecurity {
     fn step<'a>(&'a self, ctx: &'a mut LoginCtx<'ctx>) -> Self::StepResult<'a> {
         Box::pin(async move {
             // Step1: Security → Security (without CHAP_A)
-            let header = LoginRequestBuilder::new(ctx.isid, 0)
+            let header = LoginRequestBuilder::new(ctx.isid, ctx.tsih)
                 .csg(Stage::Security)
                 .nsg(Stage::Security)
                 .initiator_task_tag(ctx.itt)
@@ -100,7 +100,7 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for ChapSecurity {
             }
 
             let mut pdu = PDUWithData::<LoginRequest>::from_header_slice(ctx.buf);
-            pdu.append_data(login_keys_security(ctx.cfg));
+            pdu.append_data(login_keys_security(&ctx.conn.cfg));
 
             match ctx.conn.send_request(ctx.itt, pdu).await {
                 Err(e) => Transition::Done(Err(e)),
@@ -140,12 +140,12 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for ChapA {
                 let header = LoginRequestBuilder::new(ctx.isid, last.tsih.get())
                     .csg(Stage::Security)
                     .nsg(Stage::Security)
-                    .initiator_task_tag(last.initiator_task_tag)
+                    .initiator_task_tag(last.initiator_task_tag.get())
                     .connection_id(ctx.cid)
                     .cmd_sn(last.exp_cmd_sn.get())
                     .exp_stat_sn(last.stat_sn.get().wrapping_add(1));
 
-                (header, last.initiator_task_tag)
+                (header, last.initiator_task_tag.get())
             };
 
             if let Err(e) = header.header.to_bhs_bytes(ctx.buf.as_mut_slice()) {
@@ -197,7 +197,7 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for ChapAnswer {
                     Err(e) => return Transition::Done(Err(e)),
                 };
 
-                let (user, secret) = match &ctx.cfg.login.auth {
+                let (user, secret) = match &ctx.conn.cfg.login.auth {
                     AuthConfig::Chap(c) => (c.username.as_str(), c.secret.as_bytes()),
                     AuthConfig::None => {
                         return Transition::Done(Err(anyhow!(
@@ -213,12 +213,12 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for ChapAnswer {
                     .transit()
                     .csg(Stage::Security)
                     .nsg(Stage::Operational)
-                    .initiator_task_tag(last_header.initiator_task_tag)
+                    .initiator_task_tag(last_header.initiator_task_tag.get())
                     .connection_id(ctx.cid)
                     .cmd_sn(last_header.exp_cmd_sn.get())
                     .exp_stat_sn(last_header.stat_sn.get().wrapping_add(1));
 
-                (header, last_header.initiator_task_tag, user, chap_r)
+                (header, last_header.initiator_task_tag.get(), user, chap_r)
             };
 
             if let Err(e) = header.header.to_bhs_bytes(ctx.buf.as_mut_slice()) {
@@ -267,11 +267,11 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for ChapOpToFull {
                     .csg(Stage::Operational)
                     .nsg(Stage::FullFeature)
                     .versions(last.version_max, last.version_active)
-                    .initiator_task_tag(last.initiator_task_tag)
+                    .initiator_task_tag(last.initiator_task_tag.get())
                     .connection_id(ctx.cid)
                     .cmd_sn(last.exp_cmd_sn.get())
                     .exp_stat_sn(last.stat_sn.get().wrapping_add(1));
-                (header, last.initiator_task_tag)
+                (header, last.initiator_task_tag.get())
             };
 
             if let Err(e) = header.header.to_bhs_bytes(ctx.buf.as_mut_slice()) {
@@ -279,7 +279,7 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for ChapOpToFull {
             }
 
             let mut pdu = PDUWithData::<LoginRequest>::from_header_slice(ctx.buf);
-            pdu.append_data(login_keys_operational(ctx.cfg));
+            pdu.append_data(login_keys_operational(&ctx.conn.cfg));
 
             match ctx.conn.send_request(itt, pdu).await {
                 Err(e) => Transition::Done(Err(e)),
