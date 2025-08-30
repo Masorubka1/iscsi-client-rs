@@ -9,11 +9,10 @@ use std::{
     },
 };
 
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use tracing::debug;
 
 use crate::{
-    cfg::config::Config,
     client::client::ClientConnection,
     models::{
         command::{
@@ -29,36 +28,32 @@ use crate::{
         data_fromat::PDUWithData,
         ready_2_transfer::response::ReadyToTransfer,
     },
-    state_machine::common::{StateMachine, Transition},
+    state_machine::common::{StateMachine, StateMachineCtx, Transition},
 };
 
 #[derive(Debug)]
 pub struct WriteCtx<'a> {
     pub conn: Arc<ClientConnection>,
-    pub cfg: Arc<Config>,
     pub lun: u64,
-    pub itt: &'a AtomicU32,
+    pub itt: u32,
     pub cmd_sn: &'a AtomicU32,
     pub exp_stat_sn: &'a AtomicU32,
 
     pub cdb: [u8; 16],
     pub payload: Vec<u8>,
     pub buf: [u8; HEADER_LEN],
-}
 
-#[derive(Debug, Clone)]
-pub struct WriteStatus {
-    pub itt: u32,
-    pub next_data_sn: u32,
     pub sent_bytes: usize,
     pub total_bytes: usize,
+
+    pub last_response: Option<PDUWithData<ScsiCommandResponse>>,
+    state: Option<WriteStates>,
 }
 
 #[allow(clippy::too_many_arguments)]
 impl<'a> WriteCtx<'a> {
     pub fn new(
         conn: Arc<ClientConnection>,
-        cfg: Arc<Config>,
         lun: u64,
         itt: &'a AtomicU32,
         cmd_sn: &'a AtomicU32,
@@ -68,51 +63,43 @@ impl<'a> WriteCtx<'a> {
     ) -> Self {
         Self {
             conn,
-            cfg,
             lun,
-            itt,
+            itt: itt.fetch_add(1, Ordering::SeqCst),
             cmd_sn,
             exp_stat_sn,
             cdb,
             payload: payload.into(),
             buf: [0u8; HEADER_LEN],
+            sent_bytes: 0,
+            total_bytes: 0,
+            last_response: None,
+            state: Some(WriteStates::Start(Start)),
         }
     }
 
     /// Send the SCSI Command (WRITE) with **no** data in the command PDU.
-    async fn send_write_command(&mut self) -> Result<WriteStatus> {
-        let itt = self.itt.fetch_add(1, Ordering::SeqCst);
+    async fn send_write_command(&mut self) -> Result<()> {
         let cmd_sn = self.cmd_sn.fetch_add(1, Ordering::SeqCst);
-        let exp_stat_sn = self.exp_stat_sn.load(Ordering::SeqCst);
+        let esn = self.exp_stat_sn.load(Ordering::SeqCst);
+
+        self.total_bytes = self.payload.len();
 
         let header = ScsiCommandRequestBuilder::new()
             .lun(self.lun)
-            .initiator_task_tag(itt)
+            .initiator_task_tag(self.itt)
             .cmd_sn(cmd_sn)
-            .exp_stat_sn(exp_stat_sn)
-            .expected_data_transfer_length(self.payload.len() as u32)
+            .exp_stat_sn(esn)
+            .expected_data_transfer_length(self.total_bytes as u32)
             .scsi_descriptor_block(&self.cdb)
             .write()
             .task_attribute(TaskAttribute::Simple);
 
-        let _ = header
-            .header
-            .to_bhs_bytes(self.buf.as_mut_slice())
-            .map_err(|e| {
-                Transition::<PDUWithData<ScsiCommandResponse>, anyhow::Error>::Done(e)
-            });
-
+        header.header.to_bhs_bytes(&mut self.buf)?;
         let pdu: PDUWithData<ScsiCommandRequest> =
             PDUWithData::from_header_slice(self.buf);
+        self.conn.send_request(self.itt, pdu).await?;
 
-        self.conn.send_request(itt, pdu).await?;
-
-        Ok(WriteStatus {
-            itt,
-            next_data_sn: 0,
-            sent_bytes: 0,
-            total_bytes: self.payload.len(),
-        })
+        Ok(())
     }
 
     async fn recv_r2t(&self, itt: u32) -> Result<PDUWithData<ReadyToTransfer>> {
@@ -128,11 +115,11 @@ impl<'a> WriteCtx<'a> {
     async fn send_data(
         &mut self,
         itt: u32,
-        mut next_data_sn: u32,
         ttt: u32,
         offset: usize,
         len: usize,
-    ) -> Result<(usize, u32)> {
+    ) -> Result<usize> {
+        let mut next_data_sn = 0;
         if len == 0 {
             bail!("Refuse to send Data-Out with zero length");
         }
@@ -146,7 +133,7 @@ impl<'a> WriteCtx<'a> {
             );
         }
 
-        let mrdsl = self.cfg.login.negotiation.max_recv_data_segment_length as usize;
+        let mrdsl = self.conn.cfg.login.negotiation.max_recv_data_segment_length as usize;
         if mrdsl == 0 {
             bail!("MRDSL is zero");
         }
@@ -166,12 +153,7 @@ impl<'a> WriteCtx<'a> {
                 .buffer_offset(off as u32)
                 .data_sn(next_data_sn);
 
-            let _ = header
-                .header
-                .to_bhs_bytes(self.buf.as_mut_slice())
-                .map_err(|e| {
-                    Transition::<PDUWithData<ScsiCommandResponse>, anyhow::Error>::Done(e)
-                });
+            header.header.to_bhs_bytes(self.buf.as_mut_slice())?;
 
             let mut pdu: PDUWithData<ScsiDataOut> =
                 PDUWithData::from_header_slice(self.buf);
@@ -193,7 +175,7 @@ impl<'a> WriteCtx<'a> {
             sent += take;
         }
 
-        Ok((sent, next_data_sn))
+        Ok(sent)
     }
 
     /// Wait for the SCSI Response and validate success.
@@ -214,94 +196,42 @@ impl<'a> WriteCtx<'a> {
 }
 
 #[derive(Debug)]
-pub struct IssueCmd;
+pub struct Start;
 #[derive(Debug)]
-pub struct WaitR2T {
-    st: WriteStatus,
-}
+pub struct WaitR2T;
 #[derive(Debug)]
-pub struct SendWindow {
-    st: WriteStatus,
-    ttt: u32,
-    offset: usize,
-    len: usize,
-}
-#[derive(Debug)]
-pub struct WaitResp {
-    st: WriteStatus,
-}
+pub struct Finish;
 
-/// WRITE state machine types
 #[derive(Debug)]
 pub enum WriteStates {
-    IssueCmd(IssueCmd),
+    Start(Start),
     WaitR2T(WaitR2T),
-    SendWindow(SendWindow),
-    WaitResp(WaitResp),
+    Finish(Finish),
 }
 
-pub type WriteStep = Transition<WriteStates, Result<WriteStatus>>;
+pub type WriteStep = Transition<WriteStates, Result<()>>;
 
 /// IssueCmd
 ///
 /// 1) Send SCSI Command (WRITE) with *no* data in the command PDU.
 /// 2) If payload is empty → go straight to waiting for SCSI Response. Otherwise
 ///    → wait for R2T.
-impl<'ctx> StateMachine<WriteCtx<'ctx>, WriteStep> for IssueCmd {
+impl<'ctx> StateMachine<WriteCtx<'ctx>, WriteStep> for Start {
     type StepResult<'a>
         = Pin<Box<dyn Future<Output = WriteStep> + Send + 'a>>
     where
         Self: 'a,
         WriteCtx<'ctx>: 'a;
 
-    fn step<'a>(&'a mut self, ctx: &'a mut WriteCtx<'ctx>) -> Self::StepResult<'a> {
+    fn step<'a>(&'a self, ctx: &'a mut WriteCtx<'ctx>) -> Self::StepResult<'a> {
         Box::pin(async move {
-            match ctx.send_write_command().await {
-                Ok(st0) => {
-                    let mut st = st0;
-
-                    let allow_unsolicited = ctx
-                        .cfg
-                        .extra_data
-                        .r2t
-                        .immediate_data
-                        .eq_ignore_ascii_case("Yes")
-                        && ctx
-                            .cfg
-                            .extra_data
-                            .r2t
-                            .initial_r2t
-                            .eq_ignore_ascii_case("No");
-
-                    if st.total_bytes > 0 && allow_unsolicited {
-                        let first = st
-                            .total_bytes
-                            .min(ctx.cfg.login.negotiation.first_burst_length as usize);
-                        if first > 0 {
-                            // Unsolicited Data-Out: TTT = 0xFFFF_FFFF, offset=0
-                            match ctx.send_data(st.itt, 0, 0xFFFF_FFFF, 0, first).await {
-                                Ok((sent, next_sn)) => {
-                                    st.next_data_sn = next_sn;
-                                    st.sent_bytes += sent;
-                                },
-                                Err(e) => return Transition::Done(Err(e)),
-                            }
-                        }
-                    }
-
-                    if st.sent_bytes >= st.total_bytes {
-                        Transition::Next(
-                            WriteStates::WaitResp(WaitResp { st: st.clone() }),
-                            Ok(st),
-                        )
-                    } else {
-                        Transition::Next(
-                            WriteStates::WaitR2T(WaitR2T { st: st.clone() }),
-                            Ok(st),
-                        )
-                    }
-                },
-                Err(e) => Transition::Done(Err(e)),
+            if let Err(e) = ctx.send_write_command().await {
+                return Transition::Done(Err(e));
+            }
+            if ctx.sent_bytes >= ctx.total_bytes {
+                Transition::Next(WriteStates::Finish(Finish), Ok(()))
+            } else {
+                Transition::Next(WriteStates::WaitR2T(WaitR2T), Ok(()))
             }
         })
     }
@@ -318,26 +248,25 @@ impl<'ctx> StateMachine<WriteCtx<'ctx>, WriteStep> for WaitR2T {
         Self: 'a,
         WriteCtx<'ctx>: 'a;
 
-    fn step<'a>(&'a mut self, ctx: &'a mut WriteCtx<'ctx>) -> Self::StepResult<'a> {
+    fn step<'a>(&'a self, ctx: &'a mut WriteCtx<'ctx>) -> Self::StepResult<'a> {
         Box::pin(async move {
-            let itt = self.st.itt;
+            let itt = ctx.itt;
             let r2t = match ctx.recv_r2t(itt).await {
-                Ok(h) => h,
+                Ok(v) => v,
                 Err(e) => return Transition::Done(Err(e)),
             };
-
-            let header = match r2t.header_view() {
-                Ok(header) => header,
+            let h = match r2t.header_view() {
+                Ok(h) => h,
                 Err(e) => {
                     return Transition::Done(Err(anyhow!(
-                        "failed read pdu ReadyToTransfer: {e}"
+                        "failed read ReadyToTransfer: {e}"
                     )));
                 },
             };
 
-            let ttt = header.target_transfer_tag.get();
-            let offset = header.buffer_offset.get() as usize;
-            let want = header.desired_data_transfer_length.get() as usize;
+            let ttt = h.target_transfer_tag.get();
+            let offset = h.buffer_offset.get() as usize;
+            let want = h.desired_data_transfer_length.get() as usize;
 
             if offset >= ctx.payload.len() {
                 return Transition::Done(Err(anyhow!(
@@ -348,7 +277,6 @@ impl<'ctx> StateMachine<WriteCtx<'ctx>, WriteStep> for WaitR2T {
             }
             let remaining = ctx.payload.len() - offset;
             let len = want.min(remaining);
-
             if len == 0 {
                 return Transition::Done(Err(anyhow!(
                     "R2T window has zero DesiredDataTransferLength (offset={offset}, \
@@ -356,54 +284,16 @@ impl<'ctx> StateMachine<WriteCtx<'ctx>, WriteStep> for WaitR2T {
                 )));
             }
 
-            Transition::Next(
-                WriteStates::SendWindow(SendWindow {
-                    st: self.st.clone(),
-                    ttt,
-                    offset,
-                    len,
-                }),
-                Ok(self.st.clone()),
-            )
-        })
-    }
-}
-
-/// SendWindow
-///
-/// Send exactly the window requested by R2T (respect MRDSL).
-/// Data-Out is internally chunked by the *builder* (one send_request).
-impl<'ctx> StateMachine<WriteCtx<'ctx>, WriteStep> for SendWindow {
-    type StepResult<'a>
-        = Pin<Box<dyn Future<Output = WriteStep> + Send + 'a>>
-    where
-        Self: 'a,
-        WriteCtx<'ctx>: 'a;
-
-    fn step<'a>(&'a mut self, ctx: &'a mut WriteCtx<'ctx>) -> Self::StepResult<'a> {
-        Box::pin(async move {
-            // Send a *single* Data-Out request with the whole window;
-            // ScsiDataOutBuilder will split into MRDSL-sized PDUs and
-            // set F/DataSN/BufferOffset per-chunk.
-            let (sent, next_sn) = match ctx
-                .send_data(self.st.itt, 0, self.ttt, self.offset, self.len)
-                .await
-            {
+            let sent = match ctx.send_data(itt, ttt, offset, len).await {
                 Ok(x) => x,
                 Err(e) => return Transition::Done(Err(e)),
             };
+            ctx.sent_bytes = ctx.sent_bytes.saturating_add(sent);
 
-            let mut st = self.st.clone();
-            st.next_data_sn = next_sn;
-            st.sent_bytes = st.sent_bytes.saturating_add(sent);
-
-            if st.sent_bytes >= st.total_bytes {
-                Transition::Next(
-                    WriteStates::WaitResp(WaitResp { st: st.clone() }),
-                    Ok(st),
-                )
+            if ctx.sent_bytes >= ctx.total_bytes {
+                Transition::Next(WriteStates::Finish(Finish), Ok(()))
             } else {
-                Transition::Next(WriteStates::WaitR2T(WaitR2T { st: st.clone() }), Ok(st))
+                Transition::Stay(Ok(()))
             }
         })
     }
@@ -412,65 +302,53 @@ impl<'ctx> StateMachine<WriteCtx<'ctx>, WriteStep> for SendWindow {
 /// WaitResp
 ///
 /// Final step: wait for SCSI Command Response and validate GOOD status.
-impl<'ctx> StateMachine<WriteCtx<'ctx>, WriteStep> for WaitResp {
+impl<'ctx> StateMachine<WriteCtx<'ctx>, WriteStep> for Finish {
     type StepResult<'a>
         = Pin<Box<dyn Future<Output = WriteStep> + Send + 'a>>
     where
         Self: 'a,
         WriteCtx<'ctx>: 'a;
 
-    fn step<'a>(&'a mut self, ctx: &'a mut WriteCtx<'ctx>) -> Self::StepResult<'a> {
+    fn step<'a>(&'a self, ctx: &'a mut WriteCtx<'ctx>) -> Self::StepResult<'a> {
         Box::pin(async move {
-            match ctx.wait_scsi_response(self.st.itt).await {
-                Ok(()) => Transition::Done(Ok(self.st.clone())),
+            let itt = ctx.itt;
+            match ctx.wait_scsi_response(itt).await {
+                Ok(()) => Transition::Done(Ok(())),
                 Err(e) => Transition::Done(Err(e)),
             }
         })
     }
 }
 
-/// Drive the write state machine until it completes.
-/// Returns final `WriteStatus` or error.
-pub async fn run_write(
-    mut state: WriteStates,
-    ctx: &mut WriteCtx<'_>,
-) -> Result<WriteStatus> {
-    loop {
-        debug!("{state:?}");
-        state = match state {
-            WriteStates::IssueCmd(ref mut s) => match s.step(ctx).await {
-                Transition::Next(next, _) => next,
-                Transition::Stay(Ok(_)) => WriteStates::IssueCmd(IssueCmd),
-                Transition::Stay(Err(e)) | Transition::Done(Err(e)) => return Err(e),
-                Transition::Done(Ok(done)) => return Ok(done),
-            },
-            WriteStates::WaitR2T(ref mut s) => match s.step(ctx).await {
-                Transition::Next(next, _) => next,
-                Transition::Stay(Ok(_)) => {
-                    WriteStates::WaitR2T(WaitR2T { st: s.st.clone() })
+impl<'ctx> StateMachineCtx<WriteCtx<'ctx>> for WriteCtx<'ctx> {
+    async fn execute(&mut self) -> Result<()> {
+        debug!("Loop WRITE");
+
+        loop {
+            let state = self.state.take().context("state must be set WriteCtx")?;
+            let tr = match &state {
+                WriteStates::Start(s) => s.step(self).await,
+                WriteStates::WaitR2T(s) => s.step(self).await,
+                WriteStates::Finish(s) => s.step(self).await,
+            };
+
+            match tr {
+                Transition::Next(next, r) => {
+                    r?;
+                    self.state = Some(next);
                 },
-                Transition::Stay(Err(e)) | Transition::Done(Err(e)) => return Err(e),
-                Transition::Done(Ok(done)) => return Ok(done),
-            },
-            WriteStates::SendWindow(ref mut s) => match s.step(ctx).await {
-                Transition::Next(next, _) => next,
-                Transition::Stay(Ok(_)) => WriteStates::SendWindow(SendWindow {
-                    st: s.st.clone(),
-                    ttt: s.ttt,
-                    offset: s.offset,
-                    len: s.len,
-                }),
-                Transition::Stay(Err(e)) | Transition::Done(Err(e)) => return Err(e),
-                Transition::Done(Ok(done)) => return Ok(done),
-            },
-            WriteStates::WaitResp(ref mut s) => match s.step(ctx).await {
-                Transition::Next(next, _) => next,
                 Transition::Stay(Ok(_)) => {
-                    WriteStates::WaitResp(WaitResp { st: s.st.clone() })
+                    self.state = Some(match state {
+                        WriteStates::Start(_) => WriteStates::Start(Start),
+                        WriteStates::WaitR2T(_) => WriteStates::WaitR2T(WaitR2T),
+                        WriteStates::Finish(_) => WriteStates::Finish(Finish),
+                    });
                 },
-                Transition::Stay(Err(e)) | Transition::Done(Err(e)) => return Err(e),
-                Transition::Done(Ok(done)) => return Ok(done),
-            },
+                Transition::Stay(Err(e)) => return Err(e),
+                Transition::Done(r) => {
+                    return r;
+                },
+            }
         }
     }
 }

@@ -3,7 +3,7 @@
 
 use std::sync::atomic::AtomicU32;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use iscsi_client_rs::{
     cfg::{
         config::{AuthConfig, Config},
@@ -11,13 +11,14 @@ use iscsi_client_rs::{
     },
     control_block::mod_sense::{fill_mode_sense6_simple, fill_mode_sense10_simple},
     state_machine::{
-        login_states::{LoginCtx, LoginStates, run_login, start_chap, start_plain},
-        read_states::{ReadCtx, ReadStart, ReadStates, run_read},
-        tur_states::{Idle as TurIdle, TurCtx, TurStates, run_tur},
+        common::StateMachineCtx, login::common::LoginCtx, read_states::ReadCtx,
+        tur_states::TurCtx,
     },
 };
 
-use crate::integration_tests::common::{connect_cfg, load_config, test_isid, test_path};
+use crate::integration_tests::common::{
+    connect_cfg, get_lun, load_config, test_isid, test_path,
+};
 
 /// Integration: login -> TEST UNIT READY -> MODE SENSE(10) -> MODE SENSE(6)
 /// Uses the existing ReadCtx state machine for Data-In commands.
@@ -38,31 +39,33 @@ async fn login_tur_mode_sense() -> Result<()> {
         /* tsih */ 0,
     );
 
-    let login_state: LoginStates = match cfg.login.auth {
-        AuthConfig::Chap(_) => start_chap(),
-        AuthConfig::None => start_plain(),
-    };
+    match cfg.login.auth {
+        AuthConfig::Chap(_) => lctx.set_chap_login(),
+        AuthConfig::None => lctx.set_plain_login(),
+    }
 
-    let login_status = run_login(login_state, &mut lctx).await?;
+    lctx.execute().await.context("login failed")?;
+    let login_pdu = lctx
+        .last_response
+        .as_ref()
+        .context("no login last_response")?;
+    let lh = login_pdu.header_view().context("login header")?;
 
     // --- Sequencing counters & LUN ---
-    let cmd_sn = AtomicU32::new(login_status.exp_cmd_sn);
-    let exp_stat_sn = AtomicU32::new(login_status.stat_sn.wrapping_add(1));
-    let itt = AtomicU32::new(login_status.itt.wrapping_add(1));
-    let lun = 1u64 << 48;
+    let cmd_sn = AtomicU32::new(lh.exp_cmd_sn.get());
+    let exp_stat_sn = AtomicU32::new(lh.stat_sn.get().wrapping_add(1));
+    let itt = AtomicU32::new(1);
+    let lun = get_lun();
 
     // --- TEST UNIT READY ---
     let mut tctx = TurCtx::new(conn.clone(), &itt, &cmd_sn, &exp_stat_sn, lun);
-    let _tur_status = run_tur(TurStates::Idle(TurIdle), &mut tctx).await;
-    let _tur_status = run_tur(TurStates::Idle(TurIdle), &mut tctx).await?;
+    let _ = tctx.execute().await;
+    let mut tctx = TurCtx::new(conn.clone(), &itt, &cmd_sn, &exp_stat_sn, lun);
+    tctx.execute().await.context("TUR failed")?;
 
-    // --- MODE SENSE(10): request only the 8-byte header to avoid short/long read
-    // issues (target will truncate to allocation length if mode data is
-    // larger).
-    let mut cdb = [0u8; 16];
-    let _ = fill_mode_sense10_simple(
-        &mut cdb, /* page_code= */ 0x3F, /* alloc= */ 8,
-    );
+    // --- MODE SENSE(10) ---
+    let mut cdb10 = [0u8; 16];
+    fill_mode_sense10_simple(&mut cdb10, /* page_code */ 0x3F, /* alloc */ 8);
 
     let mut rctx10 = ReadCtx::new(
         conn.clone(),
@@ -71,16 +74,15 @@ async fn login_tur_mode_sense() -> Result<()> {
         &cmd_sn,
         &exp_stat_sn,
         /* read_len= */ 8,
-        cdb,
+        cdb10,
     );
-    let res10 = run_read(ReadStates::Start(ReadStart), &mut rctx10).await?;
-    assert_eq!(res10.data.len(), 8, "MODE SENSE(10) must return 8 bytes");
+    rctx10.execute().await.context("MODE SENSE(10) failed")?;
+    let res10 = rctx10.rt.acc;
+    assert_eq!(res10.len(), 8, "MODE SENSE(10) must return 8 bytes");
 
-    // --- MODE SENSE(6): request only the 4-byte header
+    // --- MODE SENSE(6) ---
     let mut cdb6 = [0u8; 16];
-    let _ = fill_mode_sense6_simple(
-        &mut cdb6, /* page_code= */ 0x3F, /* alloc= */ 4,
-    );
+    fill_mode_sense6_simple(&mut cdb6, /* page_code */ 0x3F, /* alloc */ 4);
 
     let mut rctx6 = ReadCtx::new(
         conn.clone(),
@@ -91,8 +93,9 @@ async fn login_tur_mode_sense() -> Result<()> {
         /* read_len= */ 4,
         cdb6,
     );
-    let res6 = run_read(ReadStates::Start(ReadStart), &mut rctx6).await?;
-    assert_eq!(res6.data.len(), 4, "MODE SENSE(6) must return 4 bytes");
+    rctx6.execute().await.context("MODE SENSE(6) failed")?;
+    let res6 = rctx6.rt.acc;
+    assert_eq!(res6.len(), 4, "MODE SENSE(6) must return 4 bytes");
 
     Ok(())
 }

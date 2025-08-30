@@ -27,3 +27,7 @@ pub async fn connect_cfg(cfg: &Config) -> Result<Arc<ClientConnection>> {
 pub fn test_isid() -> [u8; 6] {
     generate_isid().0
 }
+
+pub fn get_lun() -> u64 {
+    1u64 << 48
+}

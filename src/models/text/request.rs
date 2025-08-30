@@ -20,25 +20,18 @@ use crate::{
 #[repr(C)]
 #[derive(Default, Debug, PartialEq, ZFromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct TextRequest {
-    /// Byte 0: F/I + 6-bit opcode (should be `Opcode::TextReq`).
-    pub opcode: RawBhsOpcode,
-    /// Byte 1: stage flags (F/C); interpretation is Text-PDU specific.
-    pub flags: RawStageFlags,
-    reserved1: [u8; 2],
-    /// Byte 4
-    pub total_ahs_length: u8,
-    /// Bytes 5..7
-    pub data_segment_length: [u8; 3],
-    /// Bytes 8..15
-    pub lun: U64<BigEndian>,
-    /// Bytes 16..19
-    pub initiator_task_tag: u32,
-    /// Bytes 20..23
-    pub target_task_tag: U32<BigEndian>,
-    /// Bytes 24..27
-    pub cmd_sn: U32<BigEndian>,
-    /// Bytes 28..31
-    pub exp_stat_sn: U32<BigEndian>,
+    pub opcode: RawBhsOpcode, /* Byte 0: F/I + 6-bit opcode (should be
+                               * `Opcode::TextReq`). */
+    pub flags: RawStageFlags, /* Byte 1: stage flags (F/C); interpretation is Text-PDU
+                               * specific. */
+    reserved1: [u8; 2],                     // Byte 2..5
+    pub total_ahs_length: u8,               // Bytes 5..8
+    pub data_segment_length: [u8; 3],       // Bytes 8..16
+    pub lun: U64<BigEndian>,                // Bytes 16..20
+    pub initiator_task_tag: U32<BigEndian>, // Bytes 20..24
+    pub target_task_tag: U32<BigEndian>,    // Bytes 24..28
+    pub cmd_sn: U32<BigEndian>,             // Bytes 28..32
+    pub exp_stat_sn: U32<BigEndian>,        // Bytes 32..36
     reserved2: [u8; 16],
 }
 
@@ -134,7 +127,7 @@ impl TextRequestBuilder {
 
     /// Sets the initiator task tag, a unique identifier for this command.
     pub fn initiator_task_tag(mut self, tag: u32) -> Self {
-        self.header.initiator_task_tag = tag;
+        self.header.initiator_task_tag.set(tag);
         self
     }
 
@@ -208,7 +201,7 @@ impl BasicHeaderSegment for TextRequest {
 
     #[inline]
     fn get_initiator_task_tag(&self) -> u32 {
-        self.initiator_task_tag
+        self.initiator_task_tag.get()
     }
 
     #[inline]

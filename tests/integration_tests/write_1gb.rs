@@ -15,21 +15,20 @@ use iscsi_client_rs::{
         write::build_write10,
     },
     state_machine::{
-        login_states::{LoginCtx, LoginStates, run_login, start_chap, start_plain},
-        read_states::{ReadCtx, ReadStart, ReadStates, run_read},
-        write_states::{IssueCmd, WriteCtx, WriteStates, run_write},
+        common::StateMachineCtx, login::common::LoginCtx, read_states::ReadCtx,
+        write_states::WriteCtx,
     },
 };
 
-use crate::integration_tests::common::{connect_cfg, load_config, test_isid, test_path};
+use crate::integration_tests::common::{
+    connect_cfg, get_lun, load_config, test_isid, test_path,
+};
 
 fn fill_pattern(buf: &mut [u8], blk_sz: usize, lba_start: u64) {
     assert!(blk_sz > 0 && buf.len() % blk_sz == 0);
     for (i, chunk) in buf.chunks_exact(blk_sz).enumerate() {
         let v = (((lba_start as usize) + i) as u8) ^ 0xA5;
-        unsafe {
-            std::ptr::write_bytes(chunk.as_ptr() as *mut u8, v, blk_sz);
-        }
+        unsafe { std::ptr::write_bytes(chunk.as_ptr() as *mut u8, v, blk_sz) }
     }
 }
 
@@ -58,30 +57,32 @@ async fn write10_read10_1_gib_plain() -> Result<()> {
     let _ = init_logger(&test_path());
     let cfg = Arc::new(load_config()?);
 
-    // хотим проверить ровно 1 GiB данных
     let want_bytes_total: usize = 1usize << 30;
 
-    // подключение + логин
     let conn = connect_cfg(&cfg).await?;
     let isid = test_isid();
 
     let mut lctx = LoginCtx::new(conn.clone(), &cfg, isid, 1, 0);
-    let st: LoginStates = match cfg.login.auth {
-        AuthConfig::Chap(_) => start_chap(),
-        AuthConfig::None => start_plain(),
-    };
-    let login = run_login(st, &mut lctx).await?;
+    match cfg.login.auth {
+        AuthConfig::Chap(_) => lctx.set_chap_login(),
+        AuthConfig::None => lctx.set_plain_login(),
+    }
+    lctx.execute().await.context("login failed")?;
+
+    let login_pdu = lctx
+        .last_response
+        .as_ref()
+        .context("no login last_response")?;
+    let lh = login_pdu.header_view().context("login header")?;
     conn.counters
         .cmd_sn
-        .store(login.exp_cmd_sn, Ordering::SeqCst);
+        .store(lh.exp_cmd_sn.get(), Ordering::SeqCst);
     conn.counters
         .exp_stat_sn
-        .store(login.stat_sn.wrapping_add(1), Ordering::SeqCst);
-    conn.counters
-        .itt
-        .store(login.itt.wrapping_add(1), Ordering::SeqCst);
+        .store(lh.stat_sn.get().wrapping_add(1), Ordering::SeqCst);
+    conn.counters.itt.store(1, Ordering::SeqCst);
 
-    let lun = 1u64 << 48;
+    let lun = get_lun();
 
     // READ CAPACITY(10)
     let mut cdb_rc10 = [0u8; 16];
@@ -95,14 +96,26 @@ async fn write10_read10_1_gib_plain() -> Result<()> {
         8,
         cdb_rc10,
     );
-    let rc10_pdu = run_read(ReadStates::Start(ReadStart), &mut rc10_ctx)
+    let _ = rc10_ctx.execute().await;
+    let mut rc10_ctx = ReadCtx::new(
+        conn.clone(),
+        lun,
+        &conn.counters.itt,
+        &conn.counters.cmd_sn,
+        &conn.counters.exp_stat_sn,
+        8,
+        cdb_rc10,
+    );
+    rc10_ctx
+        .execute()
         .await
         .context("READ CAPACITY(10) failed")?;
-    let rc10: &Rc10Raw = parse_read_capacity10_zerocopy(&rc10_pdu.data)?;
+    let rc10_bytes = rc10_ctx.rt.acc;
+    let rc10: &Rc10Raw = parse_read_capacity10_zerocopy(&rc10_bytes)?;
     let blk_len_10 = rc10.block_len.get();
     let max_lba_10 = rc10.max_lba.get() as u64;
 
-    // READ CAPACITY(16) (опционально расширяем)
+    // READ CAPACITY(16) (опционально)
     let (blk_len, max_lba_u64) = {
         let mut cdb = [0u8; 16];
         build_read_capacity16(&mut cdb, 0, false, 32, 0);
@@ -115,9 +128,10 @@ async fn write10_read10_1_gib_plain() -> Result<()> {
             32,
             cdb,
         );
-        match run_read(ReadStates::Start(ReadStart), &mut rc16_ctx).await {
-            Ok(rc16_pdu) => {
-                let rc16: &Rc16Raw = parse_read_capacity16_zerocopy(&rc16_pdu.data)?;
+        match rc16_ctx.execute().await {
+            Ok(()) => {
+                let rc16_bytes = rc16_ctx.rt.acc;
+                let rc16: &Rc16Raw = parse_read_capacity16_zerocopy(&rc16_bytes)?;
                 let bl = rc16.block_len.get();
                 let ml = rc16.max_lba.get();
                 if max_lba_10 != u32::MAX as u64 {
@@ -146,8 +160,7 @@ async fn write10_read10_1_gib_plain() -> Result<()> {
     //  - SCSI WRITE/READ(10): максимум 65535 блоков
     //  - FILEIO (страховка): 8 MiB
     //  - iSCSI MaxBurstLength (байты)
-    //  - И ВАЖНО: MRDSL — если таргет ставит F на первом Data-In, то одна
-    //    READ-команда фактически ограничена MRDSL.
+    //  - MRDSL ограничивает длину Data-In на одну READ-команду
     const FD_MAX_BYTES: usize = 8 * 1024 * 1024;
     let burst_bytes = cfg.login.negotiation.max_burst_length as usize;
     let mrdsl_bytes = cfg.login.negotiation.max_recv_data_segment_length as usize;
@@ -157,21 +170,17 @@ async fn write10_read10_1_gib_plain() -> Result<()> {
     let max_blocks_by_burst = (burst_bytes / blk_sz).max(1);
     let max_blocks_by_mrdsl = (mrdsl_bytes / blk_sz).max(1);
 
-    // WRITE можно не ограничивать MRDSL (он ограничивает размер одного PDU,
-    // а мы и так режем внутри Data-Out по MRDSL). Для READ — ограничиваем.
     let max_write_blocks_per_cmd = max_blocks_by_scsi10.min(max_blocks_by_fd);
     let max_read_blocks_per_cmd = max_blocks_by_scsi10
         .min(max_blocks_by_fd)
         .min(max_blocks_by_burst)
-        .min(max_blocks_by_mrdsl); // <-- ключевая правка
+        .min(max_blocks_by_mrdsl);
 
-    // тёплый WRITE(10) на 1 блок
     {
         let mut cdb = [0u8; 16];
         build_write10(&mut cdb, lba0, 1, 0, 0);
         let mut wctx = WriteCtx::new(
             conn.clone(),
-            cfg.clone(),
             lun,
             &conn.counters.itt,
             &conn.counters.cmd_sn,
@@ -179,10 +188,10 @@ async fn write10_read10_1_gib_plain() -> Result<()> {
             cdb,
             vec![0u8; blk_sz],
         );
-        let _ = run_write(WriteStates::IssueCmd(IssueCmd), &mut wctx).await;
+        wctx.execute().await?;
     }
 
-    // WRITE(10) по кускам
+    // WRITE(10)
     let mut written_blocks: usize = 0;
     while written_blocks < need_blocks_total {
         let blk_this = ((need_blocks_total - written_blocks) as u32)
@@ -202,7 +211,6 @@ async fn write10_read10_1_gib_plain() -> Result<()> {
 
         let mut wctx = WriteCtx::new(
             conn.clone(),
-            cfg.clone(),
             lun,
             &conn.counters.itt,
             &conn.counters.cmd_sn,
@@ -210,11 +218,11 @@ async fn write10_read10_1_gib_plain() -> Result<()> {
             cdb,
             payload[off..off + len].to_vec(),
         );
-        run_write(WriteStates::IssueCmd(IssueCmd), &mut wctx).await?;
+        wctx.execute().await?;
         written_blocks += blk_this;
     }
 
-    // READ(10) по кускам (MRDSL-кап на одну команду)
+    // READ(10)
     let mut read_back = Vec::with_capacity(total_bytes);
     let mut read_blocks: usize = 0;
     while read_blocks < need_blocks_total {
@@ -241,16 +249,16 @@ async fn write10_read10_1_gib_plain() -> Result<()> {
             len as u32,
             cdb,
         );
-        let rd = run_read(ReadStates::Start(ReadStart), &mut rctx).await?;
-        assert_eq!(rd.data.len(), len);
-        read_back.extend_from_slice(&rd.data);
+        rctx.execute().await?;
+        let rd = rctx.rt.acc;
+        assert_eq!(rd.len(), len);
+        read_back.extend_from_slice(&rd);
 
         read_blocks += blk_this;
     }
 
     assert_eq!(read_back.len(), total_bytes);
 
-    // верификация
     for (i, chunk) in read_back.chunks_exact(blk_sz).enumerate() {
         let expected = ((((lba0 as usize) + i) as u8) ^ 0xA5) as u8;
         if !(chunk[0] == expected && chunk[blk_sz - 1] == expected) {

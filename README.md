@@ -1,6 +1,5 @@
 [![crates.io](https://img.shields.io/crates/v/iscsi-client-rs.svg)](https://crates.io/crates/iscsi-client-rs)
 [![docs.rs](https://docs.rs/iscsi-client-rs/badge.svg)](https://docs.rs/iscsi-client-rs)
-[![CI](https://github.com/Masorubka1/iscsi-client-rs/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Masorubka1/iscsi-client-rs/actions/workflows/ci.yml)
 [![license](https://img.shields.io/crates/l/iscsi-client-rs.svg)](LICENSE)
 
 # iscsi-client-rs
@@ -116,7 +115,12 @@ Two branches share a common context `LoginCtx` and output `LoginStatus`.
 APIs:
 
 ```rust
-pub async fn run_login(state: LoginStates, ctx: &mut LoginCtx<'_>) -> anyhow::Result<LoginStatus>;
+let mut lctx = LoginCtx::new(conn.clone(), &cfg, isid, /*cid*/ 1, /*tsih*/ 0);
+lctx.set_plain_login(); // lctx.set_chap_login();
+lctx.execute().await?;
+
+let login_pdu = lctx.last_response.as_ref().context("no login rsp")?;
+let lh = login_pdu.header_view()?;
 ```
 
 **CHAP details**
@@ -131,12 +135,19 @@ pub async fn run_login(state: LoginStates, ctx: &mut LoginCtx<'_>) -> anyhow::Re
 Ping the target and verify `ExpStatSN` handling.
 
 ```rust
-let lun = [0,1,0,0,0,0,0,0];
+let lun = 1 << 48; // [0,1,0,0,0,0,0,0]
 let ttt = NopOutRequest::DEFAULT_TAG;
-let mut nctx = NopCtx::new(conn.clone(), lun, &itt_ctr, &cmd_sn, &exp_stat_sn, ttt);
 
-// one round trip
-let _st = run_nop(NopStates::Idle(Idle), &mut nctx).await?;
+let mut nctx = NopCtx::new(
+    conn.clone(),
+    lun,
+    &conn.counters.itt,
+    &conn.counters.cmd_sn,
+    &conn.counters.exp_stat_sn,
+    ttt,
+);
+
+nctx.execute().await?;
 ```
 
 ---
@@ -149,21 +160,26 @@ let _st = run_nop(NopStates::Idle(Idle), &mut nctx).await?;
 * `ReadWait`  — drains **all** `ScsiDataIn` fragments, appends data, updates `ExpStatSN` on the fragment that carries `stat_sn`, and returns the assembled buffer
 
 ```rust
+use iscsi_client_rs::control_block::read::build_read10;
+
 let mut cdb = [0u8; 16];
 build_read10(&mut cdb, /*lba=*/0, /*blocks=*/8, /*flags=*/0, /*control=*/0);
 
-let mut rctx = ReadCtx {
-    conn: conn.clone(),
-    lun: [0,1,0,0,0,0,0,0],
-    itt: &itt_ctr,
-    cmd_sn: &cmd_sn,
-    exp_stat_sn: &exp_stat_sn,
-    expected: 8 * 512, // bytes
-    cdb,
-};
+let expected_bytes = 8 * 512;
+let lun = 1 << 48; // [0,1,0,0,0,0,0,0]
 
-let rr = run_read(ReadStates::Start(ReadStart), &mut rctx).await?;
-println!("read {} bytes", rr.data.len());
+let mut rctx = ReadCtx::new(
+    conn.clone(),
+    lun,
+    &conn.counters.itt,
+    &conn.counters.cmd_sn,
+    &conn.counters.exp_stat_sn,
+    expected_bytes as u32,
+    cdb,
+);
+
+rctx.execute().await?;
+println!("read {} bytes", rctx.rt.acc.len());
 ```
 
 ### WRITE(10) state machine (Data-Out)
@@ -175,26 +191,26 @@ Both paths are supported:
 * **R2T (Ready-To-Transfer)**: if the payload can’t fit in ImmediateData (or the target requires R2T), we honor each **R2T** by sending one or more `Data-Out` PDUs with the provided **TTT** and **BufferOffset**. Segmentation respects the negotiated **MaxRecvDataSegmentLength (MRDSL)** and **MaxBurstLength**; the last PDU in a burst has **Final=1**. (Assumes `DataPDUInOrder=Yes` and `DataSequenceInOrder=Yes` today.)
 
 ```rust
+use iscsi_client_rs::control_block::write::build_write10;
+
 let mut cdb = [0u8; 16];
 build_write10(&mut cdb, /*lba=*/0, /*blocks=*/8, /*flags=*/0, /*control=*/0);
 
-// The state machine will choose ImmediateData or R2T based on negotiation
-// (ImmediateData, FirstBurstLength, MaxBurstLength, MRDSL).
-let mut wctx = WriteCtx {
-    conn: conn.clone(),
-    lun: [0,1,0,0,0,0,0,0],
-    itt: &itt_ctr,
-    cmd_sn: &cmd_sn,
-    exp_stat_sn: &exp_stat_sn,
-    cdb,
-    data: vec![0u8; 4096],
-};
+let payload = vec![0u8; 8 * 512];
+let lun = 1 << 48; // [0,1,0,0,0,0,0,0]
 
-let ws = run_write(WriteStates::Start(WriteStart), &mut wctx).await?;
-println!(
-    "write ok: itt={} cmd_sn={} exp_stat_sn={}",
-    ws.itt, ws.cmd_sn, ws.exp_stat_sn
+let mut wctx = WriteCtx::new(
+    conn.clone(),
+    lun,
+    &conn.counters.itt,
+    &conn.counters.cmd_sn,
+    &conn.counters.exp_stat_sn,
+    cdb,
+    payload,
 );
+
+wctx.execute().await?;
+println!("write ok");
 ```
 
 > Notes:
@@ -219,7 +235,7 @@ A high-level plan, trimmed for GitHub readability. We track delivery as **Now �
 * **Core protocol & plumbing**
 
   * [x] CRC32C digests (Header/Data; opt-in)
-  * [ ] Unified state machine (Login, NOP, READ/WRITE)
+  * [x] Unified state machine (Login, NOP, READ/WRITE)
   * [ ] Discovery: **SendTargets** (Text)
 * **Reliability & ergonomics**
 
@@ -285,4 +301,4 @@ AGPL-3.0-or-later. See [LICENSE-AGPL-3.0.md](./LICENSE-AGPL-3.0.md).
 
 © 2012-2025 Andrei Maltsev
 
-**Commercial licensing:** not available yet; if you need a proprietary license, contact <sales@company.example> to be notified when dual licensing launches.
+**Commercial licensing:** not available yet; if you need a proprietary license, contact u7743837492@gmail.com to be notified when dual licensing launches.

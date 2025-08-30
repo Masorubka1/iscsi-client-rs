@@ -8,7 +8,7 @@ use tokio::time::timeout;
 
 use crate::models::common::HEADER_LEN;
 
-const IO_TIMEOUT: Duration = Duration::from_secs(10);
+const IO_TIMEOUT: Duration = Duration::from_secs(20);
 
 pub async fn io_with_timeout<F, T>(label: &'static str, fut: F) -> Result<T>
 where F: Future<Output = std::io::Result<T>> {

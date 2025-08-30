@@ -3,20 +3,18 @@
 
 use std::sync::atomic::AtomicU32;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use iscsi_client_rs::{
-    cfg::{
-        config::{AuthConfig, Config},
-        logger::init_logger,
-    },
+    cfg::{config::Config, logger::init_logger},
     models::nop::request::NopOutRequest,
     state_machine::{
-        login_states::{LoginCtx, LoginStates, run_login, start_chap, start_plain},
-        nop_states::{self, NopCtx, NopStates, run_nop},
+        common::StateMachineCtx, login::common::LoginCtx, nop_states::NopCtx,
     },
 };
 
-use crate::integration_tests::common::{connect_cfg, load_config, test_isid, test_path};
+use crate::integration_tests::common::{
+    connect_cfg, get_lun, load_config, test_isid, test_path,
+};
 
 #[tokio::test]
 async fn login_and_nop() -> Result<()> {
@@ -26,31 +24,30 @@ async fn login_and_nop() -> Result<()> {
 
     let conn = connect_cfg(&cfg).await?;
 
+    // ---- Login (execute) ----
     let isid = test_isid();
     let mut lctx = LoginCtx::new(
         conn.clone(),
         &cfg,
         isid,
-        /* cid= */ 1,
-        /* tsih= */ 0,
+        /* cid */ 1,
+        /* tsih */ 0,
     );
+    lctx.set_plain_login();
+    lctx.execute().await.context("login failed")?;
 
-    let login_state: LoginStates = match cfg.login.auth {
-        AuthConfig::Chap(_) => start_chap(),
-        AuthConfig::None => start_plain(),
-    };
+    let login_pdu = lctx.last_response.as_ref().expect("login last_response");
+    let lh = login_pdu.header_view().context("login header")?;
 
-    let login_status = run_login(login_state, &mut lctx).await?;
+    let cmd_sn = AtomicU32::new(lh.exp_cmd_sn.get());
+    let exp_stat_sn = AtomicU32::new(lh.stat_sn.get().wrapping_add(1));
+    let itt = AtomicU32::new(1);
+    let lun = get_lun();
 
-    let cmd_sn = AtomicU32::new(login_status.exp_cmd_sn);
-    let exp_stat_sn = AtomicU32::new(login_status.stat_sn.wrapping_add(1));
-    let itt = AtomicU32::new(login_status.itt.wrapping_add(1));
-    let lun = 1 << 48;
-
+    // ---- NOP (execute) ----
     let ttt = NopOutRequest::DEFAULT_TAG;
     let mut nctx = NopCtx::new(conn.clone(), lun, &itt, &cmd_sn, &exp_stat_sn, ttt);
-
-    run_nop(NopStates::Idle(nop_states::Idle), &mut nctx).await?;
+    nctx.execute().await.context("NOP failed")?;
 
     Ok(())
 }
