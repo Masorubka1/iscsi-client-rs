@@ -9,7 +9,8 @@ use std::{
     },
 };
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
+use tracing::debug;
 
 use crate::{
     client::client::ClientConnection,
@@ -23,18 +24,21 @@ use crate::{
         common::HEADER_LEN,
         data_fromat::PDUWithData,
     },
-    state_machine::common::{StateMachine, Transition},
+    state_machine::common::{StateMachine, StateMachineCtx, Transition},
 };
 
 #[derive(Debug)]
 pub struct TurCtx<'a> {
     pub conn: Arc<ClientConnection>,
-    pub itt: &'a AtomicU32,
+    pub itt: u32,
     pub cmd_sn: &'a AtomicU32,
     pub exp_stat_sn: &'a AtomicU32,
     pub lun: u64,
     pub buf: [u8; HEADER_LEN],
     pub cbd: [u8; 16],
+
+    pub last_response: Option<PDUWithData<ScsiCommandResponse>>,
+    state: Option<TurStates>,
 }
 
 impl<'a> TurCtx<'a> {
@@ -47,78 +51,81 @@ impl<'a> TurCtx<'a> {
     ) -> Self {
         Self {
             conn,
-            itt,
+            itt: itt.fetch_add(1, Ordering::SeqCst),
             cmd_sn,
             exp_stat_sn,
             lun,
             buf: [0u8; HEADER_LEN],
             cbd: [0u8; 16],
+            last_response: None,
+            state: Some(TurStates::Idle(Idle)),
         }
     }
 
-    async fn send_tur(&mut self) -> Result<TurStatus> {
+    async fn send_tur(&mut self) -> Result<()> {
         build_test_unit_ready(&mut self.cbd, 0);
 
-        let itt = self.itt.fetch_add(1, Ordering::SeqCst);
         let cmd_sn = self.cmd_sn.fetch_add(1, Ordering::SeqCst);
-        let exp_stat_sn = self.exp_stat_sn.fetch_add(1, Ordering::SeqCst);
+        let esn = self.exp_stat_sn.load(Ordering::SeqCst);
 
         let header = ScsiCommandRequestBuilder::new()
-            .initiator_task_tag(itt)
+            .initiator_task_tag(self.itt)
             .lun(self.lun)
             .cmd_sn(cmd_sn)
-            .exp_stat_sn(exp_stat_sn)
+            .exp_stat_sn(esn)
             .task_attribute(TaskAttribute::Simple)
-            .read()
-            .write()
             .expected_data_transfer_length(0)
             .scsi_descriptor_block(&self.cbd);
 
-        header.header.to_bhs_bytes(self.buf.as_mut_slice())?;
+        header.header.to_bhs_bytes(&mut self.buf)?;
         let pdu: PDUWithData<ScsiCommandRequest> =
             PDUWithData::from_header_slice(self.buf);
-        self.conn.send_request(itt, pdu).await?;
 
-        Ok(TurStatus {
-            itt,
-            cmd_sn,
-            exp_stat_sn,
-        })
+        self.conn.send_request(self.itt, pdu).await?;
+        Ok(())
     }
 
-    async fn recv_tur_resp(&self, expected: TurStatus) -> Result<()> {
-        let TurStatus { itt, .. } = expected;
+    async fn recv_tur_resp(&mut self) -> Result<()> {
+        let rsp = self
+            .conn
+            .read_response::<ScsiCommandResponse>(self.itt)
+            .await?;
+        self.last_response = Some(rsp);
 
-        let rsp = self.conn.read_response::<ScsiCommandResponse>(itt).await?;
-        let hv = rsp.header_view()?;
+        let lr = self.last_response.as_ref().expect("saved above");
+        let hv = lr.header_view()?;
 
-        // SCSI Status == GOOD (0x00)
+        self.exp_stat_sn
+            .store(hv.stat_sn.get().wrapping_add(1), Ordering::SeqCst);
+
         let scsi_status = hv.status.decode()?;
         if scsi_status != ScsiStatus::Good {
-            bail!("TEST UNIT READY failed: {:?}", rsp);
+            if !lr.data.is_empty() {
+                bail!(
+                    "TEST UNIT READY failed: status={:?}, sense ({} bytes)={:02X?}",
+                    scsi_status,
+                    lr.data.len(),
+                    lr.data
+                );
+            }
+            bail!("TEST UNIT READY failed: status={:?}", scsi_status);
         }
         Ok(())
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct TurStatus {
-    pub itt: u32,
-    pub cmd_sn: u32,
-    pub exp_stat_sn: u32,
-}
-
+#[derive(Debug)]
 pub struct Idle;
-pub struct Wait {
-    pending: TurStatus,
-}
+#[derive(Debug)]
+pub struct Wait;
 
+#[derive(Debug)]
 pub enum TurStates {
     Idle(Idle),
     Wait(Wait),
 }
 
-type TurStepOut = Transition<TurStates, Result<TurStatus>>;
+type TurStepOut = Transition<TurStates, Result<()>>;
 
 impl<'ctx> StateMachine<TurCtx<'ctx>, TurStepOut> for Idle {
     type StepResult<'a>
@@ -127,15 +134,10 @@ impl<'ctx> StateMachine<TurCtx<'ctx>, TurStepOut> for Idle {
         Self: 'a,
         TurCtx<'ctx>: 'a;
 
-    fn step<'a>(&'a mut self, ctx: &'a mut TurCtx<'ctx>) -> Self::StepResult<'a> {
+    fn step<'a>(&'a self, ctx: &'a mut TurCtx<'ctx>) -> Self::StepResult<'a> {
         Box::pin(async move {
             match ctx.send_tur().await {
-                Ok(st) => Transition::Next(
-                    TurStates::Wait(Wait {
-                        pending: st.clone(),
-                    }),
-                    Ok(st),
-                ),
+                Ok(()) => Transition::Next(TurStates::Wait(Wait), Ok(())),
                 Err(e) => Transition::Done(Err(e)),
             }
         })
@@ -149,28 +151,38 @@ impl<'ctx> StateMachine<TurCtx<'ctx>, TurStepOut> for Wait {
         Self: 'a,
         TurCtx<'ctx>: 'a;
 
-    fn step<'a>(&'a mut self, ctx: &'a mut TurCtx<'ctx>) -> Self::StepResult<'a> {
+    fn step<'a>(&'a self, ctx: &'a mut TurCtx<'ctx>) -> Self::StepResult<'a> {
         Box::pin(async move {
-            match ctx.recv_tur_resp(self.pending.clone()).await {
-                Ok(()) => Transition::Done(Ok(self.pending.clone())),
+            match ctx.recv_tur_resp().await {
+                Ok(()) => Transition::Done(Ok(())),
                 Err(e) => Transition::Done(Err(e)),
             }
         })
     }
 }
 
-pub async fn run_tur(mut state: TurStates, ctx: &mut TurCtx<'_>) -> Result<TurStatus> {
-    loop {
-        let trans = match &mut state {
-            TurStates::Idle(s) => s.step(ctx).await,
-            TurStates::Wait(s) => s.step(ctx).await,
-        };
+impl<'ctx> StateMachineCtx<TurCtx<'ctx>> for TurCtx<'ctx> {
+    async fn execute(&mut self) -> Result<()> {
+        debug!("Loop TUR");
 
-        match trans {
-            Transition::Next(next_state, _r) => state = next_state,
-            Transition::Stay(Ok(_)) => {},
-            Transition::Stay(Err(e)) => return Err(e),
-            Transition::Done(r) => return r,
+        loop {
+            let state = self.state.take().context("state must be set TurCtx")?;
+            let tr = match state {
+                TurStates::Idle(s) => s.step(self).await,
+                TurStates::Wait(s) => s.step(self).await,
+            };
+
+            match tr {
+                Transition::Next(next, r) => {
+                    r?;
+                    self.state = Some(next);
+                },
+                Transition::Stay(Ok(_)) => {},
+                Transition::Stay(Err(e)) => return Err(e),
+                Transition::Done(r) => {
+                    return r;
+                },
+            }
         }
     }
 }

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
+use anyhow::Result;
 
 pub enum Transition<S, R> {
     Next(S, R),
@@ -7,12 +8,16 @@ pub enum Transition<S, R> {
     Done(R),
 }
 
-pub trait StateMachine<Ctx, RespCtx>: Sized {
-    type StepResult<'a>: Future<Output = RespCtx> + Send + 'a
+pub trait StateMachine<Ctx, Resp>: Sized {
+    type StepResult<'a>: Future<Output = Resp> + Send + 'a
     where
         Self: 'a,
-        RespCtx: 'a,
+        Resp: 'a,
         Ctx: 'a;
 
-    fn step<'a>(&'a mut self, ctx: &'a mut Ctx) -> Self::StepResult<'a>;
+    fn step<'a>(&'a self, ctx: &'a mut Ctx) -> Self::StepResult<'a>;
+}
+
+pub trait StateMachineCtx<Ctx>: Sized {
+    fn execute(&mut self) -> impl Future<Output = Result<()>>;
 }

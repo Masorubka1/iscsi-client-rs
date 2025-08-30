@@ -3,7 +3,7 @@
 
 use std::sync::atomic::AtomicU32;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use iscsi_client_rs::{
     cfg::{
         config::{AuthConfig, Config},
@@ -11,13 +11,14 @@ use iscsi_client_rs::{
     },
     control_block::request_sense::fill_request_sense_simple,
     state_machine::{
-        login_states::{LoginCtx, LoginStates, run_login, start_chap, start_plain},
-        read_states::{ReadCtx, ReadStart, ReadStates, run_read},
-        tur_states::{Idle as TurIdle, TurCtx, TurStates, run_tur},
+        common::StateMachineCtx, login::common::LoginCtx, read_states::ReadCtx,
+        tur_states::TurCtx,
     },
 };
 
-use crate::integration_tests::common::{connect_cfg, load_config, test_isid, test_path};
+use crate::integration_tests::common::{
+    connect_cfg, get_lun, load_config, test_isid, test_path,
+};
 
 /// login -> TUR (expect UA/CC) -> REQUEST SENSE (8B) -> REQUEST SENSE (full) ->
 /// TUR (GOOD) -> INQUIRY (GOOD)
@@ -37,34 +38,45 @@ async fn login_ua_request_sense_then_clear_with_tur() -> Result<()> {
         /* cid */ 1,
         /* tsih */ 0,
     );
-    let login_state: LoginStates = match cfg.login.auth {
-        AuthConfig::Chap(_) => start_chap(),
-        AuthConfig::None => start_plain(),
-    };
-    let login_status = run_login(login_state, &mut lctx).await?;
 
-    let cmd_sn = AtomicU32::new(login_status.exp_cmd_sn);
-    let exp_stat_sn = AtomicU32::new(login_status.stat_sn.wrapping_add(1));
-    let itt = AtomicU32::new(login_status.itt.wrapping_add(1));
-    let lun = 1u64 << 48;
+    match cfg.login.auth {
+        AuthConfig::Chap(_) => lctx.set_chap_login(),
+        AuthConfig::None => lctx.set_plain_login(),
+    }
+
+    lctx.execute().await.context("login failed")?;
+    let login_pdu = lctx
+        .last_response
+        .as_ref()
+        .context("no login last_response")?;
+    let lh = login_pdu.header_view().context("login header")?;
+
+    let cmd_sn = AtomicU32::new(lh.exp_cmd_sn.get());
+    let exp_stat_sn = AtomicU32::new(lh.stat_sn.get().wrapping_add(1));
+    let itt = AtomicU32::new(1);
+    let lun = get_lun();
 
     // === Step 1: TUR — expect CHECK CONDITION (UA) after login.
     let mut tctx = TurCtx::new(conn.clone(), &itt, &cmd_sn, &exp_stat_sn, lun);
-    let _ = run_tur(TurStates::Idle(TurIdle), &mut tctx).await.err();
+    let _ = tctx.execute().await;
 
-    // === Step 2: REQUEST SENSE
+    // === Step 2: REQUEST SENSE (8 bytes)
     let mut rs_hdr = [0u8; 16];
-    let _ = fill_request_sense_simple(&mut rs_hdr, 8);
+    fill_request_sense_simple(&mut rs_hdr, 8);
     let mut rctx_rs8 =
         ReadCtx::new(conn.clone(), lun, &itt, &cmd_sn, &exp_stat_sn, 8, rs_hdr);
-    let s8 = run_read(ReadStates::Start(ReadStart), &mut rctx_rs8).await?;
-    assert_eq!(s8.data.len(), 8, "REQUEST SENSE header must be 8 bytes");
-    let add_len = s8.data[7] as usize;
+    rctx_rs8
+        .execute()
+        .await
+        .context("REQUEST SENSE (8) failed")?;
+    let s8 = rctx_rs8.rt.acc;
+    assert_eq!(s8.len(), 8, "REQUEST SENSE header must be 8 bytes");
+    let add_len = s8[7] as usize;
     let total_needed = 8 + add_len;
 
     // === Step 3: REQUEST SENSE (full size 8 + add_len)
     let mut rs_full = [0u8; 16];
-    let _ = fill_request_sense_simple(&mut rs_full, total_needed as u8);
+    fill_request_sense_simple(&mut rs_full, total_needed as u8);
     let mut rctx_rs_full = ReadCtx::new(
         conn.clone(),
         lun,
@@ -74,35 +86,33 @@ async fn login_ua_request_sense_then_clear_with_tur() -> Result<()> {
         total_needed as u32,
         rs_full,
     );
-    let sfull = run_read(ReadStates::Start(ReadStart), &mut rctx_rs_full).await?;
-    assert_eq!(
-        sfull.data.len(),
-        total_needed,
-        "unexpected REQUEST SENSE length"
-    );
-    let resp_code = sfull.data[0] & 0x7F;
+    rctx_rs_full
+        .execute()
+        .await
+        .context("REQUEST SENSE (full) failed")?;
+    let sfull = rctx_rs_full.rt.acc;
+    assert_eq!(sfull.len(), total_needed, "unexpected REQUEST SENSE length");
+    let resp_code = sfull[0] & 0x7F;
     assert!(
         resp_code == 0x70 || resp_code == 0x71,
         "unexpected sense response code"
     );
 
-    // === Step 4: TUR retry — now UA should be empty → expect GOOD
+    // === Step 4: TUR retry — now UA should be cleared → expect GOOD
     let mut tctx2 = TurCtx::new(conn.clone(), &itt, &cmd_sn, &exp_stat_sn, lun);
-    let _ = run_tur(TurStates::Idle(TurIdle), &mut tctx2).await?;
+    tctx2.execute().await.context("TUR after sense failed")?;
 
     // === Step 5: STANDARD INQUIRY (6), alloc=36 — expect GOOD
     let mut inq_cdb = [0u8; 16];
     inq_cdb[..6].fill(0);
     inq_cdb[0] = 0x12; // INQUIRY(6)
     inq_cdb[4] = 36;
+
     let mut rctx_inq =
         ReadCtx::new(conn.clone(), lun, &itt, &cmd_sn, &exp_stat_sn, 36, inq_cdb);
-    let inq = run_read(ReadStates::Start(ReadStart), &mut rctx_inq).await?;
-    assert_eq!(
-        inq.data.len(),
-        36,
-        "INQUIRY should succeed after UA is cleared"
-    );
+    rctx_inq.execute().await.context("INQUIRY failed")?;
+    let inq = rctx_inq.rt.acc;
+    assert_eq!(inq.len(), 36, "INQUIRY should succeed after UA is cleared");
 
     Ok(())
 }

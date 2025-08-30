@@ -8,10 +8,9 @@ use std::{
         Arc,
         atomic::{AtomicU32, Ordering},
     },
-    vec,
 };
 
-use anyhow::{Result, anyhow};
+use anyhow::{Context, Result, anyhow};
 use tracing::debug;
 
 use crate::{
@@ -28,7 +27,7 @@ use crate::{
         opcode::{BhsOpcode, Opcode},
         parse::Pdu,
     },
-    state_machine::common::{StateMachine, Transition},
+    state_machine::common::{StateMachine, StateMachineCtx, Transition},
 };
 
 #[derive(Debug)]
@@ -38,15 +37,27 @@ pub enum ReadPdu {
 }
 
 #[derive(Debug)]
+pub struct ReadRuntime {
+    pub acc: Vec<u8>,
+    pub cur_cmd_sn: Option<u32>,
+    pub status_in_datain: Option<ScsiStatus>,
+    pub residual_in_datain: Option<u32>,
+}
+
+#[derive(Debug)]
 pub struct ReadCtx<'a> {
     pub conn: Arc<ClientConnection>,
     pub lun: u64,
-    pub itt: &'a AtomicU32,
+    pub itt: u32,
     pub cmd_sn: &'a AtomicU32,
     pub exp_stat_sn: &'a AtomicU32,
     pub read_len: u32,
     pub cdb: [u8; 16],
     pub buf: [u8; HEADER_LEN],
+
+    pub last_response: Option<PDUWithData<ScsiCommandResponse>>,
+    pub rt: ReadRuntime,
+    state: Option<ReadStates>,
 }
 
 impl<'a> ReadCtx<'a> {
@@ -62,12 +73,20 @@ impl<'a> ReadCtx<'a> {
         Self {
             conn,
             lun,
-            itt,
+            itt: itt.fetch_add(1, Ordering::SeqCst),
             cmd_sn,
             exp_stat_sn,
             read_len,
             cdb,
             buf: [0u8; HEADER_LEN],
+            last_response: None,
+            rt: ReadRuntime {
+                acc: Vec::with_capacity(read_len as usize),
+                cur_cmd_sn: None,
+                status_in_datain: None,
+                residual_in_datain: None,
+            },
+            state: Some(ReadStates::Start(Start)),
         }
     }
 
@@ -75,27 +94,29 @@ impl<'a> ReadCtx<'a> {
         let (p_any, data): (PDUWithData<Pdu>, Vec<u8>) =
             self.conn.read_response_raw(itt).await?;
         let op = BhsOpcode::try_from(p_any.header_buf[0])?.opcode;
+
+        let hd = self
+            .conn
+            .cfg
+            .login
+            .negotiation
+            .header_digest
+            .eq_ignore_ascii_case("CRC32C");
+        let dd = self
+            .conn
+            .cfg
+            .login
+            .negotiation
+            .data_digest
+            .eq_ignore_ascii_case("CRC32C");
+
         let pdu_local = match op {
             Opcode::ScsiDataIn => Ok(ReadPdu::DataIn({
                 let mut pdu = p_any.rebind_pdu::<ScsiDataIn>()?;
 
                 let header = pdu.header_view()?;
 
-                let hd = self
-                    .conn
-                    .cfg
-                    .login
-                    .negotiation
-                    .header_digest
-                    .eq_ignore_ascii_case("CRC32C");
                 let hd = header.get_header_diggest(hd);
-                let dd = self
-                    .conn
-                    .cfg
-                    .login
-                    .negotiation
-                    .data_digest
-                    .eq_ignore_ascii_case("CRC32C");
                 let dd = header.get_data_diggest(dd);
 
                 pdu.parse_with_buff(data.as_slice(), hd != 0, dd != 0)?;
@@ -106,21 +127,7 @@ impl<'a> ReadCtx<'a> {
 
                 let header = pdu.header_view()?;
 
-                let hd = self
-                    .conn
-                    .cfg
-                    .login
-                    .negotiation
-                    .header_digest
-                    .eq_ignore_ascii_case("CRC32C");
                 let hd = header.get_header_diggest(hd);
-                let dd = self
-                    .conn
-                    .cfg
-                    .login
-                    .negotiation
-                    .data_digest
-                    .eq_ignore_ascii_case("CRC32C");
                 let dd = header.get_data_diggest(dd);
 
                 pdu.parse_with_buff(data.as_slice(), hd != 0, dd != 0)?;
@@ -132,14 +139,13 @@ impl<'a> ReadCtx<'a> {
         pdu_local
     }
 
-    async fn send_read_request(&mut self) -> Result<(PendingRead, u32)> {
+    async fn send_read_request(&mut self) -> Result<u32> {
         let sn = self.cmd_sn.fetch_add(1, Ordering::SeqCst);
         let esn = self.exp_stat_sn.load(Ordering::SeqCst);
-        let itt = self.itt.fetch_add(1, Ordering::SeqCst);
 
         let header = ScsiCommandRequestBuilder::new()
             .lun(self.lun)
-            .initiator_task_tag(itt)
+            .initiator_task_tag(self.itt)
             .cmd_sn(sn)
             .exp_stat_sn(esn)
             .expected_data_transfer_length(self.read_len)
@@ -148,82 +154,66 @@ impl<'a> ReadCtx<'a> {
             .task_attribute(TaskAttribute::Simple);
 
         header.header.to_bhs_bytes(self.buf.as_mut_slice())?;
-
         let builder: PDUWithData<ScsiCommandRequest> =
             PDUWithData::from_header_slice(self.buf);
-        self.conn.send_request(itt, builder).await?;
+        self.conn.send_request(self.itt, builder).await?;
 
-        Ok((PendingRead { itt, cmd_sn: sn }, esn))
+        self.rt.cur_cmd_sn = Some(sn);
+        Ok(esn)
     }
 
     pub async fn recv_datain(&self, itt: u32) -> Result<PDUWithData<ScsiDataIn>> {
         self.conn.read_response(itt).await
     }
 
-    pub fn apply_datain(
-        &self,
-        pdu: &PDUWithData<ScsiDataIn>,
-        buf: &mut [u8],
-        filled_hi: &mut usize,
-    ) -> Result<(bool, Option<ScsiStatus>, Option<u32>)> {
+    pub fn apply_datain_append(&mut self, pdu: &PDUWithData<ScsiDataIn>) -> Result<bool> {
         let h = pdu.header_view()?;
 
         let off = h.buffer_offset.get() as usize;
-        let len = pdu.data.len();
-
-        match off.checked_add(len) {
-            Some(end) if end <= buf.len() => {
-                if len != 0 {
-                    buf[off..end].copy_from_slice(&pdu.data);
-                    *filled_hi = (*filled_hi).max(end);
-                }
-            },
-            _ => {
-                return Err(anyhow!(
-                    "target sent more data than expected: off={} len={} cap={}",
-                    off,
-                    len,
-                    buf.len()
-                ));
-            },
+        if off != self.rt.acc.len() {
+            return Err(anyhow!(
+                "unexpected buffer_offset: got {}, expected {}",
+                off,
+                self.rt.acc.len()
+            ));
+        }
+        if !pdu.data.is_empty() {
+            self.rt.acc.extend_from_slice(&pdu.data);
         }
 
         if h.stat_sn_or_rsvd.get() != 0 {
             self.exp_stat_sn
                 .store(h.stat_sn_or_rsvd.get().wrapping_add(1), Ordering::SeqCst);
         }
+        if h.get_status_bit() {
+            self.rt.status_in_datain = h.scsi_status();
+            self.rt.residual_in_datain = Some(h.residual_count.get());
+        }
 
-        let final_bit = h.get_real_final_bit();
-        let s_bit = h.get_status_bit();
-
-        let (status_in, residual_in) = if s_bit {
-            (h.scsi_status(), Some(h.residual_count.get()))
-        } else {
-            (None, None)
-        };
-
-        Ok((final_bit, status_in, residual_in))
+        Ok(h.get_real_final_bit())
     }
 
     pub async fn finalize_status_after_datain(
-        &self,
+        &mut self,
         itt: u32,
-        status_in_datain: Option<ScsiStatus>,
-        residual_in_datain: Option<u32>,
-        cmd_resp: Option<PDUWithData<ScsiCommandResponse>>,
     ) -> Result<(ScsiStatus, u32, Option<Vec<u8>>)> {
-        if let Some(st) = status_in_datain
-            && st == ScsiStatus::Good
-        {
-            return Ok((st, residual_in_datain.unwrap_or_default(), None));
+        if let Some(ScsiStatus::Good) = self.rt.status_in_datain {
+            return Ok((
+                ScsiStatus::Good,
+                self.rt.residual_in_datain.unwrap_or_default(),
+                None,
+            ));
         }
 
-        let rsp: PDUWithData<ScsiCommandResponse> = match cmd_resp {
+        let rsp: PDUWithData<ScsiCommandResponse> = match self.last_response.take() {
             Some(r) => r,
             None => self.conn.read_response(itt).await?,
         };
+        self.last_response = Some(rsp);
 
-        let h = rsp.header_view()?;
+        let lr = self.last_response.as_ref().expect("saved above");
+        let h = lr.header_view()?;
+
         let status = h
             .status
             .decode()
@@ -231,180 +221,98 @@ impl<'a> ReadCtx<'a> {
         self.exp_stat_sn
             .store(h.stat_sn.get().wrapping_add(1), Ordering::SeqCst);
 
-        let sense = if rsp.data.is_empty() {
+        let sense = if lr.data.is_empty() {
             None
         } else {
-            Some(rsp.data.clone())
+            Some(lr.data.clone())
         };
         Ok((status, h.residual_count.get(), sense))
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct ReadResult {
-    pub itt: u32,
-    pub cmd_sn: u32,
-    pub exp_stat_sn: u32,
-    pub data: Vec<u8>,
-}
+#[derive(Debug)]
+pub struct Start;
+#[derive(Debug)]
+pub struct ReadWait;
+#[derive(Debug)]
+pub struct Finish;
 
-#[derive(Debug, Clone)]
-struct PendingRead {
-    itt: u32,
-    cmd_sn: u32,
-}
-
-pub struct ReadStart;
-pub struct ReadWaitData {
-    pending: PendingRead,
-}
-
-pub struct ReadWaitResp {
-    pending: PendingRead,
-    buf: Vec<u8>,
-    filled_hi: usize,
-    expected: usize,
-    status_in_datain: Option<ScsiStatus>,
-    residual_in_datain: Option<u32>,
-    cmd_resp: Option<PDUWithData<ScsiCommandResponse>>,
-}
-
+#[derive(Debug)]
 pub enum ReadStates {
-    Start(ReadStart),
-    WaitData(ReadWaitData),
-    WaitResp(ReadWaitResp),
+    Start(Start),
+    Wait(ReadWait),
+    Finish(Finish),
 }
 
-type ReadStepOut = Transition<ReadStates, Result<ReadResult>>;
+type ReadStepOut = Transition<ReadStates, Result<()>>;
 
-impl<'ctx> StateMachine<ReadCtx<'ctx>, ReadStepOut> for ReadStart {
+impl<'ctx> StateMachine<ReadCtx<'ctx>, ReadStepOut> for Start {
     type StepResult<'a>
         = Pin<Box<dyn Future<Output = ReadStepOut> + Send + 'a>>
     where
         Self: 'a,
         ReadCtx<'ctx>: 'a;
 
-    fn step<'a>(&'a mut self, ctx: &'a mut ReadCtx<'ctx>) -> Self::StepResult<'a> {
+    fn step<'a>(&'a self, ctx: &'a mut ReadCtx<'ctx>) -> Self::StepResult<'a> {
         Box::pin(async move {
-            let (pending, esn) = match ctx.send_read_request().await {
-                Ok(v) => v,
-                Err(e) => return Transition::Done(Err(e)),
-            };
-
-            Transition::Next(
-                ReadStates::WaitData(ReadWaitData {
-                    pending: pending.clone(),
-                }),
-                Ok(ReadResult {
-                    itt: pending.itt,
-                    cmd_sn: pending.cmd_sn,
-                    exp_stat_sn: esn,
-                    data: vec![],
-                }),
-            )
+            if let Err(e) = ctx.send_read_request().await {
+                return Transition::Done(Err(e));
+            }
+            Transition::Next(ReadStates::Wait(ReadWait), Ok(()))
         })
     }
 }
 
-impl<'ctx> StateMachine<ReadCtx<'ctx>, ReadStepOut> for ReadWaitData {
+impl<'ctx> StateMachine<ReadCtx<'ctx>, ReadStepOut> for ReadWait {
     type StepResult<'a>
         = Pin<Box<dyn Future<Output = ReadStepOut> + Send + 'a>>
     where
         Self: 'a,
         ReadCtx<'ctx>: 'a;
 
-    fn step<'a>(&'a mut self, ctx: &'a mut ReadCtx<'ctx>) -> Self::StepResult<'a> {
+    fn step<'a>(&'a self, ctx: &'a mut ReadCtx<'ctx>) -> Self::StepResult<'a> {
         Box::pin(async move {
-            let expected = ctx.read_len as usize;
-            let mut buf = vec![0u8; expected];
-            let mut filled_hi = 0usize;
-
-            let mut status_in_datain: Option<ScsiStatus> = None;
-            let mut residual_in_datain: Option<u32> = None;
-            let mut early_cmdresp: Option<PDUWithData<ScsiCommandResponse>> = None;
-
             loop {
-                let p = match ctx.recv_any(self.pending.itt).await {
-                    Ok(p) => p,
-                    Err(e) => {
-                        return Transition::Done(Err(anyhow!(
-                            "unexpected PDU while Data-In: {e}"
-                        )));
-                    },
-                };
-
-                match p {
-                    ReadPdu::DataIn(pdu) => {
-                        let (is_final, s_opt, r_opt) =
-                            match ctx.apply_datain(&pdu, &mut buf, &mut filled_hi) {
-                                Ok(v) => v,
-                                Err(e) => return Transition::Done(Err(e)),
-                            };
-
-                        if let Some(s) = s_opt {
-                            status_in_datain = Some(s);
-                        }
-                        if let Some(r) = r_opt {
-                            residual_in_datain = Some(r);
-                        }
-
+                match ctx.recv_any(ctx.itt).await {
+                    Ok(ReadPdu::DataIn(pdu)) => {
+                        let is_final = match ctx.apply_datain_append(&pdu) {
+                            Ok(f) => f,
+                            Err(e) => return Transition::Done(Err(e)),
+                        };
                         if is_final {
                             break;
                         }
                     },
-                    ReadPdu::CmdResp(rsp) => {
-                        early_cmdresp = Some(rsp);
+                    Ok(ReadPdu::CmdResp(rsp)) => {
+                        ctx.last_response = Some(rsp);
                         break;
+                    },
+                    Err(e) => {
+                        return Transition::Done(Err(anyhow!(
+                            "unexpected PDU while read: {e}"
+                        )));
                     },
                 }
             }
-
-            let next = ReadWaitResp {
-                pending: self.pending.clone(),
-                buf,
-                filled_hi,
-                expected,
-                status_in_datain,
-                residual_in_datain,
-                cmd_resp: early_cmdresp,
-            };
-
-            Transition::Next(
-                ReadStates::WaitResp(next),
-                Ok(ReadResult {
-                    itt: self.pending.itt,
-                    cmd_sn: self.pending.cmd_sn,
-                    exp_stat_sn: ctx.exp_stat_sn.load(Ordering::SeqCst),
-                    data: vec![],
-                }),
-            )
+            Transition::Next(ReadStates::Finish(Finish), Ok(()))
         })
     }
 }
 
-impl<'ctx> StateMachine<ReadCtx<'ctx>, ReadStepOut> for ReadWaitResp {
+impl<'ctx> StateMachine<ReadCtx<'ctx>, ReadStepOut> for Finish {
     type StepResult<'a>
         = Pin<Box<dyn Future<Output = ReadStepOut> + Send + 'a>>
     where
         Self: 'a,
         ReadCtx<'ctx>: 'a;
 
-    fn step<'a>(&'a mut self, ctx: &'a mut ReadCtx<'ctx>) -> Self::StepResult<'a> {
+    fn step<'a>(&'a self, ctx: &'a mut ReadCtx<'ctx>) -> Self::StepResult<'a> {
         Box::pin(async move {
-            let cmd_resp = self.cmd_resp.take();
-
-            let (status, residual, sense_opt) = match ctx
-                .finalize_status_after_datain(
-                    self.pending.itt,
-                    self.status_in_datain.clone(),
-                    self.residual_in_datain,
-                    cmd_resp,
-                )
-                .await
-            {
-                Ok(v) => v,
-                Err(e) => return Transition::Done(Err(e)),
-            };
+            let (status, residual, sense_opt) =
+                match ctx.finalize_status_after_datain(ctx.itt).await {
+                    Ok(v) => v,
+                    Err(e) => return Transition::Done(Err(e)),
+                };
 
             if status != ScsiStatus::Good {
                 if let Some(sb) = sense_opt {
@@ -413,62 +321,57 @@ impl<'ctx> StateMachine<ReadCtx<'ctx>, ReadStepOut> for ReadWaitResp {
                             "SCSI CheckCondition: {:?}",
                             sense
                         )));
-                    } else {
-                        return Transition::Done(Err(anyhow!(
-                            "SCSI CheckCondition (sense {} bytes): {:02X?}",
-                            sb.len(),
-                            sb
-                        )));
                     }
-                } else {
                     return Transition::Done(Err(anyhow!(
-                        "SCSI status != GOOD ({:?}) and no sense provided",
-                        status
+                        "SCSI CheckCondition (sense {} bytes): {:02X?}",
+                        sb.len(),
+                        sb
                     )));
                 }
+                return Transition::Done(Err(anyhow!(
+                    "SCSI status != GOOD ({:?}) and no sense provided",
+                    status
+                )));
             }
 
-            let got = self.filled_hi;
-            if got != self.expected {
+            let expected = ctx.read_len as usize;
+            if ctx.rt.acc.len() != expected || residual != 0 {
                 return Transition::Done(Err(anyhow!(
                     "short/long read: expected {} bytes, got {}; residual={}",
-                    self.expected,
-                    got,
+                    expected,
+                    ctx.rt.acc.len(),
                     residual
                 )));
             }
 
-            let mut data = self.buf.clone();
-            data.truncate(self.expected);
-
-            Transition::Done(Ok(ReadResult {
-                itt: self.pending.itt,
-                cmd_sn: self.pending.cmd_sn,
-                exp_stat_sn: ctx.exp_stat_sn.load(Ordering::SeqCst),
-                data,
-            }))
+            Transition::Done(Ok(()))
         })
     }
 }
 
-pub async fn run_read(
-    mut state: ReadStates,
-    ctx: &mut ReadCtx<'_>,
-) -> Result<ReadResult> {
-    loop {
-        let tr = match &mut state {
-            ReadStates::Start(s) => s.step(ctx).await,
-            ReadStates::WaitData(s) => s.step(ctx).await,
-            ReadStates::WaitResp(s) => s.step(ctx).await,
-        };
+impl<'ctx> StateMachineCtx<ReadCtx<'ctx>> for ReadCtx<'ctx> {
+    async fn execute(&mut self) -> Result<()> {
+        debug!("Loop Read");
 
-        match tr {
-            Transition::Next(next, _r) => {
-                state = next;
-            },
-            Transition::Stay(Ok(_)) => { /* tick */ },
-            Transition::Stay(Err(e)) => return Err(e),
-            Transition::Done(result) => return result,
+        loop {
+            let state = self.state.take().context("state must be set ReadCtx")?;
+            let tr = match state {
+                ReadStates::Start(s) => s.step(self).await,
+                ReadStates::Wait(s) => s.step(self).await,
+                ReadStates::Finish(s) => s.step(self).await,
+            };
+
+            match tr {
+                Transition::Next(next, r) => {
+                    r?;
+                    self.state = Some(next);
+                },
+                Transition::Stay(Ok(_)) => {},
+                Transition::Stay(Err(e)) => return Err(e),
+                Transition::Done(r) => {
+                    return r;
+                },
+            }
         }
     }
 }

@@ -1,16 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
-use std::{sync::atomic::Ordering, time::Duration};
+use std::sync::atomic::Ordering;
 
 use anyhow::{Context, Result};
 use iscsi_client_rs::{
     cfg::{
-        cli::resolve_config_path,
         config::{AuthConfig, Config},
         logger::init_logger,
     },
-    client::client::ClientConnection,
     models::{logout::common::LogoutReason, nop::request::NopOutRequest},
     state_machine::{
         common::StateMachineCtx, login::common::LoginCtx, logout_states::LogoutCtx,
@@ -18,43 +16,36 @@ use iscsi_client_rs::{
     },
     utils::generate_isid,
 };
-use tokio::time::{sleep, timeout};
-use tracing::info;
+use tokio::time::{Duration, sleep, timeout};
 
-#[tokio::main]
-async fn main() -> Result<()> {
-    let _init_logger = init_logger("tests/config_logger.yaml")?;
+use crate::integration_tests::common::{connect_cfg, get_lun, load_config, test_path};
 
-    // let cfg = resolve_config_path("tests/config.yaml")
-    //     .and_then(Config::load_from_file)
-    //     .context("failed to resolve or load config")?;
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn logout_close_session() -> Result<()> {
+    let _ = init_logger(&test_path());
 
-    let cfg = resolve_config_path("docker/lio/config.lio.yaml")
-        .and_then(Config::load_from_file)
-        .context("failed to resolve or load config")?;
+    let cfg: Config = load_config()?;
+    let conn = connect_cfg(&cfg).await?;
 
-    let conn = ClientConnection::connect(cfg.clone()).await?;
-    info!("Connected to target");
-
-    let (_isid, _isid_str) = generate_isid();
-    info!("{_isid:?} {_isid_str}");
-    let isid = [0, 2, 61, 0, 0, 14];
-    let cid = 1;
-
-    // ---------- LOGIN ----------
+    let (isid, _s) = generate_isid();
+    let cid = 1u16;
     let mut lctx = LoginCtx::new(conn.clone(), &cfg, isid, cid, 0);
+
     match cfg.login.auth {
         AuthConfig::Chap(_) => lctx.set_chap_login(),
         AuthConfig::None => lctx.set_plain_login(),
-    };
-    lctx.execute().await?;
+    }
 
-    // seed counters from the last login response
+    timeout(Duration::from_secs(10), lctx.execute())
+        .await
+        .context("login timeout")??;
+
     let login_pdu = lctx
         .last_response
         .as_ref()
         .context("no login last_response")?;
     let lh = login_pdu.header_view().context("login header")?;
+
     conn.counters
         .cmd_sn
         .store(lh.exp_cmd_sn.get(), Ordering::SeqCst);
@@ -65,11 +56,10 @@ async fn main() -> Result<()> {
         .itt
         .store(lh.initiator_task_tag.wrapping_add(1), Ordering::SeqCst);
 
-    let lun = 1u64 << 48;
-
     let cmd_sn_before = conn.counters.cmd_sn.load(Ordering::SeqCst);
     let exp_stat_sn_before = conn.counters.exp_stat_sn.load(Ordering::SeqCst);
 
+    let lun = get_lun();
     let mut times = 0;
     while times < 3 {
         let mut nctx = NopCtx::new(

@@ -9,7 +9,8 @@ use std::{
     },
 };
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
+use tracing::debug;
 
 use crate::{
     client::client::ClientConnection,
@@ -22,18 +23,22 @@ use crate::{
             response::LogoutResponse,
         },
     },
-    state_machine::common::{StateMachine, Transition},
+    state_machine::common::{StateMachine, StateMachineCtx, Transition},
 };
 
 #[derive(Debug)]
 pub struct LogoutCtx<'a> {
     pub conn: Arc<ClientConnection>,
-    pub itt: &'a AtomicU32,
+    pub itt: u32,
     pub cmd_sn: &'a AtomicU32,
     pub exp_stat_sn: &'a AtomicU32,
     pub cid: u16,
     pub reason: LogoutReason,
     pub buf: [u8; HEADER_LEN],
+
+    state: Option<LogoutStates>,
+
+    pub last_response: Option<PDUWithData<LogoutResponse>>,
 }
 
 impl<'a> LogoutCtx<'a> {
@@ -47,75 +52,62 @@ impl<'a> LogoutCtx<'a> {
     ) -> Self {
         Self {
             conn,
-            itt,
+            itt: itt.fetch_add(1, Ordering::SeqCst),
             cmd_sn,
             exp_stat_sn,
             cid,
             reason,
             buf: [0u8; HEADER_LEN],
+            state: Some(LogoutStates::Idle(Idle)),
+            last_response: None,
         }
     }
 
-    async fn send_logout(&mut self) -> Result<LogoutStatus> {
-        let cmd_sn = self.cmd_sn.load(Ordering::SeqCst);
-        let exp_stat_sn = self.exp_stat_sn.fetch_add(1, Ordering::SeqCst);
-        let itt = self.itt.fetch_add(1, Ordering::SeqCst);
-
-        let header = LogoutRequestBuilder::new(self.reason.clone(), itt, self.cid)
+    async fn send_logout(&mut self) -> Result<()> {
+        let cmd_sn = self.cmd_sn.fetch_add(1, Ordering::SeqCst);
+        let exp_stat_sn = self.exp_stat_sn.load(Ordering::SeqCst);
+        let header = LogoutRequestBuilder::new(self.reason.clone(), self.itt, self.cid)
             .cmd_sn(cmd_sn)
             .exp_stat_sn(exp_stat_sn);
 
-        let _ = header
-            .header
-            .to_bhs_bytes(self.buf.as_mut_slice())
-            .map_err(|e| {
-                Transition::<PDUWithData<LogoutResponse>, anyhow::Error>::Done(e)
-            });
+        header.header.to_bhs_bytes(self.buf.as_mut_slice())?;
 
         let builder: PDUWithData<LogoutRequest> =
             PDUWithData::from_header_slice(self.buf);
-        self.conn.send_request(itt, builder).await?;
+        self.conn.send_request(self.itt, builder).await?;
 
-        Ok(LogoutStatus {
-            itt,
-            cmd_sn,
-            exp_stat_sn,
-        })
+        Ok(())
     }
 
-    async fn receive_logout_resp(&self, expected: LogoutStatus) -> Result<()> {
-        let LogoutStatus { itt, .. } = expected;
+    async fn receive_logout_resp(&mut self) -> Result<()> {
+        let rsp = self.conn.read_response::<LogoutResponse>(self.itt).await?;
+        let hv = rsp.header_view()?;
 
-        match self.conn.read_response::<LogoutResponse>(itt).await {
-            Ok(rsp) => {
-                if rsp.header_view()?.response.decode()? != LogoutResponseCode::Success {
-                    bail!("LogoutResp: target returned {:?}", rsp.header_view()?);
-                }
-                Ok(())
-            },
-            Err(other) => bail!("got unexpected PDU: {}", other),
+        self.exp_stat_sn
+            .store(hv.stat_sn.get().wrapping_add(1), Ordering::SeqCst);
+
+        if hv.response.decode()? != LogoutResponseCode::Success {
+            bail!("LogoutResp: target returned {:?}", hv.response);
         }
+
+        self.last_response = Some(rsp);
+        Ok(())
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct LogoutStatus {
-    pub itt: u32,
-    pub cmd_sn: u32,
-    pub exp_stat_sn: u32,
-}
-
+#[derive(Debug)]
 pub struct Idle;
-pub struct Wait {
-    pending: LogoutStatus,
-}
 
+#[derive(Debug)]
+pub struct Wait;
+
+#[derive(Debug)]
 pub enum LogoutStates {
     Idle(Idle),
     Wait(Wait),
 }
 
-type LogoutStepOut = Transition<LogoutStates, Result<LogoutStatus>>;
+type LogoutStepOut = Transition<LogoutStates, Result<()>>;
 
 impl<'ctx> StateMachine<LogoutCtx<'ctx>, LogoutStepOut> for Idle {
     type StepResult<'a>
@@ -124,15 +116,10 @@ impl<'ctx> StateMachine<LogoutCtx<'ctx>, LogoutStepOut> for Idle {
         Self: 'a,
         LogoutCtx<'ctx>: 'a;
 
-    fn step<'a>(&'a mut self, ctx: &'a mut LogoutCtx<'ctx>) -> Self::StepResult<'a> {
+    fn step<'a>(&'a self, ctx: &'a mut LogoutCtx<'ctx>) -> Self::StepResult<'a> {
         Box::pin(async move {
             match ctx.send_logout().await {
-                Ok(st) => Transition::Next(
-                    LogoutStates::Wait(Wait {
-                        pending: st.clone(),
-                    }),
-                    Ok(st),
-                ),
+                Ok(st) => Transition::Next(LogoutStates::Wait(Wait), Ok(st)),
                 Err(e) => Transition::Done(Err(e)),
             }
         })
@@ -146,31 +133,36 @@ impl<'ctx> StateMachine<LogoutCtx<'ctx>, LogoutStepOut> for Wait {
         Self: 'a,
         LogoutCtx<'ctx>: 'a;
 
-    fn step<'a>(&'a mut self, ctx: &'a mut LogoutCtx<'ctx>) -> Self::StepResult<'a> {
+    fn step<'a>(&'a self, ctx: &'a mut LogoutCtx<'ctx>) -> Self::StepResult<'a> {
         Box::pin(async move {
-            match ctx.receive_logout_resp(self.pending.clone()).await {
-                Ok(()) => Transition::Done(Ok(self.pending.clone())),
+            match ctx.receive_logout_resp().await {
+                Ok(()) => Transition::Done(Ok(())),
                 Err(e) => Transition::Done(Err(e)),
             }
         })
     }
 }
 
-pub async fn run_logout(
-    mut state: LogoutStates,
-    ctx: &mut LogoutCtx<'_>,
-) -> Result<LogoutStatus> {
-    loop {
-        let trans = match &mut state {
-            LogoutStates::Idle(s) => s.step(ctx).await,
-            LogoutStates::Wait(s) => s.step(ctx).await,
-        };
+impl<'ctx> StateMachineCtx<LogoutCtx<'ctx>> for LogoutCtx<'ctx> {
+    async fn execute(&mut self) -> Result<()> {
+        debug!("Loop logout");
+        loop {
+            let state = self.state.take().context("state must be set LogoutCtx")?;
+            let trans = match state {
+                LogoutStates::Idle(s) => s.step(self).await,
+                LogoutStates::Wait(s) => s.step(self).await,
+            };
 
-        match trans {
-            Transition::Next(next_state, _r) => state = next_state,
-            Transition::Stay(Ok(_)) => {},
-            Transition::Stay(Err(e)) => return Err(e),
-            Transition::Done(r) => return r,
+            match trans {
+                Transition::Next(next_state, _r) => {
+                    self.state = Some(next_state);
+                },
+                Transition::Stay(Ok(_)) => {},
+                Transition::Stay(Err(e)) => return Err(e),
+                Transition::Done(err) => {
+                    return err;
+                },
+            }
         }
     }
 }

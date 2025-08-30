@@ -7,7 +7,7 @@ use std::{
     sync::{Arc, atomic::AtomicU32},
 };
 
-use anyhow::{Result, anyhow};
+use anyhow::{Result, anyhow, bail};
 use dashmap::DashMap;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -31,7 +31,7 @@ use crate::{
         nop::response::NopInResponse,
         parse::Pdu,
     },
-    state_machine::nop_states::{NopCtx, NopStates, Reply, run_nop},
+    state_machine::{common::StateMachineCtx, nop_states::NopCtx},
 };
 
 /// A simple iSCSI connection wrapper over a TCP stream.
@@ -267,10 +267,10 @@ impl ClientConnection {
                     self.sending.insert(itt, tx);
                 }
             } else {
-                if self.try_handle_unsolicited_nop_in(hdr).await {
+                if self.try_handle_unsolicited_nop_in(hdr, payload).await {
                     continue;
                 }
-                warn!(
+                bail!(
                     "Failed attempt to write to unexisted sender channel with itt {itt}"
                 );
             }
@@ -280,17 +280,17 @@ impl ClientConnection {
     async fn try_handle_unsolicited_nop_in(
         self: &Arc<Self>,
         hdr: [u8; HEADER_LEN],
+        payload: Vec<u8>,
     ) -> bool {
-        let mut hdr_copy = hdr;
-        let nop_in = match NopInResponse::from_bhs_bytes(&mut hdr_copy) {
-            Ok(n) => n,
-            Err(_) => return false,
-        };
+        debug!("Try send NoOut");
+        let mut pdu = PDUWithData::<NopInResponse>::from_header_slice(hdr);
+        pdu.parse_with_buff(payload.as_slice(), false, false)
+            .expect("failder to parse NopIn");
 
-        let ttt = nop_in.target_task_tag.get();
-        let lun = nop_in.lun.get();
-        let stat_sn_in = nop_in.stat_sn.get();
-        let exp_cmd_in = nop_in.exp_cmd_sn.get();
+        let ttt = {
+            let nop_in = pdu.header_view().expect("failder to parse NopIn");
+            nop_in.target_task_tag.get()
+        };
 
         if ttt == 0xffff_ffff {
             debug!("NOP-In (TTT=0xffffffff): reply not required");
@@ -300,18 +300,17 @@ impl ClientConnection {
         tokio::spawn(async move {
             let mut ctx = NopCtx::for_reply(
                 conn.clone(),
-                lun,
                 &conn.counters.itt,
                 &conn.counters.cmd_sn,
                 &conn.counters.exp_stat_sn,
-                ttt,
-                exp_cmd_in,
-                stat_sn_in,
-            );
-            if let Err(e) = run_nop(NopStates::Reply(Reply), &mut ctx).await {
-                tracing::warn!("NOP-In auto-reply failed: {e}");
+                pdu,
+            )
+            .expect("Failde to convert NopIn into NopCtx");
+
+            if let Err(e) = ctx.execute().await {
+                warn!("NOP-In auto-reply failed: {e}");
             } else {
-                tracing::debug!("NOP-In auto-replied (TTT=0x{ttt:08x})");
+                debug!("NOP-In auto-replied (TTT=0x{ttt:08x})");
             }
         });
         true
