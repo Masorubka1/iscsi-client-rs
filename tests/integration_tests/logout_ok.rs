@@ -1,20 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
-use std::sync::atomic::AtomicU32;
+use std::{sync::Arc, time::Duration};
 
 use anyhow::{Context, Result};
 use iscsi_client_rs::{
-    cfg::{
-        config::{AuthConfig, Config},
-        logger::init_logger,
-    },
+    cfg::{config::Config, logger::init_logger},
+    client::pool_sessions::Pool,
     models::nop::request::NopOutRequest,
-    state_machine::{
-        common::StateMachineCtx, login::common::LoginCtx, logout_states::LogoutCtx,
-        nop_states::NopCtx,
-    },
+    state_machine::nop_states::NopCtx,
 };
+use tokio::time::timeout;
 
 use crate::integration_tests::common::{
     connect_cfg, get_lun, load_config, test_isid, test_path,
@@ -27,54 +23,42 @@ async fn logout_close_session() -> Result<()> {
     let cfg: Config = load_config()?;
     let conn = connect_cfg(&cfg).await?;
 
-    // -------- Login ----------
+    // ---- Pool setup ----
+    let pool = Arc::new(Pool::new(&cfg));
+    pool.attach_self();
+
+    // ---- Login via Pool ----
     let isid = test_isid();
-    let cid = 1u16;
-    let mut lctx = LoginCtx::new(conn.clone(), &cfg, isid, cid, /* tsih= */ 0);
+    let cid: u16 = 1;
+    let target_name: Arc<str> = Arc::from(cfg.login.security.target_name.clone());
 
-    match cfg.login.auth {
-        AuthConfig::Chap(_) => lctx.set_chap_login(),
-        AuthConfig::None => lctx.set_plain_login(),
-    }
+    let tsih = pool
+        .login_and_insert(target_name, isid, cid, conn.clone())
+        .await
+        .context("pool login failed")?;
 
-    lctx.execute().await.context("login failed")?;
-
-    let login_pdu = lctx
-        .last_response
-        .as_ref()
-        .context("no login last_response")?;
-    let lh = login_pdu.header_view().context("login header")?;
-
-    let cmd_sn = AtomicU32::new(lh.exp_cmd_sn.get());
-    let exp_stat_sn = AtomicU32::new(lh.stat_sn.get().wrapping_add(1));
-    let itt = AtomicU32::new(lh.initiator_task_tag.wrapping_add(1));
-
-    let cmd_sn_before = cmd_sn.load(std::sync::atomic::Ordering::SeqCst);
-    let exp_stat_sn_before = exp_stat_sn.load(std::sync::atomic::Ordering::SeqCst);
-
-    // -------- NOP (NOP-Out -> NOP-In) ----------
+    // ---- NOP (NOP-Out -> NOP-In) via pool ----
     let lun = get_lun();
-    let ttt = NopOutRequest::DEFAULT_TAG;
-    let mut nctx = NopCtx::new(conn.clone(), lun, &itt, &cmd_sn, &exp_stat_sn, ttt);
-    nctx.execute().await.context("nop failed")?;
+    pool.execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
+        NopCtx::new(
+            c,
+            lun,
+            itt,         // Arc<AtomicU32>
+            cmd_sn,      // Arc<AtomicU32>
+            exp_stat_sn, // Arc<AtomicU32>
+            NopOutRequest::DEFAULT_TAG,
+        )
+    })
+    .await
+    .context("nop failed")?;
 
-    // -------- Logout ----------
-    let reason = iscsi_client_rs::models::logout::common::LogoutReason::CloseSession;
-    let mut loctx =
-        LogoutCtx::new(conn.clone(), &itt, &cmd_sn, &exp_stat_sn, cid, reason);
-    loctx.execute().await.context("logout failed")?;
-
-    let cmd_sn_after = cmd_sn.load(std::sync::atomic::Ordering::SeqCst);
-    let exp_stat_sn_after = exp_stat_sn.load(std::sync::atomic::Ordering::SeqCst);
+    timeout(Duration::from_secs(10), pool.logout_session(tsih))
+        .await
+        .context("logout timeout")??;
 
     assert!(
-        cmd_sn_after >= cmd_sn_before,
-        "CmdSN didn't advance on logout (before={cmd_sn_before}, after={cmd_sn_after})"
-    );
-    assert!(
-        exp_stat_sn_after >= exp_stat_sn_before,
-        "ExpStatSN didn't advance on logout (before={exp_stat_sn_before}, \
-         after={exp_stat_sn_after})"
+        pool.sessions.get(&tsih).is_none(),
+        "session must be removed from pool after CloseSession"
     );
 
     Ok(())

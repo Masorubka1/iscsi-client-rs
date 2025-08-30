@@ -5,3 +5,4 @@
 pub mod client;
 pub mod common;
 pub mod pdu_connection;
+pub mod pool_sessions;

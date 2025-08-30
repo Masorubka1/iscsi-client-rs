@@ -1,22 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
-use std::{sync::atomic::Ordering, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use anyhow::{Context, Result};
 use iscsi_client_rs::{
-    cfg::{
-        cli::resolve_config_path,
-        config::{AuthConfig, Config},
-        logger::init_logger,
-    },
-    client::client::ClientConnection,
+    cfg::{cli::resolve_config_path, config::Config, logger::init_logger},
+    client::{client::ClientConnection, pool_sessions::Pool},
     models::{logout::common::LogoutReason, nop::request::NopOutRequest},
-    state_machine::{
-        common::StateMachineCtx, login::common::LoginCtx, logout_states::LogoutCtx,
-        nop_states::NopCtx,
-    },
-    utils::generate_isid,
+    state_machine::{logout_states::LogoutCtx, nop_states::NopCtx},
 };
 use tokio::time::{sleep, timeout};
 use tracing::info;
@@ -25,86 +17,73 @@ use tracing::info;
 async fn main() -> Result<()> {
     let _init_logger = init_logger("tests/config_logger.yaml")?;
 
-    // let cfg = resolve_config_path("tests/config.yaml")
-    //     .and_then(Config::load_from_file)
-    //     .context("failed to resolve or load config")?;
-
+    // Load config
     let cfg = resolve_config_path("docker/lio/config.lio.yaml")
         .and_then(Config::load_from_file)
         .context("failed to resolve or load config")?;
 
-    let conn = ClientConnection::connect(cfg.clone()).await?;
-    info!("Connected to target");
+    // Create pool and attach weak self for unsolicited NOP auto-replies
+    let pool = Arc::new(Pool::new(&cfg));
+    pool.attach_self();
 
-    let (_isid, _isid_str) = generate_isid();
-    info!("{_isid:?} {_isid_str}");
-    let isid = [0, 2, 61, 0, 0, 14];
-    let cid = 1;
+    // Optionally: warm up a TCP to verify target is reachable (not strictly
+    // required)
+    let _probe = ClientConnection::connect(cfg.clone()).await?;
+    info!("Target is reachable");
 
-    // ---------- LOGIN ----------
-    let mut lctx = LoginCtx::new(conn.clone(), &cfg, isid, cid, 0);
-    match cfg.login.auth {
-        AuthConfig::Chap(_) => lctx.set_chap_login(),
-        AuthConfig::None => lctx.set_plain_login(),
-    };
-    lctx.execute().await?;
+    // ---- Login N sessions from config ----
+    let tsihs = pool
+        .login_sessions_from_cfg(&cfg)
+        .await
+        .context("login_all failed")?;
+    info!("Logged {} sessions", tsihs.len());
 
-    // seed counters from the last login response
-    let login_pdu = lctx
-        .last_response
-        .as_ref()
-        .context("no login last_response")?;
-    let lh = login_pdu.header_view().context("login header")?;
-    conn.counters
-        .cmd_sn
-        .store(lh.exp_cmd_sn.get(), Ordering::SeqCst);
-    conn.counters
-        .exp_stat_sn
-        .store(lh.stat_sn.get().wrapping_add(1), Ordering::SeqCst);
-    conn.counters
-        .itt
-        .store(lh.initiator_task_tag.wrapping_add(1), Ordering::SeqCst);
-
+    // Use CID=0 for all newly created sessions
+    let cid: u16 = 0;
     let lun = 1u64 << 48;
 
-    let cmd_sn_before = conn.counters.cmd_sn.load(Ordering::SeqCst);
-    let exp_stat_sn_before = conn.counters.exp_stat_sn.load(Ordering::SeqCst);
-
-    let mut times = 0;
-    while times < 3 {
-        let mut nctx = NopCtx::new(
-            conn.clone(),
-            lun,
-            &conn.counters.itt,
-            &conn.counters.cmd_sn,
-            &conn.counters.exp_stat_sn,
-            NopOutRequest::DEFAULT_TAG,
-        );
-        timeout(Duration::from_secs(10), nctx.execute())
+    // Send 3 keep-alive NOPs per session (sequentially for simplicity)
+    for &tsih in &tsihs {
+        for _ in 0..3 {
+            timeout(
+                Duration::from_secs(10),
+                pool.execute_with(tsih, cid, |conn, itt, cmd_sn, exp_stat_sn| {
+                    NopCtx::new(
+                        conn,
+                        lun,
+                        itt,
+                        cmd_sn,
+                        exp_stat_sn,
+                        NopOutRequest::DEFAULT_TAG,
+                    )
+                }),
+            )
             .await
             .context("nop timeout")??;
-        times += 1;
+        }
     }
 
-    sleep(Duration::from_secs(20)).await;
+    // Let unsolicited NOP-In (if any) come in
+    sleep(Duration::from_secs(5)).await;
 
-    let mut loctx = LogoutCtx::new(
-        conn.clone(),
-        &conn.counters.itt,
-        &conn.counters.cmd_sn,
-        &conn.counters.exp_stat_sn,
-        cid,
-        LogoutReason::CloseSession,
-    );
-    timeout(Duration::from_secs(10), loctx.execute())
+    // Logout all sessions (or call `logout_session(tsih)` in a loop)
+    for &tsih in &tsihs {
+        timeout(
+            Duration::from_secs(10),
+            pool.execute_with(tsih, cid, |conn, itt, cmd_sn, exp_stat_sn| {
+                LogoutCtx::new(
+                    conn,
+                    itt,
+                    cmd_sn,
+                    exp_stat_sn,
+                    cid,
+                    LogoutReason::CloseSession,
+                )
+            }),
+        )
         .await
         .context("logout timeout")??;
-
-    let cmd_sn_after = conn.counters.cmd_sn.load(Ordering::SeqCst);
-    let exp_stat_sn_after = conn.counters.exp_stat_sn.load(Ordering::SeqCst);
-
-    assert!(cmd_sn_after >= cmd_sn_before);
-    assert!(exp_stat_sn_after >= exp_stat_sn_before);
+    }
 
     Ok(())
 }

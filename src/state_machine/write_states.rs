@@ -2,6 +2,7 @@
 // Copyright (C) 2012-2025 Andrei Maltsev
 
 use std::{
+    marker::PhantomData,
     pin::Pin,
     sync::{
         Arc,
@@ -33,11 +34,13 @@ use crate::{
 
 #[derive(Debug)]
 pub struct WriteCtx<'a> {
+    _lt: PhantomData<&'a ()>,
+
     pub conn: Arc<ClientConnection>,
     pub lun: u64,
     pub itt: u32,
-    pub cmd_sn: &'a AtomicU32,
-    pub exp_stat_sn: &'a AtomicU32,
+    pub cmd_sn: Arc<AtomicU32>,
+    pub exp_stat_sn: Arc<AtomicU32>,
 
     pub cdb: [u8; 16],
     pub payload: Vec<u8>,
@@ -55,9 +58,9 @@ impl<'a> WriteCtx<'a> {
     pub fn new(
         conn: Arc<ClientConnection>,
         lun: u64,
-        itt: &'a AtomicU32,
-        cmd_sn: &'a AtomicU32,
-        exp_stat_sn: &'a AtomicU32,
+        itt: Arc<AtomicU32>,
+        cmd_sn: Arc<AtomicU32>,
+        exp_stat_sn: Arc<AtomicU32>,
         cdb: [u8; 16],
         payload: impl Into<Vec<u8>>,
     ) -> Self {
@@ -74,6 +77,7 @@ impl<'a> WriteCtx<'a> {
             total_bytes: 0,
             last_response: None,
             state: Some(WriteStates::Start(Start)),
+            _lt: PhantomData,
         }
     }
 
@@ -184,6 +188,7 @@ impl<'a> WriteCtx<'a> {
         let header = rsp.header_view()?;
         self.exp_stat_sn
             .store(header.stat_sn.get().wrapping_add(1), Ordering::SeqCst);
+
         if header.response.decode()? != ResponseCode::CommandCompleted {
             bail!("WRITE failed: response={:?}", header.response);
         }
@@ -191,6 +196,9 @@ impl<'a> WriteCtx<'a> {
             let sense = SenseData::parse(&rsp.data)?;
             bail!("WRITE failed: {:?}", sense);
         }
+
+        self.last_response = Some(rsp);
+
         Ok(())
     }
 }
@@ -320,8 +328,18 @@ impl<'ctx> StateMachine<WriteCtx<'ctx>, WriteStep> for Finish {
     }
 }
 
-impl<'ctx> StateMachineCtx<WriteCtx<'ctx>> for WriteCtx<'ctx> {
-    async fn execute(&mut self) -> Result<()> {
+#[derive(Debug)]
+pub struct WriteOutcome {
+    /// Final SCSI Command Response (always present for WRITE).
+    pub last_response: PDUWithData<ScsiCommandResponse>,
+    /// Bytes actually sent (sum over all Data-Out PDUs).
+    pub sent_bytes: usize,
+    /// Total intended bytes (payload length).
+    pub total_bytes: usize,
+}
+
+impl<'ctx> StateMachineCtx<WriteCtx<'ctx>, WriteOutcome> for WriteCtx<'ctx> {
+    async fn execute(&mut self) -> Result<WriteOutcome> {
         debug!("Loop WRITE");
 
         loop {
@@ -346,7 +364,15 @@ impl<'ctx> StateMachineCtx<WriteCtx<'ctx>> for WriteCtx<'ctx> {
                 },
                 Transition::Stay(Err(e)) => return Err(e),
                 Transition::Done(r) => {
-                    return r;
+                    r?;
+                    return Ok(WriteOutcome {
+                        last_response: self
+                            .last_response
+                            .take()
+                            .ok_or_else(|| anyhow!("no last response in ctx"))?,
+                        sent_bytes: self.sent_bytes,
+                        total_bytes: self.total_bytes,
+                    });
                 },
             }
         }

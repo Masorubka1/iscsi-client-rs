@@ -2,6 +2,7 @@
 // Copyright (C) 2012-2025 Andrei Maltsev
 
 use std::{
+    marker::PhantomData,
     pin::Pin,
     sync::{
         Arc,
@@ -9,7 +10,7 @@ use std::{
     },
 };
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use tracing::debug;
 
 use crate::{
@@ -28,25 +29,26 @@ use crate::{
 
 #[derive(Debug)]
 pub struct LogoutCtx<'a> {
+    _lt: PhantomData<&'a ()>,
+
     pub conn: Arc<ClientConnection>,
     pub itt: u32,
-    pub cmd_sn: &'a AtomicU32,
-    pub exp_stat_sn: &'a AtomicU32,
+    pub cmd_sn: Arc<AtomicU32>,
+    pub exp_stat_sn: Arc<AtomicU32>,
     pub cid: u16,
     pub reason: LogoutReason,
     pub buf: [u8; HEADER_LEN],
 
-    state: Option<LogoutStates>,
-
     pub last_response: Option<PDUWithData<LogoutResponse>>,
+    state: Option<LogoutStates>,
 }
 
 impl<'a> LogoutCtx<'a> {
     pub fn new(
         conn: Arc<ClientConnection>,
-        itt: &'a AtomicU32,
-        cmd_sn: &'a AtomicU32,
-        exp_stat_sn: &'a AtomicU32,
+        itt: Arc<AtomicU32>,
+        cmd_sn: Arc<AtomicU32>,
+        exp_stat_sn: Arc<AtomicU32>,
         cid: u16,
         reason: LogoutReason,
     ) -> Self {
@@ -60,6 +62,7 @@ impl<'a> LogoutCtx<'a> {
             buf: [0u8; HEADER_LEN],
             state: Some(LogoutStates::Idle(Idle)),
             last_response: None,
+            _lt: PhantomData,
         }
     }
 
@@ -143,8 +146,10 @@ impl<'ctx> StateMachine<LogoutCtx<'ctx>, LogoutStepOut> for Wait {
     }
 }
 
-impl<'ctx> StateMachineCtx<LogoutCtx<'ctx>> for LogoutCtx<'ctx> {
-    async fn execute(&mut self) -> Result<()> {
+impl<'ctx> StateMachineCtx<LogoutCtx<'ctx>, PDUWithData<LogoutResponse>>
+    for LogoutCtx<'ctx>
+{
+    async fn execute(&mut self) -> Result<PDUWithData<LogoutResponse>> {
         debug!("Loop logout");
         loop {
             let state = self.state.take().context("state must be set LogoutCtx")?;
@@ -159,8 +164,12 @@ impl<'ctx> StateMachineCtx<LogoutCtx<'ctx>> for LogoutCtx<'ctx> {
                 },
                 Transition::Stay(Ok(_)) => {},
                 Transition::Stay(Err(e)) => return Err(e),
-                Transition::Done(err) => {
-                    return err;
+                Transition::Done(r) => {
+                    r?;
+                    return self
+                        .last_response
+                        .take()
+                        .ok_or_else(|| anyhow!("no last response in ctx"));
                 },
             }
         }

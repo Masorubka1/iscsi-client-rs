@@ -2,6 +2,7 @@
 // Copyright (C) 2012-2025 Andrei Maltsev
 
 use std::{
+    marker::PhantomData,
     pin::Pin,
     sync::{
         Arc,
@@ -9,7 +10,7 @@ use std::{
     },
 };
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use tracing::debug;
 
 use crate::{
@@ -29,10 +30,12 @@ use crate::{
 
 #[derive(Debug)]
 pub struct TurCtx<'a> {
+    _lt: PhantomData<&'a ()>,
+
     pub conn: Arc<ClientConnection>,
     pub itt: u32,
-    pub cmd_sn: &'a AtomicU32,
-    pub exp_stat_sn: &'a AtomicU32,
+    pub cmd_sn: Arc<AtomicU32>,
+    pub exp_stat_sn: Arc<AtomicU32>,
     pub lun: u64,
     pub buf: [u8; HEADER_LEN],
     pub cbd: [u8; 16],
@@ -44,9 +47,9 @@ pub struct TurCtx<'a> {
 impl<'a> TurCtx<'a> {
     pub fn new(
         conn: Arc<ClientConnection>,
-        itt: &'a AtomicU32,
-        cmd_sn: &'a AtomicU32,
-        exp_stat_sn: &'a AtomicU32,
+        itt: Arc<AtomicU32>,
+        cmd_sn: Arc<AtomicU32>,
+        exp_stat_sn: Arc<AtomicU32>,
         lun: u64,
     ) -> Self {
         Self {
@@ -59,6 +62,7 @@ impl<'a> TurCtx<'a> {
             cbd: [0u8; 16],
             last_response: None,
             state: Some(TurStates::Idle(Idle)),
+            _lt: PhantomData,
         }
     }
 
@@ -161,8 +165,10 @@ impl<'ctx> StateMachine<TurCtx<'ctx>, TurStepOut> for Wait {
     }
 }
 
-impl<'ctx> StateMachineCtx<TurCtx<'ctx>> for TurCtx<'ctx> {
-    async fn execute(&mut self) -> Result<()> {
+impl<'ctx> StateMachineCtx<TurCtx<'ctx>, PDUWithData<ScsiCommandResponse>>
+    for TurCtx<'ctx>
+{
+    async fn execute(&mut self) -> Result<PDUWithData<ScsiCommandResponse>> {
         debug!("Loop TUR");
 
         loop {
@@ -180,7 +186,11 @@ impl<'ctx> StateMachineCtx<TurCtx<'ctx>> for TurCtx<'ctx> {
                 Transition::Stay(Ok(_)) => {},
                 Transition::Stay(Err(e)) => return Err(e),
                 Transition::Done(r) => {
-                    return r;
+                    r?;
+                    return self
+                        .last_response
+                        .take()
+                        .ok_or_else(|| anyhow!("no last response in ctx"));
                 },
             }
         }

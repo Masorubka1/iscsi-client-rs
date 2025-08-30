@@ -3,6 +3,7 @@
 
 use std::{
     future::Future,
+    marker::PhantomData,
     pin::Pin,
     sync::{
         Arc,
@@ -46,11 +47,13 @@ pub struct ReadRuntime {
 
 #[derive(Debug)]
 pub struct ReadCtx<'a> {
+    _lt: PhantomData<&'a ()>,
+
     pub conn: Arc<ClientConnection>,
     pub lun: u64,
     pub itt: u32,
-    pub cmd_sn: &'a AtomicU32,
-    pub exp_stat_sn: &'a AtomicU32,
+    pub cmd_sn: Arc<AtomicU32>,
+    pub exp_stat_sn: Arc<AtomicU32>,
     pub read_len: u32,
     pub cdb: [u8; 16],
     pub buf: [u8; HEADER_LEN],
@@ -64,9 +67,9 @@ impl<'a> ReadCtx<'a> {
     pub fn new(
         conn: Arc<ClientConnection>,
         lun: u64,
-        itt: &'a AtomicU32,
-        cmd_sn: &'a AtomicU32,
-        exp_stat_sn: &'a AtomicU32,
+        itt: Arc<AtomicU32>,
+        cmd_sn: Arc<AtomicU32>,
+        exp_stat_sn: Arc<AtomicU32>,
         read_len: u32,
         cdb: [u8; 16],
     ) -> Self {
@@ -87,6 +90,7 @@ impl<'a> ReadCtx<'a> {
                 residual_in_datain: None,
             },
             state: Some(ReadStates::Start(Start)),
+            _lt: PhantomData,
         }
     }
 
@@ -349,8 +353,17 @@ impl<'ctx> StateMachine<ReadCtx<'ctx>, ReadStepOut> for Finish {
     }
 }
 
-impl<'ctx> StateMachineCtx<ReadCtx<'ctx>> for ReadCtx<'ctx> {
-    async fn execute(&mut self) -> Result<()> {
+#[derive(Debug)]
+pub struct ReadOutcome {
+    /// Concatenated payload from all Data-In PDUs (in order).
+    pub data: Vec<u8>,
+    /// Final SCSI Command Response (if target sent one).
+    /// When status was carried by the last Data-In (S-bit set), this is None.
+    pub last_response: Option<PDUWithData<ScsiCommandResponse>>,
+}
+
+impl<'ctx> StateMachineCtx<ReadCtx<'ctx>, ReadOutcome> for ReadCtx<'ctx> {
+    async fn execute(&mut self) -> Result<ReadOutcome> {
         debug!("Loop Read");
 
         loop {
@@ -369,7 +382,11 @@ impl<'ctx> StateMachineCtx<ReadCtx<'ctx>> for ReadCtx<'ctx> {
                 Transition::Stay(Ok(_)) => {},
                 Transition::Stay(Err(e)) => return Err(e),
                 Transition::Done(r) => {
-                    return r;
+                    r?;
+                    return Ok(ReadOutcome {
+                        data: std::mem::take(&mut self.rt.acc),
+                        last_response: self.last_response.take(),
+                    });
                 },
             }
         }
