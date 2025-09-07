@@ -4,22 +4,22 @@
 use std::{collections::HashMap, fs, path::Path};
 
 use anyhow::{Context, Result};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct Config {
     pub login: LoginConfig,
     pub extra_data: ExtraDataConfig,
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct LoginConfig {
     pub security: SecurityConfig,
     pub negotiation: NegotiationConfig,
     pub auth: AuthConfig,
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(rename_all = "lowercase", tag = "method")]
 pub enum AuthConfig {
     /// no authentication
@@ -28,13 +28,13 @@ pub enum AuthConfig {
     Chap(ChapConfig),
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct ChapConfig {
     pub username: String,
     pub secret: String,
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct SecurityConfig {
     #[serde(rename = "session_type")]
     pub session_type: String, // SessionType
@@ -54,7 +54,7 @@ pub struct SecurityConfig {
     pub target_address: String, // TargetAddress
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct NegotiationConfig {
     #[serde(rename = "version_max")]
     pub version_max: u8, // VersionMax
@@ -80,7 +80,7 @@ pub struct NegotiationConfig {
     pub error_recovery_level: u8,
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct ExtraDataConfig {
     pub markers: MarkerConfig,
     pub r2t: R2TConfig,
@@ -89,7 +89,7 @@ pub struct ExtraDataConfig {
     pub custom: HashMap<String, String>,
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct MarkerConfig {
     #[serde(rename = "IFMarker")]
     pub if_marker: String,
@@ -97,7 +97,7 @@ pub struct MarkerConfig {
     pub of_marker: String,
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct R2TConfig {
     #[serde(rename = "initial_r2t")]
     pub initial_r2t: String,
@@ -111,7 +111,7 @@ pub struct R2TConfig {
     pub default_time2retain: u8,
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct ConnectionConfig {
     #[serde(rename = "max_connections")]
     pub max_connections: u16,

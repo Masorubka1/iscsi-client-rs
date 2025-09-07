@@ -4,6 +4,7 @@
 use std::{
     any::type_name,
     fmt::{self, Debug},
+    io::IoSlice,
     sync::{Arc, Weak},
 };
 
@@ -100,7 +101,7 @@ impl ClientConnection {
     /// Helper to serialize and write a PDU to the socket.
     async fn write(
         &self,
-        mut req: impl ToBytes<Header = Vec<u8>> + fmt::Debug,
+        mut req: impl ToBytes<Header = [u8; HEADER_LEN]> + fmt::Debug,
     ) -> Result<()> {
         let mut w = self.writer.lock().await;
         let (out_header, out_data) = req.to_bytes(
@@ -122,16 +123,16 @@ impl ClientConnection {
             out_header.len(),
             out_data.len()
         );
-        io_with_timeout("write header", w.write_all(&out_header)).await?;
-        if !out_data.is_empty() {
-            io_with_timeout("write data", w.write_all(&out_data)).await?;
-        }
+
+        let bufs = [IoSlice::new(&out_header), IoSlice::new(&out_data)];
+        io_with_timeout("write vectored", w.write_vectored(&bufs[..])).await?;
+
         Ok(())
     }
 
     pub async fn send_segment(
         &self,
-        req: impl ToBytes<Header = Vec<u8>> + fmt::Debug,
+        req: impl ToBytes<Header = [u8; HEADER_LEN]> + fmt::Debug,
     ) -> Result<()> {
         self.write(req).await
     }
@@ -139,7 +140,7 @@ impl ClientConnection {
     pub async fn send_request(
         &self,
         initiator_task_tag: u32,
-        req: impl ToBytes<Header = Vec<u8>> + Debug,
+        req: impl ToBytes<Header = [u8; HEADER_LEN]> + Debug,
     ) -> Result<()> {
         if !self.sending.contains_key(&initiator_task_tag) {
             let (tx, rx) = mpsc::channel::<RawPdu>(32);
@@ -347,16 +348,14 @@ impl ClientConnection {
             let dd = header.get_data_diggest(dd_en);
             let ttt = header.target_task_tag.get();
             (hd, dd, ttt)
-        }; // <--- header больше не заимствует pdu
+        };
 
-        // Если не удалось распарсить — это был не NOP-In или битый PDU
         if let Err(e) = pdu.parse_with_buff(payload.as_slice(), hd != 0, dd != 0) {
             debug!("NOP-In parse failed (probably other opcode): {e}");
             return false;
         }
 
         if ttt == 0xffff_ffff {
-            // Ответ не требуется (NOP-In keep-alive без запроса ответа)
             debug!("NOP-In (TTT=0xffffffff): reply not required");
             return true;
         }
@@ -370,7 +369,7 @@ impl ClientConnection {
             return false;
         };
 
-        let pdu_for_reply = pdu; // переносим владение в задачу
+        let pdu_for_reply = pdu;
         tokio::spawn(async move {
             let res = pool
                 .execute_with(sr.tsih, sr.cid, |conn, itt, cmd_sn, exp_stat_sn| {

@@ -231,7 +231,7 @@ fn chap_step1_security_only() -> Result<()> {
             .data_digest
             .eq_ignore_ascii_case("CRC32C"),
     )?;
-    let mut got = hdr_bytes.clone();
+    let mut got = hdr_bytes.to_vec();
     got.extend_from_slice(data_bytes);
 
     let exp_pdu = parse_req(&req_exp)?;
@@ -328,7 +328,7 @@ fn chap_step3_chap_response() -> Result<()> {
             .data_digest
             .eq_ignore_ascii_case("CRC32C"),
     )?;
-    let mut got = hdr_bytes.clone();
+    let mut got = hdr_bytes.to_vec();
     got.extend_from_slice(data_bytes);
 
     let exp_pdu = parse_req(&req_exp)?;
@@ -381,7 +381,7 @@ fn chap_step4_oper_to_ff_with_ops() -> Result<()> {
             .data_digest
             .eq_ignore_ascii_case("CRC32C"),
     )?;
-    let mut got = hdr_bytes.clone();
+    let mut got = hdr_bytes.to_vec();
     got.extend_from_slice(data_bytes);
 
     let exp_pdu = parse_req(&req_exp)?;

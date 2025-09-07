@@ -156,7 +156,10 @@ async fn write10_read10_1_gib_plain_pool_multi_tsih_mcs() -> Result<()> {
     let max_blocks_by_burst = (burst_bytes / blk_sz).max(1);
     let max_blocks_by_mrdsl = (mrdsl_bytes / blk_sz).max(1);
 
-    let max_write_blocks_per_cmd = max_blocks_by_scsi10.min(max_blocks_by_fd);
+    let max_write_blocks_per_cmd = max_blocks_by_scsi10
+        .min(max_blocks_by_fd)
+        .min(max_blocks_by_burst)
+        .min(max_blocks_by_mrdsl);
     let max_read_blocks_per_cmd = max_blocks_by_scsi10
         .min(max_blocks_by_fd)
         .min(max_blocks_by_burst)

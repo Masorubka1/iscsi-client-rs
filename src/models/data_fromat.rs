@@ -68,9 +68,10 @@ pub struct PDUWithData<T> {
 }
 
 impl<T> Builder for PDUWithData<T>
-where T: BasicHeaderSegment + SendingData + FromBytes + ZeroCopyType
+where
+    T: BasicHeaderSegment + SendingData + FromBytes + ZeroCopyType,
 {
-    type Header = Vec<u8>;
+    type Header = [u8; HEADER_LEN];
 
     /// Appends raw bytes to the Data Segment and updates its length field.
     fn append_data(&mut self, more: Vec<u8>) {
@@ -156,7 +157,7 @@ where T: BasicHeaderSegment + SendingData + FromBytes + ZeroCopyType
             body.extend_from_slice(&dd.to_bytes());
         }
 
-        Ok((self.header_buf.to_vec(), body))
+        Ok((self.header_buf, body))
     }
 }
 
@@ -173,7 +174,9 @@ impl<T> PDUWithData<T> {
     }
 
     pub fn rebind_pdu<U>(self) -> anyhow::Result<PDUWithData<U>>
-    where U: BasicHeaderSegment {
+    where
+        U: BasicHeaderSegment,
+    {
         Ok(PDUWithData::<U> {
             header_buf: self.header_buf,
             aditional_heder: self.aditional_heder,
@@ -186,9 +189,10 @@ impl<T> PDUWithData<T> {
 }
 
 impl<T> PDUWithData<T>
-where T: BasicHeaderSegment + FromBytes + ZeroCopyType
+where
+    T: BasicHeaderSegment + FromBytes + ZeroCopyType,
 {
-    /// Mutable header view (`&mut T`) backed by `self.header_buf`.
+    /// Header view (`&T`) backed by `self.header_buf`.
     #[inline]
     pub fn header_view(&self) -> Result<&T> {
         T::ref_from_bytes(self.header_buf.as_slice())
@@ -350,7 +354,8 @@ impl<'a> fmt::Debug for HexPreview<'a> {
 }
 
 impl<T> fmt::Debug for PDUWithData<T>
-where T: BasicHeaderSegment + SendingData + FromBytes + fmt::Debug + ZeroCopyType
+where
+    T: BasicHeaderSegment + SendingData + FromBytes + fmt::Debug + ZeroCopyType,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut ds = f.debug_struct("PDUWithData");

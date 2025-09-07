@@ -23,7 +23,8 @@ echo " ✅"
 
 tgtadm --lld iscsi --op new    --mode target      --tid 1 --targetname "${TGT_IQN}"
 tgtadm --lld iscsi --op new    --mode logicalunit --tid 1 --lun "${TGT_LUN:-1}" \
-       --backing-store /backing.img
+       --backing-store /backing.img  --blocksize "${TGT_BLOCKSIZE:-4096}" \
+       --device-type disk
 tgtadm --lld iscsi --op bind   --mode target      --tid 1 --initiator-address ALL
 
 # --- CHAP auth (optional) ---

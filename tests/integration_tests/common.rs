@@ -9,7 +9,7 @@ use iscsi_client_rs::{
 };
 
 pub fn test_path() -> String {
-    std::env::var("TEST_CONFIG").unwrap_or_else(|_| "tests/config.yaml".into())
+    std::env::var("TEST_CONFIG").unwrap_or_else(|_| "docker/lio/config.lio.yaml".into())
 }
 
 pub fn load_config() -> Result<Config> {
