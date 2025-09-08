@@ -211,6 +211,7 @@ impl<'a> WriteCtx<'a> {
             .initial_r2t
             .eq_ignore_ascii_case("Yes")
     }
+
     #[inline]
     fn peer_immediate_data(&self) -> bool {
         self.conn
@@ -220,14 +221,17 @@ impl<'a> WriteCtx<'a> {
             .immediate_data
             .eq_ignore_ascii_case("Yes")
     }
+
     #[inline]
     fn peer_first_burst(&self) -> usize {
         self.conn.cfg.login.negotiation.first_burst_length as usize
     }
+
     #[inline]
     fn peer_max_burst(&self) -> usize {
         self.conn.cfg.login.negotiation.max_burst_length as usize
     }
+
     #[inline]
     fn peer_mrdsl(&self) -> usize {
         self.conn.cfg.login.negotiation.max_recv_data_segment_length as usize

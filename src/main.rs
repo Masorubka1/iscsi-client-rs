@@ -8,12 +8,12 @@ use iscsi_client_rs::{
     cfg::{cli::resolve_config_path, config::Config, logger::init_logger},
     client::{client::ClientConnection, pool_sessions::Pool},
     control_block::{
-        read::{build_read10, build_read16},
+        read::build_read16,
         read_capacity::{
             Rc10Raw, Rc16Raw, build_read_capacity10, build_read_capacity16,
             parse_read_capacity10_zerocopy, parse_read_capacity16_zerocopy,
         },
-        write::{build_write10, build_write16},
+        write::build_write16,
     },
     models::nop::request::NopOutRequest,
     state_machine::{nop_states::NopCtx, read_states::ReadCtx, write_states::WriteCtx},
@@ -189,7 +189,7 @@ async fn main() -> Result<()> {
 
     // Разбрасываем по воркерам
     let n_workers = workers.len();
-    let per_worker_blocks = (need_blocks_total + n_workers - 1) / n_workers;
+    let per_worker_blocks = need_blocks_total.div_ceil(n_workers);
 
     // ===================== Parallel WRITE =====================
     info!("Starting parallel WRITE(10) of 1 GiB …");

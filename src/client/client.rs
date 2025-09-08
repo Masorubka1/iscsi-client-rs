@@ -64,6 +64,7 @@ impl ClientConnection {
     pub async fn connect(cfg: Config) -> Result<Arc<Self>> {
         let stream = TcpStream::connect(&cfg.login.security.target_address).await?;
         stream.set_linger(None)?;
+        stream.nodelay()?;
 
         let (r, w) = stream.into_split();
 
@@ -309,7 +310,6 @@ impl ClientConnection {
         Ok(())
     }
 
-    /// Сахар: keep-alive на method-0 LUN=1 (1<<48).
     pub async fn send_keepalive_via_pool(self: &Arc<Self>) -> Result<()> {
         self.send_keepalive_via_pool_lun(1u64 << 48).await
     }
@@ -321,7 +321,6 @@ impl ClientConnection {
     ) -> bool {
         let mut pdu = PDUWithData::<NopInResponse>::from_header_slice(hdr);
 
-        // --- вытащим всё нужное из header и сразу "уроним" заимствование
         let (hd, dd, ttt) = {
             let header = match pdu.header_view() {
                 Ok(h) => h,

@@ -68,8 +68,7 @@ pub struct PDUWithData<T> {
 }
 
 impl<T> Builder for PDUWithData<T>
-where
-    T: BasicHeaderSegment + SendingData + FromBytes + ZeroCopyType,
+where T: BasicHeaderSegment + SendingData + FromBytes + ZeroCopyType
 {
     type Header = [u8; HEADER_LEN];
 
@@ -174,9 +173,7 @@ impl<T> PDUWithData<T> {
     }
 
     pub fn rebind_pdu<U>(self) -> anyhow::Result<PDUWithData<U>>
-    where
-        U: BasicHeaderSegment,
-    {
+    where U: BasicHeaderSegment {
         Ok(PDUWithData::<U> {
             header_buf: self.header_buf,
             aditional_heder: self.aditional_heder,
@@ -189,8 +186,7 @@ impl<T> PDUWithData<T> {
 }
 
 impl<T> PDUWithData<T>
-where
-    T: BasicHeaderSegment + FromBytes + ZeroCopyType,
+where T: BasicHeaderSegment + FromBytes + ZeroCopyType
 {
     /// Header view (`&T`) backed by `self.header_buf`.
     #[inline]
@@ -354,8 +350,7 @@ impl<'a> fmt::Debug for HexPreview<'a> {
 }
 
 impl<T> fmt::Debug for PDUWithData<T>
-where
-    T: BasicHeaderSegment + SendingData + FromBytes + fmt::Debug + ZeroCopyType,
+where T: BasicHeaderSegment + SendingData + FromBytes + fmt::Debug + ZeroCopyType
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut ds = f.debug_struct("PDUWithData");

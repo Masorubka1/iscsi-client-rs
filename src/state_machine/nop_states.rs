@@ -54,7 +54,7 @@ impl<'a> NopCtx<'a> {
         Self {
             conn,
             lun,
-            itt: itt.load(Ordering::SeqCst),
+            itt: itt.fetch_add(1, Ordering::SeqCst),
             cmd_sn: cmd_sn.load(Ordering::SeqCst),
             exp_stat_sn,
             ttt,
@@ -85,21 +85,24 @@ impl<'a> NopCtx<'a> {
 
     pub fn for_reply(
         conn: Arc<ClientConnection>,
-        itt: Arc<AtomicU32>,
+        _itt: Arc<AtomicU32>,
         cmd_sn: Arc<AtomicU32>,
         exp_stat_sn: Arc<AtomicU32>,
         response: PDUWithData<NopInResponse>,
     ) -> Result<Self> {
-        let (lun, ttt) = {
-            let header = response.header_view()?;
-            (header.lun.get(), header.target_task_tag.get())
-        };
-
-        let mut s = Self::new(conn, lun, itt, cmd_sn, exp_stat_sn, ttt);
-        s.last_response = Some(response);
-
-        s.state = Some(NopStates::Reply(Reply));
-        Ok(s)
+        let header = response.header_view()?;
+        Ok(Self {
+            conn,
+            lun: 0,
+            itt: 0,
+            cmd_sn: cmd_sn.load(Ordering::SeqCst),
+            exp_stat_sn,
+            ttt: header.target_task_tag.get(),
+            buf: [0u8; HEADER_LEN],
+            last_response: Some(response),
+            state: Some(NopStates::Reply(Reply)),
+            _lt: PhantomData,
+        })
     }
 
     async fn send_nop_out(&mut self) -> Result<()> {
@@ -191,25 +194,19 @@ impl<'ctx> StateMachine<NopCtx<'ctx>, NopStepOut> for Reply {
 
     fn step<'a>(&'a self, ctx: &'a mut NopCtx<'ctx>) -> Self::StepResult<'a> {
         Box::pin(async move {
-            let (lun, ttt) = { (ctx.lun, ctx.ttt) };
-
-            let (stat_sn, exp_cmd_sn) = {
-                let last = match ctx.validate_last_response_header() {
-                    Ok(last) => last,
-                    Err(e) => return Transition::Done(Err(e)),
-                };
-                (last.stat_sn.get(), last.exp_cmd_sn.get())
-            };
+            if let Err(e) = ctx.validate_last_response_header() {
+                return Transition::Done(Err(e));
+            }
 
             // ITT for response NOP-In = 0xFFFF_FFFF
             // TTT — copy from NOP-In (ctx.ttt)
             let hdr = NopOutRequestBuilder::new()
                 .immediate()
-                .lun(lun)
+                .lun(0)
                 .initiator_task_tag(u32::MAX)
-                .target_task_tag(ttt)
-                .cmd_sn(stat_sn)
-                .exp_stat_sn(exp_cmd_sn)
+                .target_task_tag(ctx.ttt)
+                .cmd_sn(ctx.cmd_sn)
+                .exp_stat_sn(ctx.exp_stat_sn.load(Ordering::SeqCst))
                 .header;
 
             if let Err(e) = hdr.to_bhs_bytes(ctx.buf.as_mut_slice()) {
