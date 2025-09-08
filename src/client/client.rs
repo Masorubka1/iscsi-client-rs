@@ -22,7 +22,7 @@ use tokio::{
 use tracing::{debug, warn};
 
 use crate::{
-    cfg::config::Config,
+    cfg::{config::Config, enums::Digest},
     client::{
         common::{RawPdu, io_with_timeout},
         pdu_connection::{FromBytes, ToBytes},
@@ -107,16 +107,8 @@ impl ClientConnection {
         let mut w = self.writer.lock().await;
         let (out_header, out_data) = req.to_bytes(
             self.cfg.login.negotiation.max_recv_data_segment_length as usize,
-            self.cfg
-                .login
-                .negotiation
-                .header_digest
-                .eq_ignore_ascii_case("CRC32C"),
-            self.cfg
-                .login
-                .negotiation
-                .data_digest
-                .eq_ignore_ascii_case("CRC32C"),
+            self.cfg.login.negotiation.header_digest == Digest::CRC32C,
+            self.cfg.login.negotiation.data_digest == Digest::CRC32C,
         )?;
         debug!("SEND {req:?}");
         debug!(
@@ -126,16 +118,14 @@ impl ClientConnection {
         );
 
         let bufs = [IoSlice::new(&out_header), IoSlice::new(&out_data)];
-        io_with_timeout("write vectored", w.write_vectored(&bufs[..])).await?;
+        io_with_timeout(
+            "write vectored",
+            w.write_vectored(&bufs[..]),
+            self.cfg.extra_data.connections.timeout_connection,
+        )
+        .await?;
 
         Ok(())
-    }
-
-    pub async fn send_segment(
-        &self,
-        req: impl ToBytes<Header = [u8; HEADER_LEN]> + fmt::Debug,
-    ) -> Result<()> {
-        self.write(req).await
     }
 
     pub async fn send_request(
@@ -143,15 +133,19 @@ impl ClientConnection {
         initiator_task_tag: u32,
         req: impl ToBytes<Header = [u8; HEADER_LEN]> + Debug,
     ) -> Result<()> {
-        if !self.sending.contains_key(&initiator_task_tag) {
+        let is_forget = initiator_task_tag == u32::MAX;
+
+        if !is_forget && !self.sending.contains_key(&initiator_task_tag) {
             let (tx, rx) = mpsc::channel::<RawPdu>(32);
             self.sending.insert(initiator_task_tag, tx);
             self.reciver.insert(initiator_task_tag, rx);
         }
 
         if let Err(e) = self.write(req).await {
-            let _ = self.sending.remove(&initiator_task_tag);
-            let _ = self.reciver.remove(&initiator_task_tag);
+            if !is_forget {
+                let _ = self.sending.remove(&initiator_task_tag);
+                let _ = self.reciver.remove(&initiator_task_tag);
+            }
             return Err(e);
         }
 
@@ -200,19 +194,9 @@ impl ClientConnection {
 
         let header: &T = pdu.header_view()?;
 
-        let hd = self
-            .cfg
-            .login
-            .negotiation
-            .header_digest
-            .eq_ignore_ascii_case("CRC32C");
+        let hd = self.cfg.login.negotiation.header_digest == Digest::CRC32C;
         let hd = header.get_header_diggest(hd);
-        let dd = self
-            .cfg
-            .login
-            .negotiation
-            .data_digest
-            .eq_ignore_ascii_case("CRC32C");
+        let dd = self.cfg.login.negotiation.data_digest == Digest::CRC32C;
         let dd = header.get_data_diggest(dd);
 
         pdu.parse_with_buff(data.as_slice(), hd != 0, dd != 0)?;
@@ -223,23 +207,18 @@ impl ClientConnection {
     async fn read_loop(self: Arc<Self>) -> Result<()> {
         let mut hdr = [0u8; HEADER_LEN];
 
-        let hd = self
-            .cfg
-            .login
-            .negotiation
-            .header_digest
-            .eq_ignore_ascii_case("CRC32C");
-        let dd = self
-            .cfg
-            .login
-            .negotiation
-            .data_digest
-            .eq_ignore_ascii_case("CRC32C");
+        let hd = self.cfg.login.negotiation.header_digest == Digest::CRC32C;
+        let dd = self.cfg.login.negotiation.data_digest == Digest::CRC32C;
 
         loop {
             {
                 let mut r = self.reader.lock().await;
-                io_with_timeout("read header", r.read_exact(&mut hdr)).await?;
+                io_with_timeout(
+                    "read header",
+                    r.read_exact(&mut hdr),
+                    self.cfg.extra_data.connections.timeout_connection,
+                )
+                .await?;
             }
 
             let pdu_hdr = Pdu::from_bhs_bytes(&mut hdr)?;
@@ -259,7 +238,12 @@ impl ClientConnection {
             let payload = if total > HEADER_LEN {
                 let mut data = vec![0u8; total - HEADER_LEN];
                 let mut r = self.reader.lock().await;
-                io_with_timeout("read payload", r.read_exact(&mut data)).await?;
+                io_with_timeout(
+                    "read payload",
+                    r.read_exact(&mut data),
+                    self.cfg.extra_data.connections.timeout_connection,
+                )
+                .await?;
                 data
             } else {
                 vec![]
@@ -330,18 +314,8 @@ impl ClientConnection {
                 },
             };
 
-            let hd_en = self
-                .cfg
-                .login
-                .negotiation
-                .header_digest
-                .eq_ignore_ascii_case("CRC32C");
-            let dd_en = self
-                .cfg
-                .login
-                .negotiation
-                .data_digest
-                .eq_ignore_ascii_case("CRC32C");
+            let hd_en = self.cfg.login.negotiation.header_digest == Digest::CRC32C;
+            let dd_en = self.cfg.login.negotiation.data_digest == Digest::CRC32C;
 
             let hd = header.get_header_diggest(hd_en);
             let dd = header.get_data_diggest(dd_en);

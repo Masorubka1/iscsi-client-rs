@@ -14,6 +14,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use tracing::debug;
 
 use crate::{
+    cfg::enums::YesNo,
     client::client::ClientConnection,
     models::{
         command::{
@@ -204,22 +205,12 @@ impl<'a> WriteCtx<'a> {
 
     #[inline]
     fn peer_initial_r2t(&self) -> bool {
-        self.conn
-            .cfg
-            .extra_data
-            .r2t
-            .initial_r2t
-            .eq_ignore_ascii_case("Yes")
+        self.conn.cfg.extra_data.r2t.initial_r2t == YesNo::Yes
     }
 
     #[inline]
     fn peer_immediate_data(&self) -> bool {
-        self.conn
-            .cfg
-            .extra_data
-            .r2t
-            .immediate_data
-            .eq_ignore_ascii_case("Yes")
+        self.conn.cfg.extra_data.r2t.immediate_data == YesNo::Yes
     }
 
     #[inline]
@@ -270,8 +261,6 @@ impl<'a> WriteCtx<'a> {
         offset: usize,
         len: usize,
     ) -> Result<usize> {
-        const TTT_UNSOLICITED: u32 = 0xFFFF_FFFF;
-
         let mrdsl = self.peer_mrdsl();
         if len == 0 {
             return Ok(0);
@@ -294,7 +283,7 @@ impl<'a> WriteCtx<'a> {
             let header = ScsiDataOutBuilder::new()
                 .lun(self.lun)
                 .initiator_task_tag(self.itt)
-                .target_transfer_tag(TTT_UNSOLICITED)
+                .target_transfer_tag(u32::MAX)
                 .exp_stat_sn(self.exp_stat_sn.load(Ordering::SeqCst))
                 .buffer_offset(off as u32)
                 .data_sn(next_data_sn);

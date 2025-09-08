@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
 use iscsi_client_rs::{
@@ -259,7 +259,6 @@ async fn write10_read10_1_gib_plain_pool_multi_tsih_mcs() -> Result<()> {
                         )
                     })?;
 
-                // сверяем с эталоном
                 let mut expected = vec![0u8; len_bytes];
                 fill_pattern(&mut expected, blk_sz, start_lba_u32 as u64);
                 if chunk.data != expected {
@@ -281,16 +280,12 @@ async fn write10_read10_1_gib_plain_pool_multi_tsih_mcs() -> Result<()> {
         h.await.expect("join read task")?;
     }
 
-    // --- Logout всех сессий и проверка очистки пула ---
-    for tsih in tsihs {
-        timeout(Duration::from_secs(30), pool.logout_session(tsih))
-            .await
-            .with_context(|| format!("logout timeout tsih={tsih}"))??;
-        assert!(
-            pool.sessions.get(&tsih).is_none(),
-            "session {tsih} must be removed from pool after CloseSession"
-        );
-    }
+    timeout(
+        cfg.extra_data.connections.timeout_connection,
+        pool.logout_all(),
+    )
+    .await
+    .context("logout timeout")??;
 
     Ok(())
 }

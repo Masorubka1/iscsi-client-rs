@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
-use std::{collections::HashMap, fs, path::Path};
+use std::{collections::HashMap, fs, path::Path, time::Duration};
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+
+use crate::cfg::enums::{Digest, SessionType, YesNo};
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct Config {
@@ -20,11 +22,11 @@ pub struct LoginConfig {
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
-#[serde(rename_all = "lowercase", tag = "method")]
+#[serde(tag = "AuthMethod")]
 pub enum AuthConfig {
-    /// no authentication
+    #[serde(rename = "None")]
     None,
-    /// CHAP: must provide a user and password
+    #[serde(rename = "CHAP")]
     Chap(ChapConfig),
 }
 
@@ -36,47 +38,44 @@ pub struct ChapConfig {
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct SecurityConfig {
-    #[serde(rename = "session_type")]
-    pub session_type: String, // SessionType
-    #[serde(rename = "portal_group_tag")]
-    pub portal_group_tag: u16, // TargetPortalGroupTag
-
-    #[serde(rename = "initiator_name")]
-    pub initiator_name: String, // InitiatorName
-    #[serde(rename = "initiator_alias")]
-    pub initiator_alias: String, // InitiatorAlias
-
-    #[serde(rename = "target_name")]
-    pub target_name: String, // TargetName
-    //#[serde(rename = "target_alias")]
-    //pub target_alias: String, // TargetAlias
-    #[serde(rename = "target_address")]
-    pub target_address: String, // TargetAddress
+    #[serde(rename = "SessionType")]
+    pub session_type: SessionType,
+    #[serde(rename = "TargetPortalGroupTag")]
+    pub portal_group_tag: u16,
+    #[serde(rename = "InitiatorName")]
+    pub initiator_name: String,
+    #[serde(rename = "InitiatorAlias")]
+    pub initiator_alias: String,
+    #[serde(rename = "TargetName")]
+    pub target_name: String,
+    #[serde(rename = "TargetAddress")]
+    pub target_address: String,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct NegotiationConfig {
-    #[serde(rename = "version_max")]
-    pub version_max: u8, // VersionMax
-    #[serde(rename = "version_min")]
-    pub version_min: u8, // VersionMin
-    #[serde(rename = "header_digest")]
-    pub header_digest: String, // HeaderDigest
-    #[serde(rename = "data_digest")]
-    pub data_digest: String, // DataDigest
+    #[serde(rename = "VersionMax")]
+    pub version_max: u8,
+    #[serde(rename = "VersionMin")]
+    pub version_min: u8,
 
-    #[serde(rename = "max_recv_data_segment_length")]
+    #[serde(rename = "HeaderDigest")]
+    pub header_digest: Digest,
+    #[serde(rename = "DataDigest")]
+    pub data_digest: Digest,
+
+    #[serde(rename = "MaxRecvDataSegmentLength")]
     pub max_recv_data_segment_length: u32,
-    #[serde(rename = "max_burst_length")]
+    #[serde(rename = "MaxBurstLength")]
     pub max_burst_length: u32,
-    #[serde(rename = "first_burst_length")]
+    #[serde(rename = "FirstBurstLength")]
     pub first_burst_length: u32,
 
-    #[serde(rename = "data_pdu_in_order")]
-    pub data_pdu_in_order: String,
-    #[serde(rename = "data_sequence_in_order")]
-    pub data_sequence_in_order: String,
-    #[serde(rename = "error_recovery_level")]
+    #[serde(rename = "DataPDUInOrder")]
+    pub data_pdu_in_order: YesNo,
+    #[serde(rename = "DataSequenceInOrder")]
+    pub data_sequence_in_order: YesNo,
+    #[serde(rename = "ErrorRecoveryLevel")]
     pub error_recovery_level: u8,
 }
 
@@ -92,31 +91,34 @@ pub struct ExtraDataConfig {
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct MarkerConfig {
     #[serde(rename = "IFMarker")]
-    pub if_marker: String,
+    pub if_marker: YesNo,
     #[serde(rename = "OFMarker")]
-    pub of_marker: String,
+    pub of_marker: YesNo,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct R2TConfig {
-    #[serde(rename = "initial_r2t")]
-    pub initial_r2t: String,
-    #[serde(rename = "immediate_data")]
-    pub immediate_data: String,
-    #[serde(rename = "max_outstanding_r2t")]
+    #[serde(rename = "InitialR2T")]
+    pub initial_r2t: YesNo,
+    #[serde(rename = "ImmediateData")]
+    pub immediate_data: YesNo,
+    #[serde(rename = "MaxOutstandingR2T")]
     pub max_outstanding_r2t: u8,
-    #[serde(rename = "default_time2wait")]
-    pub default_time2wait: u8,
-    #[serde(rename = "default_time2retain")]
-    pub default_time2retain: u8,
+
+    #[serde(rename = "DefaultTime2Wait", with = "serde_secs")]
+    pub default_time2wait: Duration,
+    #[serde(rename = "DefaultTime2Retain", with = "serde_secs")]
+    pub default_time2retain: Duration,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct ConnectionConfig {
-    #[serde(rename = "max_connections")]
+    #[serde(rename = "MaxConnections")]
     pub max_connections: u16,
-    #[serde(rename = "max_sessions")]
-    pub max_sessions: u32,
+    #[serde(rename = "MaxSessions")]
+    pub max_sessions: u32, // внешний параметр, не RFC-ключ
+    #[serde(rename = "TimeoutConnection", with = "serde_secs")]
+    pub timeout_connection: Duration,
 }
 
 impl Config {
@@ -184,11 +186,11 @@ impl ToLoginKeys for ExtraDataConfig {
         ));
         keys.push(format!(
             "DefaultTime2Wait={}\x00",
-            self.r2t.default_time2wait
+            self.r2t.default_time2wait.as_secs()
         ));
         keys.push(format!(
             "DefaultTime2Retain={}\x00",
-            self.r2t.default_time2retain
+            self.r2t.default_time2retain.as_secs()
         ));
         // connections
         keys.push(format!(
@@ -228,7 +230,7 @@ pub fn login_keys_security(cfg: &Config) -> Vec<u8> {
     let sec = &cfg.login.security;
 
     let mut keys = vec![
-        kvz("SessionType", &sec.session_type),
+        kvz("SessionType", sec.session_type.to_string()),
         kvz("InitiatorName", &sec.initiator_name),
         kvz("TargetName", &sec.target_name),
     ];
@@ -256,11 +258,11 @@ pub fn login_keys_operational(cfg: &Config) -> Vec<u8> {
 
     let mut keys = vec![
         // Digest
-        kvz("HeaderDigest", &n.header_digest),
-        kvz("DataDigest", &n.data_digest),
+        kvz("HeaderDigest", n.header_digest.to_string()),
+        kvz("DataDigest", n.data_digest.to_string()),
         // Order/ERL
-        kvz("DataPDUInOrder", &n.data_pdu_in_order),
-        kvz("DataSequenceInOrder", &n.data_sequence_in_order),
+        kvz("DataPDUInOrder", n.data_pdu_in_order.to_string()),
+        kvz("DataSequenceInOrder", n.data_sequence_in_order.to_string()),
         kvz("ErrorRecoveryLevel", n.error_recovery_level.to_string()),
         // Limits / sizes
         kvz(
@@ -270,14 +272,20 @@ pub fn login_keys_operational(cfg: &Config) -> Vec<u8> {
         kvz("MaxBurstLength", n.max_burst_length.to_string()),
         kvz("FirstBurstLength", n.first_burst_length.to_string()),
         // Markers
-        kvz("IFMarker", &e.markers.if_marker),
-        kvz("OFMarker", &e.markers.of_marker),
+        kvz("IFMarker", e.markers.if_marker.to_string()),
+        kvz("OFMarker", e.markers.of_marker.to_string()),
         // R2T / Immediate
-        kvz("InitialR2T", &e.r2t.initial_r2t),
-        kvz("ImmediateData", &e.r2t.immediate_data),
+        kvz("InitialR2T", e.r2t.initial_r2t.to_string()),
+        kvz("ImmediateData", e.r2t.immediate_data.to_string()),
         kvz("MaxOutstandingR2T", e.r2t.max_outstanding_r2t.to_string()),
-        kvz("DefaultTime2Wait", e.r2t.default_time2wait.to_string()),
-        kvz("DefaultTime2Retain", e.r2t.default_time2retain.to_string()),
+        kvz(
+            "DefaultTime2Wait",
+            e.r2t.default_time2wait.as_secs().to_string(),
+        ),
+        kvz(
+            "DefaultTime2Retain",
+            e.r2t.default_time2retain.as_secs().to_string(),
+        ),
         // Connections
         kvz("MaxConnections", e.connections.max_connections.to_string()),
     ];
@@ -287,4 +295,17 @@ pub fn login_keys_operational(cfg: &Config) -> Vec<u8> {
     }
 
     join_bytes(&keys)
+}
+
+mod serde_secs {
+    use std::time::Duration;
+
+    use serde::{Deserialize, Deserializer, Serializer};
+    pub fn serialize<S: Serializer>(d: &Duration, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_u64(d.as_secs())
+    }
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Duration, D::Error> {
+        let secs = u64::deserialize(d)?;
+        Ok(Duration::from_secs(secs))
+    }
 }

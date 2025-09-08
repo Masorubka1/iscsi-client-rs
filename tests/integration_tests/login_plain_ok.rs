@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use iscsi_client_rs::{
@@ -51,9 +51,12 @@ async fn login_and_nop() -> Result<()> {
     .await
     .context("NOP failed")?;
 
-    timeout(Duration::from_secs(10), pool.logout_session(tsih))
-        .await
-        .context("logout timeout")??;
+    timeout(
+        cfg.extra_data.connections.timeout_connection,
+        pool.logout_all(),
+    )
+    .await
+    .context("logout timeout")??;
 
     Ok(())
 }

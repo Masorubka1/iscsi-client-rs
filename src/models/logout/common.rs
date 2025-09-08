@@ -12,20 +12,20 @@ use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 pub enum LogoutReason {
     /// Close the entire session (all connections)
     #[default]
-    CloseSession = 0x01,
+    CloseSession = 0x00,
     /// Close a specific connection identified by CID
-    CloseConnection = 0x02,
+    CloseConnection = 0x01,
     /// Remove a connection for recovery purposes
-    RemoveConnectionForRecovery = 0x03,
+    RemoveConnectionForRecovery = 0x02,
 }
 
 impl LogoutReason {
     #[inline]
     pub fn as_u8(&self) -> u8 {
         match self {
-            LogoutReason::CloseSession => 0x01,
-            LogoutReason::CloseConnection => 0x02,
-            LogoutReason::RemoveConnectionForRecovery => 0x03,
+            LogoutReason::CloseSession => 0x00,
+            LogoutReason::CloseConnection => 0x01,
+            LogoutReason::RemoveConnectionForRecovery => 0x02,
         }
     }
 }
@@ -35,9 +35,9 @@ impl TryFrom<u8> for LogoutReason {
 
     fn try_from(value: u8) -> Result<Self> {
         Ok(match value {
-            0x01 => LogoutReason::CloseSession,
-            0x02 => LogoutReason::CloseConnection,
-            0x03 => LogoutReason::RemoveConnectionForRecovery,
+            0x00 => LogoutReason::CloseSession,
+            0x01 => LogoutReason::CloseConnection,
+            0x02 => LogoutReason::RemoveConnectionForRecovery,
             other => bail!("unexpected logout code {other}"),
         })
     }

@@ -200,9 +200,12 @@ async fn read_capacity_then_write10_plain() -> Result<()> {
         "read-back data differs from what was written"
     );
 
-    timeout(Duration::from_secs(10), pool.logout_session(tsih))
-        .await
-        .context("logout timeout")??;
+    timeout(
+        cfg.extra_data.connections.timeout_connection,
+        pool.logout_all(),
+    )
+    .await
+    .context("logout timeout")??;
 
     assert!(
         pool.sessions.get(&tsih).is_none(),

@@ -15,6 +15,7 @@ use anyhow::{Context, Result, anyhow};
 use tracing::debug;
 
 use crate::{
+    cfg::enums::Digest,
     client::client::ClientConnection,
     models::{
         command::{
@@ -99,20 +100,8 @@ impl<'a> ReadCtx<'a> {
             self.conn.read_response_raw(itt).await?;
         let op = BhsOpcode::try_from(p_any.header_buf[0])?.opcode;
 
-        let hd = self
-            .conn
-            .cfg
-            .login
-            .negotiation
-            .header_digest
-            .eq_ignore_ascii_case("CRC32C");
-        let dd = self
-            .conn
-            .cfg
-            .login
-            .negotiation
-            .data_digest
-            .eq_ignore_ascii_case("CRC32C");
+        let hd = self.conn.cfg.login.negotiation.header_digest == Digest::CRC32C;
+        let dd = self.conn.cfg.login.negotiation.data_digest == Digest::CRC32C;
 
         let pdu_local = match op {
             Opcode::ScsiDataIn => Ok(ReadPdu::DataIn({

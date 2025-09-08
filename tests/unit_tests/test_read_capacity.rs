@@ -6,7 +6,7 @@ use std::fs;
 use anyhow::{Context, Result};
 use hex::FromHex;
 use iscsi_client_rs::{
-    cfg::{cli::resolve_config_path, config::Config},
+    cfg::{cli::resolve_config_path, config::Config, enums::Digest},
     control_block::read_capacity::{
         Rc10Raw, Rc16Raw, build_read_capacity10, build_read_capacity16,
         parse_read_capacity10_zerocopy, parse_read_capacity16_zerocopy,
@@ -66,14 +66,8 @@ fn test_read_capacity10_request_build() -> Result<()> {
 
     let (hdr_bytes, body_bytes) = pdu.build(
         cfg.login.negotiation.max_recv_data_segment_length as usize,
-        cfg.login
-            .negotiation
-            .header_digest
-            .eq_ignore_ascii_case("CRC32C"),
-        cfg.login
-            .negotiation
-            .data_digest
-            .eq_ignore_ascii_case("CRC32C"),
+        cfg.login.negotiation.header_digest == Digest::CRC32C,
+        cfg.login.negotiation.data_digest == Digest::CRC32C,
     )?;
 
     assert_eq!(&hdr_bytes[..], &expected[..HEADER_LEN], "BHS mismatch");
@@ -123,14 +117,8 @@ fn test_read_capacity16_request_build() -> Result<()> {
 
     let (hdr_bytes, body_bytes) = pdu.build(
         cfg.login.negotiation.max_recv_data_segment_length as usize,
-        cfg.login
-            .negotiation
-            .header_digest
-            .eq_ignore_ascii_case("CRC32C"),
-        cfg.login
-            .negotiation
-            .data_digest
-            .eq_ignore_ascii_case("CRC32C"),
+        cfg.login.negotiation.header_digest == Digest::CRC32C,
+        cfg.login.negotiation.data_digest == Digest::CRC32C,
     )?;
 
     assert_eq!(&hdr_bytes[..], &expected[..HEADER_LEN], "BHS mismatch");

@@ -19,7 +19,7 @@ use iscsi_client_rs::{
     state_machine::{nop_states::NopCtx, read_states::ReadCtx, write_states::WriteCtx},
 };
 use tokio::time::{sleep, timeout};
-use tracing::{debug, info};
+use tracing::info;
 
 fn fill_pattern(buf: &mut [u8], blk_sz: usize, lba_start: u64) {
     assert!(blk_sz > 0 && buf.len() % blk_sz == 0);
@@ -324,12 +324,7 @@ async fn main() -> Result<()> {
     info!("READ verify done.");
 
     // ---- Clean logout ----
-    for &tsih in &tsihs {
-        timeout(Duration::from_secs(30), pool.logout_session(tsih))
-            .await
-            .with_context(|| format!("logout timeout tsih={tsih}"))??;
-        debug!("Logged out tsih={}", tsih);
-    }
+    timeout(Duration::from_secs(30), pool.logout_all()).await??;
     info!("All sessions logged out.");
 
     Ok(())

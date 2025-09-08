@@ -215,7 +215,7 @@ impl<'ctx> StateMachine<NopCtx<'ctx>, NopStepOut> for Reply {
             let pdu: PDUWithData<NopOutRequest> = PDUWithData::from_header_slice(ctx.buf);
 
             // Response — fire-and-forget
-            if let Err(e) = ctx.conn.send_segment(pdu).await {
+            if let Err(e) = ctx.conn.send_request(u32::MAX, pdu).await {
                 return Transition::Done(Err(e));
             }
 

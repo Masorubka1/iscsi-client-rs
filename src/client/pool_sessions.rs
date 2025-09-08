@@ -45,6 +45,7 @@ pub struct Session {
 pub struct Pool {
     pub sessions: DashMap<u16, Arc<Session>>,
     max_sessions: u32,
+    max_connections: u16,
     self_weak: OnceCell<Weak<Pool>>,
 }
 
@@ -52,9 +53,10 @@ impl Pool {
     pub fn new(cfg: &Config) -> Self {
         Self {
             sessions: DashMap::with_capacity(
-                cfg.extra_data.connections.max_connections as usize,
+                cfg.extra_data.connections.max_sessions as usize,
             ),
             max_sessions: cfg.extra_data.connections.max_sessions,
+            max_connections: cfg.extra_data.connections.max_connections,
             self_weak: OnceCell::new(),
         }
     }
@@ -126,8 +128,12 @@ impl Pool {
     }
 
     /// Logout a single TCP connection (CID). Removes the entry on success.
-    pub async fn logout_connection(&self, tsih: u16, cid: u16) -> Result<()> {
-        // Clone Arc handles for await
+    async fn logout_connection(
+        &self,
+        tsih: u16,
+        cid: u16,
+        reason: LogoutReason,
+    ) -> Result<()> {
         let sess = self
             .sessions
             .get(&tsih)
@@ -139,23 +145,24 @@ impl Pool {
             .with_context(|| format!("CID={cid} not found in TSIH={tsih}"))?
             .clone();
 
-        // Protocol Logout (CloseConnection)
         let mut lo = LogoutCtx::new(
             conn.conn.clone(),
             sess.itt_gen.clone(),
             sess.cmd_sn.clone(),
             conn.exp_stat_sn.clone(),
             cid,
-            LogoutReason::CloseConnection,
+            reason.clone(),
         );
         lo.execute()
             .await
             .context("logout (CloseConnection) failed")?;
 
         // Local cleanup
-        sess.conns.remove(&cid);
-        if sess.conns.is_empty() {
-            self.sessions.remove(&tsih);
+        if reason != LogoutReason::RemoveConnectionForRecovery {
+            sess.conns.remove(&cid);
+            if sess.conns.is_empty() {
+                self.sessions.remove(&tsih);
+            }
         }
         Ok(())
     }
@@ -165,43 +172,67 @@ impl Pool {
         let sess = self
             .sessions
             .get(&tsih)
-            .context(format!("unknown TSIH={tsih}"))?
+            .with_context(|| format!("unknown TSIH={tsih}"))?
             .clone();
 
-        // Use any connection to send CloseSession (if present)
-        if let Some(first) = sess.conns.iter().next() {
-            let cid = *first.key();
-            let conn = first.value().clone();
+        if let Some(cid0) = sess.conns.iter().map(|e| *e.key()).min() {
+            let conn = sess
+                .conns
+                .get(&cid0)
+                .expect("CID just collected must exist")
+                .clone();
 
             let mut lo = LogoutCtx::new(
                 conn.conn.clone(),
                 sess.itt_gen.clone(),
                 sess.cmd_sn.clone(),
                 conn.exp_stat_sn.clone(),
-                cid,
+                cid0,
                 LogoutReason::CloseSession,
             );
             lo.execute().await.context("logout (CloseSession) failed")?;
         }
 
-        // Local cleanup (idempotent)
         if let Some((_, s)) = self.sessions.remove(&tsih) {
+            // Drain connections to drop their Arcs eagerly (optional)
             for cid in s.conns.iter().map(|kv| *kv.key()).collect::<Vec<_>>() {
-                s.conns.remove(&cid);
+                let _ = s.conns.remove(&cid);
             }
         }
         Ok(())
     }
 
+    /// Unified logout handler by reason.
+    /// - CloseSession: ignores `cid` (you may pass None), sends Logout on any
+    ///   active connection and removes the entire session from the pool
+    ///   locally.
+    /// - CloseConnection: requires `cid`, removes only that connection; if no
+    ///   connections are left, removes the session as well.
+    /// - RemoveConnectionForRecovery: requires `cid`, removes only that
+    ///   connection; keeps the session even if it temporarily has 0 connections
+    ///   (used for recovery).
+    pub async fn logout(
+        &self,
+        tsih: u16,
+        reason: LogoutReason,
+        cid: Option<u16>,
+    ) -> Result<()> {
+        match reason {
+            LogoutReason::CloseSession => self.logout_session(tsih).await,
+            LogoutReason::CloseConnection | LogoutReason::RemoveConnectionForRecovery => {
+                self.logout_connection(tsih, cid.context("failed to get cid")?, reason)
+                    .await
+            },
+        }
+    }
+
     /// Logout all sessions sequentially.
     pub async fn logout_all(&self) -> Result<()> {
         for tsih in self.sessions.iter().map(|e| *e.key()).collect::<Vec<_>>() {
-            self.logout_session(tsih).await?;
+            self.logout(tsih, LogoutReason::CloseSession, None).await?;
         }
         Ok(())
     }
-
-    // --- internals ---
 
     async fn login_one_and_insert_impl(
         &self,
@@ -231,7 +262,7 @@ impl Pool {
                     tsih,
                     isid,
                     target_name: target_name.clone(),
-                    conns: DashMap::new(),
+                    conns: DashMap::with_capacity(self.max_connections as usize),
                     cmd_sn: Arc::new(AtomicU32::new(hdr.exp_cmd_sn.get())),
                     itt_gen: Arc::new(AtomicU32::new(
                         hdr.initiator_task_tag.get().wrapping_add(1),
