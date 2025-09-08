@@ -15,7 +15,6 @@ use iscsi_client_rs::{
     state_machine::{read_states::ReadCtx, write_states::WriteCtx},
 };
 use serial_test::serial;
-use tokio::time::timeout;
 
 use crate::integration_tests::common::{connect_cfg, get_lun, load_config, test_path};
 
@@ -156,7 +155,10 @@ async fn write10_read10_1_gib_plain_pool_multi_tsih_mcs() -> Result<()> {
     let max_blocks_by_burst = (burst_bytes / blk_sz).max(1);
     let max_blocks_by_mrdsl = (mrdsl_bytes / blk_sz).max(1);
 
-    let max_write_blocks_per_cmd = max_blocks_by_scsi10.min(max_blocks_by_fd);
+    let max_write_blocks_per_cmd = max_blocks_by_scsi10
+        .min(max_blocks_by_fd)
+        .min(max_blocks_by_burst)
+        .min(max_blocks_by_mrdsl);
     let max_read_blocks_per_cmd = max_blocks_by_scsi10
         .min(max_blocks_by_fd)
         .min(max_blocks_by_burst)
@@ -256,7 +258,6 @@ async fn write10_read10_1_gib_plain_pool_multi_tsih_mcs() -> Result<()> {
                         )
                     })?;
 
-                // сверяем с эталоном
                 let mut expected = vec![0u8; len_bytes];
                 fill_pattern(&mut expected, blk_sz, start_lba_u32 as u64);
                 if chunk.data != expected {
@@ -278,16 +279,7 @@ async fn write10_read10_1_gib_plain_pool_multi_tsih_mcs() -> Result<()> {
         h.await.expect("join read task")?;
     }
 
-    // --- Logout всех сессий и проверка очистки пула ---
-    for tsih in tsihs {
-        timeout(Duration::from_secs(30), pool.logout_session(tsih))
-            .await
-            .with_context(|| format!("logout timeout tsih={tsih}"))??;
-        assert!(
-            pool.sessions.get(&tsih).is_none(),
-            "session {tsih} must be removed from pool after CloseSession"
-        );
-    }
+    pool.shutdown_gracefully(Duration::from_secs(10)).await?;
 
     Ok(())
 }

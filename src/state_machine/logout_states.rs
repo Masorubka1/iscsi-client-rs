@@ -11,6 +11,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow, bail};
+use tokio_util::sync::CancellationToken;
 use tracing::debug;
 
 use crate::{
@@ -149,7 +150,10 @@ impl<'ctx> StateMachine<LogoutCtx<'ctx>, LogoutStepOut> for Wait {
 impl<'ctx> StateMachineCtx<LogoutCtx<'ctx>, PDUWithData<LogoutResponse>>
     for LogoutCtx<'ctx>
 {
-    async fn execute(&mut self) -> Result<PDUWithData<LogoutResponse>> {
+    async fn execute(
+        &mut self,
+        _cancel: &CancellationToken,
+    ) -> Result<PDUWithData<LogoutResponse>> {
         debug!("Loop logout");
         loop {
             let state = self.state.take().context("state must be set LogoutCtx")?;

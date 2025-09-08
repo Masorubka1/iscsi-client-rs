@@ -5,7 +5,7 @@ services:
     build:
       context: ./docker/tgt
       dockerfile: Dockerfile
-    container_name: iscsi-target
+    container_name: iscsi-target-tgt
     environment:
       TGT_IQN: ${TGT_IQN:-iqn.2025-08.example:disk0}
       TGT_SIZE_MB: ${TGT_SIZE_MB:-1050}
@@ -34,7 +34,7 @@ services:
     profiles: ["lio"] # можем использовать тот же профиль lio
     build:
       context: ./docker/lio
-    container_name: iscsi-lio
+    container_name: iscsi-target-lio
     # Нужен доступ к ядру/устройствам (LIO + LVM)
     privileged: true
     network_mode: host # targetd слушает 18700, LIO — 3260

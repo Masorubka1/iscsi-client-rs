@@ -7,6 +7,7 @@ use anyhow::{Context, Result};
 use iscsi_client_rs::{
     cfg::config::Config, client::client::ClientConnection, utils::generate_isid,
 };
+use tokio_util::sync::CancellationToken;
 
 pub fn test_path() -> String {
     std::env::var("TEST_CONFIG").unwrap_or_else(|_| "tests/config.yaml".into())
@@ -21,7 +22,7 @@ pub fn load_config() -> Result<Config> {
 }
 
 pub async fn connect_cfg(cfg: &Config) -> Result<Arc<ClientConnection>> {
-    ClientConnection::connect(cfg.clone()).await
+    ClientConnection::connect(cfg.clone(), CancellationToken::new()).await
 }
 
 pub fn test_isid() -> [u8; 6] {

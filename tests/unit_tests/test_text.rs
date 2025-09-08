@@ -6,7 +6,7 @@ use std::fs;
 use anyhow::{Context, Result};
 use hex::FromHex;
 use iscsi_client_rs::{
-    cfg::{cli::resolve_config_path, config::Config},
+    cfg::{cli::resolve_config_path, config::Config, enums::Digest},
     models::{
         common::{BasicHeaderSegment, Builder, HEADER_LEN},
         data_fromat::PDUWithData,
@@ -59,14 +59,8 @@ fn test_text_request() -> Result<()> {
 
     let (hdr_bytes, body_bytes) = &builder.build(
         cfg.login.negotiation.max_recv_data_segment_length as usize,
-        cfg.login
-            .negotiation
-            .header_digest
-            .eq_ignore_ascii_case("CRC32C"),
-        cfg.login
-            .negotiation
-            .data_digest
-            .eq_ignore_ascii_case("CRC32C"),
+        cfg.login.negotiation.header_digest == Digest::CRC32C,
+        cfg.login.negotiation.data_digest == Digest::CRC32C,
     )?;
 
     assert_eq!(
@@ -104,7 +98,6 @@ fn test_text_response() -> Result<()> {
     let bytes = load_fixture("tests/unit_tests/fixtures/text/text_response.hex")?;
     assert!(bytes.len() >= HEADER_LEN);
 
-    // Parse fixture into PDUWithData with header_buf.
     let mut header_buf = [0u8; HEADER_LEN];
     header_buf.copy_from_slice(&bytes[..HEADER_LEN]);
     let mut parsed = PDUWithData::<TextResponse>::from_header_slice(header_buf);
@@ -114,22 +107,17 @@ fn test_text_response() -> Result<()> {
     assert!(parsed.header_digest.is_none());
     assert!(parsed.data_digest.is_none());
 
-    // Zerocopy view for header fields.
-    let hdr = <TextResponse as ZFromBytes>::ref_from_bytes(&parsed.header_buf)
-        .expect("valid BHS");
+    let hdr = TextResponse::ref_from_bytes(&parsed.header_buf).expect("valid BHS");
 
-    // Check opcode.
     let op = BhsOpcode::try_from(hdr.opcode.raw())?;
     assert_eq!(op.opcode, Opcode::TextResp, "expected TextResp opcode");
 
-    // Check sizes and sequence numbers.
     let data_size = hdr.get_data_length_bytes();
     assert_eq!(data_size, parsed.data.len());
 
     assert_eq!(hdr.stat_sn.get(), 1939077135);
     assert_eq!(hdr.exp_cmd_sn.get(), 2);
 
-    // Check payload contents.
     let expected =
         "TargetName=iqn.2025-07.com.example:target0\0TargetAddress=127.0.0.1:3260,1\0";
     let actual = String::from_utf8(parsed.data).context("Failed to decode TEXT data")?;

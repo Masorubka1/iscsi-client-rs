@@ -1,16 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use iscsi_client_rs::{
     cfg::{config::Config, logger::init_logger},
     client::pool_sessions::Pool,
-    models::nop::request::NopOutRequest,
+    models::{logout::common::LogoutReason, nop::request::NopOutRequest},
     state_machine::nop_states::NopCtx,
 };
-use tokio::time::timeout;
 
 use crate::integration_tests::common::{
     connect_cfg, get_lun, load_config, test_isid, test_path,
@@ -52,9 +51,8 @@ async fn logout_close_session() -> Result<()> {
     .await
     .context("nop failed")?;
 
-    timeout(Duration::from_secs(10), pool.logout_session(tsih))
-        .await
-        .context("logout timeout")??;
+    pool.logout(tsih, LogoutReason::CloseConnection, Some(cid))
+        .await?;
 
     assert!(
         pool.sessions.get(&tsih).is_none(),

@@ -21,7 +21,6 @@ use iscsi_client_rs::{
     },
     state_machine::{read_states::ReadCtx, tur_states::TurCtx},
 };
-use tokio::time::timeout;
 
 use crate::integration_tests::common::{
     connect_cfg, get_lun, load_config, test_isid, test_path,
@@ -197,9 +196,7 @@ async fn login_tur_sense_inquiry_vpd() -> Result<()> {
         std_info.vendor_id, std_info.product_id, std_info.product_rev, pages
     );
 
-    timeout(Duration::from_secs(10), pool.logout_session(tsih))
-        .await
-        .context("logout timeout")??;
+    pool.shutdown_gracefully(Duration::from_secs(10)).await?;
 
     assert!(
         pool.sessions.get(&tsih).is_none(),

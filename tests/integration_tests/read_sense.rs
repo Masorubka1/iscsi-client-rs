@@ -10,7 +10,6 @@ use iscsi_client_rs::{
     control_block::request_sense::fill_request_sense_simple,
     state_machine::{read_states::ReadCtx, tur_states::TurCtx},
 };
-use tokio::time::timeout;
 
 use crate::integration_tests::common::{
     connect_cfg, get_lun, load_config, test_isid, test_path,
@@ -102,9 +101,7 @@ async fn login_ua_request_sense_then_clear_with_tur_pool() -> Result<()> {
     assert_eq!(inq.data.len(), 36, "INQUIRY should return 36 bytes now");
 
     // --- CloseSession + ensure session is gone ---
-    timeout(Duration::from_secs(10), pool.logout_session(tsih))
-        .await
-        .context("logout timeout")??;
+    pool.shutdown_gracefully(Duration::from_secs(10)).await?;
 
     assert!(
         pool.sessions.get(&tsih).is_none(),

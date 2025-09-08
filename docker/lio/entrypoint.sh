@@ -33,6 +33,7 @@ IQN="${LIO_IQN:-iqn.2025-08.example:disk0}"
 SIZE_MB="${LIO_SIZE_MB:-1000}"
 LUN="${LIO_LUN:-1}"
 PORT="${LIO_PORT:-3261}"
+LIO_BLOCK_SIZE="${LIO_BLOCK_SIZE:-4096}"
 
 # --- Backing file ---
 if [ ! -f /data/backing.img ]; then
@@ -45,6 +46,34 @@ echo "🎯 Target:    ${IQN}, LUN=${LUN}, PORT=${PORT}"
 
 # --- targetcli config (idempotent) ---
 targetcli /backstores/fileio create name=backing file_or_dev=/data/backing.img 2>/dev/null || true
+
+BACKSTORE_PATH="/backstores/fileio/backing"
+if targetcli /backstores/fileio/backing set attribute block_size="${LIO_BLOCK_SIZE}" >/dev/null 2>&1; then
+  echo "🧱 fileio.block_size=${LIO_BLOCK_SIZE}"
+else
+  echo "ℹ️  fileio.block_size недоступен — используем loop+block backstore"
+
+  # удалить fileio/backing (если уже создали выше), чтобы не мешал
+  targetcli /backstores/fileio delete backing >/dev/null 2>&1 || true
+
+  # проверим, что losetup умеет --sector-size
+  if losetup -h 2>&1 | grep -q -- '--sector-size'; then
+    # привяжем loop с логическим сектором 4K (или LIO_BLOCK_SIZE)
+    losetup -D >/dev/null 2>&1 || true
+    losetup -fP --sector-size "${LIO_BLOCK_SIZE}" /data/backing.img
+    LOOP="$(losetup -j /data/backing.img | awk -F: '{print $1}')"
+    [ -n "$LOOP" ] || { echo "❌ losetup не создал loop для /data/backing.img"; exit 1; }
+
+    # создаём block backstore, если ещё нет
+    targetcli /backstores/block create name=backing dev="$LOOP" 2>/dev/null || true
+    BACKSTORE_PATH="/backstores/block/backing"
+    echo "🧱 block backstore на $LOOP с sector-size=${LIO_BLOCK_SIZE}"
+  else
+    echo "❌ losetup без поддержки --sector-size; 4K выставить не получится"
+    exit 1
+  fi
+fi
+
 targetcli /iscsi create "${IQN}" 2>/dev/null || true
 targetcli /iscsi/"${IQN}"/tpg1/portals create 0.0.0.0 ${PORT} 2>/dev/null || true
 targetcli /iscsi/"${IQN}"/tpg1/luns create /backstores/fileio/backing lun=${LUN} 2>/dev/null || true

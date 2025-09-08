@@ -70,7 +70,7 @@ pub struct PDUWithData<T> {
 impl<T> Builder for PDUWithData<T>
 where T: BasicHeaderSegment + SendingData + FromBytes + ZeroCopyType
 {
-    type Header = Vec<u8>;
+    type Header = [u8; HEADER_LEN];
 
     /// Appends raw bytes to the Data Segment and updates its length field.
     fn append_data(&mut self, more: Vec<u8>) {
@@ -156,7 +156,7 @@ where T: BasicHeaderSegment + SendingData + FromBytes + ZeroCopyType
             body.extend_from_slice(&dd.to_bytes());
         }
 
-        Ok((self.header_buf.to_vec(), body))
+        Ok((self.header_buf, body))
     }
 }
 
@@ -188,7 +188,7 @@ impl<T> PDUWithData<T> {
 impl<T> PDUWithData<T>
 where T: BasicHeaderSegment + FromBytes + ZeroCopyType
 {
-    /// Mutable header view (`&mut T`) backed by `self.header_buf`.
+    /// Header view (`&T`) backed by `self.header_buf`.
     #[inline]
     pub fn header_view(&self) -> Result<&T> {
         T::ref_from_bytes(self.header_buf.as_slice())

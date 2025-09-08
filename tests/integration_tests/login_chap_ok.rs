@@ -13,7 +13,6 @@ use iscsi_client_rs::{
     models::nop::request::NopOutRequest,
     state_machine::nop_states::NopCtx,
 };
-use tokio::time::timeout;
 
 use crate::integration_tests::common::{
     connect_cfg, get_lun, load_config, test_isid, test_path,
@@ -62,9 +61,7 @@ async fn login_chap_ok() -> Result<()> {
     .await
     .context("NOP failed")?;
 
-    timeout(Duration::from_secs(10), pool.logout_session(tsih))
-        .await
-        .context("logout timeout")??;
+    pool.shutdown_gracefully(Duration::from_secs(10)).await?;
 
     Ok(())
 }

@@ -126,12 +126,17 @@ impl SendingData for ScsiDataIn {
         // In practice Data-In can be followed by a separate SCSI Response.
         // Keep your previous semantics: final only when F=1 and either S not set,
         // or status is Good.
+        let f = self.flags.fin();
+        let s = self.flags.s();
+        let is_final = f && s;
         debug!(
-            "DataIn is finnal:{} status:{}",
-            self.flags.fin(),
-            !matches!(self.scsi_status(), None | Some(ScsiStatus::Good))
+            "DataIn get_final_bit (channel): F={} S={} status={:?} => {}",
+            f,
+            s,
+            self.scsi_status(),
+            is_final
         );
-        self.flags.fin() && !matches!(self.scsi_status(), None | Some(ScsiStatus::Good))
+        is_final
     }
 
     fn set_final_bit(&mut self) {

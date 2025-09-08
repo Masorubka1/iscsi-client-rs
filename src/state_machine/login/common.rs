@@ -1,6 +1,7 @@
 use std::{marker::PhantomData, sync::Arc};
 
 use anyhow::{Context, Result, anyhow};
+use tokio_util::sync::CancellationToken;
 use tracing::debug;
 
 use crate::{
@@ -90,7 +91,10 @@ pub enum LoginStates {
 impl<'ctx> StateMachineCtx<LoginCtx<'ctx>, PDUWithData<LoginResponse>>
     for LoginCtx<'ctx>
 {
-    async fn execute(&mut self) -> Result<PDUWithData<LoginResponse>> {
+    async fn execute(
+        &mut self,
+        _cancel: &CancellationToken,
+    ) -> Result<PDUWithData<LoginResponse>> {
         debug!("Loop login");
         loop {
             let state = self.state.take().context("state must be set LoginCtx")?;

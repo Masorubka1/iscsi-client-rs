@@ -9,7 +9,6 @@ use iscsi_client_rs::{
     client::pool_sessions::Pool,
     state_machine::tur_states::TurCtx,
 };
-use tokio::time::timeout;
 
 use crate::integration_tests::common::{
     connect_cfg, get_lun, load_config, test_isid, test_path,
@@ -51,9 +50,7 @@ async fn login_and_tur() -> Result<()> {
     .await
     .context("TUR failed")?;
 
-    timeout(Duration::from_secs(10), pool.logout_session(tsih))
-        .await
-        .context("logout timeout")??;
+    pool.shutdown_gracefully(Duration::from_secs(10)).await?;
 
     assert!(
         pool.sessions.get(&tsih).is_none(),

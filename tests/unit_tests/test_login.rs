@@ -12,6 +12,7 @@ use iscsi_client_rs::{
             AuthConfig, Config, ToLoginKeys, login_keys_chap_response,
             login_keys_operational, login_keys_security,
         },
+        enums::Digest,
     },
     models::{
         common::{Builder, HEADER_LEN},
@@ -141,14 +142,8 @@ fn test_login_request() -> Result<()> {
 
     let (_hdr, body) = &builder.build(
         cfg.login.negotiation.max_recv_data_segment_length as usize,
-        cfg.login
-            .negotiation
-            .header_digest
-            .eq_ignore_ascii_case("CRC32C"),
-        cfg.login
-            .negotiation
-            .data_digest
-            .eq_ignore_ascii_case("CRC32C"),
+        cfg.login.negotiation.header_digest == Digest::CRC32C,
+        cfg.login.negotiation.data_digest == Digest::CRC32C,
     )?;
 
     let left: BTreeSet<_> = split_zeroes(body);
@@ -222,16 +217,10 @@ fn chap_step1_security_only() -> Result<()> {
 
     let (hdr_bytes, data_bytes) = &s1.build(
         cfg.login.negotiation.max_recv_data_segment_length as usize,
-        cfg.login
-            .negotiation
-            .header_digest
-            .eq_ignore_ascii_case("CRC32C"),
-        cfg.login
-            .negotiation
-            .data_digest
-            .eq_ignore_ascii_case("CRC32C"),
+        cfg.login.negotiation.header_digest == Digest::CRC32C,
+        cfg.login.negotiation.data_digest == Digest::CRC32C,
     )?;
-    let mut got = hdr_bytes.clone();
+    let mut got = hdr_bytes.to_vec();
     got.extend_from_slice(data_bytes);
 
     let exp_pdu = parse_req(&req_exp)?;
@@ -319,16 +308,10 @@ fn chap_step3_chap_response() -> Result<()> {
 
     let (hdr_bytes, data_bytes) = &s3.build(
         cfg.login.negotiation.max_recv_data_segment_length as usize,
-        cfg.login
-            .negotiation
-            .header_digest
-            .eq_ignore_ascii_case("CRC32C"),
-        cfg.login
-            .negotiation
-            .data_digest
-            .eq_ignore_ascii_case("CRC32C"),
+        cfg.login.negotiation.header_digest == Digest::CRC32C,
+        cfg.login.negotiation.data_digest == Digest::CRC32C,
     )?;
-    let mut got = hdr_bytes.clone();
+    let mut got = hdr_bytes.to_vec();
     got.extend_from_slice(data_bytes);
 
     let exp_pdu = parse_req(&req_exp)?;
@@ -372,16 +355,10 @@ fn chap_step4_oper_to_ff_with_ops() -> Result<()> {
 
     let (hdr_bytes, data_bytes) = &s4.build(
         cfg.login.negotiation.max_recv_data_segment_length as usize,
-        cfg.login
-            .negotiation
-            .header_digest
-            .eq_ignore_ascii_case("CRC32C"),
-        cfg.login
-            .negotiation
-            .data_digest
-            .eq_ignore_ascii_case("CRC32C"),
+        cfg.login.negotiation.header_digest == Digest::CRC32C,
+        cfg.login.negotiation.data_digest == Digest::CRC32C,
     )?;
-    let mut got = hdr_bytes.clone();
+    let mut got = hdr_bytes.to_vec();
     got.extend_from_slice(data_bytes);
 
     let exp_pdu = parse_req(&req_exp)?;

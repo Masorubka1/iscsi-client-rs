@@ -10,7 +10,6 @@ use iscsi_client_rs::{
     control_block::mod_sense::{fill_mode_sense6_simple, fill_mode_sense10_simple},
     state_machine::{read_states::ReadCtx, tur_states::TurCtx},
 };
-use tokio::time::timeout;
 
 use crate::integration_tests::common::{
     connect_cfg, get_lun, load_config, test_isid, test_path,
@@ -78,9 +77,7 @@ async fn login_tur_mode_sense_pool() -> Result<()> {
     assert_eq!(ms6.data.len(), 4, "MODE SENSE(6) must return 4 bytes");
 
     // --- CloseSession + ensure session is gone ---
-    timeout(Duration::from_secs(10), pool.logout_session(tsih))
-        .await
-        .context("logout timeout")??;
+    pool.shutdown_gracefully(Duration::from_secs(10)).await?;
 
     assert!(
         pool.sessions.get(&tsih).is_none(),

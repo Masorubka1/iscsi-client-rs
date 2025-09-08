@@ -6,7 +6,7 @@ use std::fs;
 use anyhow::{Context, Result};
 use hex::FromHex;
 use iscsi_client_rs::{
-    cfg::{cli::resolve_config_path, config::Config},
+    cfg::{cli::resolve_config_path, config::Config, enums::Digest},
     control_block::write::build_write10,
     models::{
         command::{
@@ -43,7 +43,6 @@ fn test_write_pdu_build() -> Result<()> {
     let mut cdb = [0u8; 16];
     build_write10(&mut cdb, 0x1234, 0, 0, 1);
 
-    // 512 байт immediate data (или первый burst — как в фикстуре)
     let write_buf = vec![0x01; 512];
 
     let header_builder = ScsiCommandRequestBuilder::new()
@@ -62,16 +61,8 @@ fn test_write_pdu_build() -> Result<()> {
     let mut builder = PDUWithData::<ScsiCommandRequest>::from_header_slice(header_buf);
     builder.append_data(write_buf);
 
-    let hd = cfg
-        .login
-        .negotiation
-        .header_digest
-        .eq_ignore_ascii_case("CRC32C");
-    let dd = cfg
-        .login
-        .negotiation
-        .data_digest
-        .eq_ignore_ascii_case("CRC32C");
+    let hd = cfg.login.negotiation.header_digest == Digest::CRC32C;
+    let dd = cfg.login.negotiation.data_digest == Digest::CRC32C;
 
     let (hdr_bytes, body_bytes) = &builder.build(
         cfg.login.negotiation.max_recv_data_segment_length as usize,
@@ -99,18 +90,9 @@ fn test_write_response_parse() -> Result<()> {
         load_fixture("tests/unit_tests/fixtures/scsi_commands/write10_response.hex")?;
     assert!(bytes.len() >= HEADER_LEN);
 
-    let hd = cfg
-        .login
-        .negotiation
-        .header_digest
-        .eq_ignore_ascii_case("CRC32C");
-    let dd = cfg
-        .login
-        .negotiation
-        .data_digest
-        .eq_ignore_ascii_case("CRC32C");
+    let hd = cfg.login.negotiation.header_digest == Digest::CRC32C;
+    let dd = cfg.login.negotiation.data_digest == Digest::CRC32C;
 
-    // zerocopy: создаём PDU поверх копии заголовка и парсим тело
     let mut hdr_buf = [0u8; HEADER_LEN];
     hdr_buf.copy_from_slice(&bytes[..HEADER_LEN]);
 

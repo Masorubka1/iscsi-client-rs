@@ -11,6 +11,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow, bail};
+use tokio_util::sync::CancellationToken;
 use tracing::debug;
 
 use crate::{
@@ -168,7 +169,10 @@ impl<'ctx> StateMachine<TurCtx<'ctx>, TurStepOut> for Wait {
 impl<'ctx> StateMachineCtx<TurCtx<'ctx>, PDUWithData<ScsiCommandResponse>>
     for TurCtx<'ctx>
 {
-    async fn execute(&mut self) -> Result<PDUWithData<ScsiCommandResponse>> {
+    async fn execute(
+        &mut self,
+        _cancel: &CancellationToken,
+    ) -> Result<PDUWithData<ScsiCommandResponse>> {
         debug!("Loop TUR");
 
         loop {

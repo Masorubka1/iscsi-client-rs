@@ -4,7 +4,9 @@
 use std::{
     any::type_name,
     fmt::{self, Debug},
+    io::IoSlice,
     sync::{Arc, Weak},
+    time::Duration,
 };
 
 use anyhow::{Result, anyhow, bail};
@@ -16,12 +18,15 @@ use tokio::{
         TcpStream,
         tcp::{OwnedReadHalf, OwnedWriteHalf},
     },
+    select,
     sync::{Mutex, mpsc},
+    time::{Instant, sleep},
 };
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
 
 use crate::{
-    cfg::config::Config,
+    cfg::{config::Config, enums::Digest},
     client::{
         common::{RawPdu, io_with_timeout},
         pdu_connection::{FromBytes, ToBytes},
@@ -56,17 +61,25 @@ pub struct ClientConnection {
     reciver: DashMap<u32, mpsc::Receiver<RawPdu>>,
 
     session_ref: OnceCell<SessionRef>,
+
+    /// Global “kill now” token: if cancelled, both read and write paths abort
+    /// immediately.
+    cancel: CancellationToken,
+    /// “Soft stop” gate for writes: when cancelled, new writes are rejected,
+    /// but the read loop keeps draining in-flight responses.
+    pub(crate) stop_writes: CancellationToken,
 }
 
 impl ClientConnection {
     /// Establishes a new TCP connection to the given address.
-    pub async fn connect(cfg: Config) -> Result<Arc<Self>> {
+    pub async fn connect(cfg: Config, cancel: CancellationToken) -> Result<Arc<Self>> {
         let stream = TcpStream::connect(&cfg.login.security.target_address).await?;
         stream.set_linger(None)?;
+        stream.nodelay()?;
 
         let (r, w) = stream.into_split();
 
-        let conn = Self::from_split_no_reader(r, w, cfg);
+        let conn = Self::from_split_no_reader(r, w, cfg, cancel);
 
         let reader = Arc::clone(&conn);
         tokio::spawn(async move {
@@ -82,10 +95,16 @@ impl ClientConnection {
         let _ = self.session_ref.set(SessionRef { pool, tsih, cid });
     }
 
+    #[inline]
+    pub fn cancel_now(&self) {
+        self.cancel.cancel();
+    }
+
     pub fn from_split_no_reader(
         r: OwnedReadHalf,
         w: OwnedWriteHalf,
         cfg: Config,
+        cancel: CancellationToken,
     ) -> Arc<Self> {
         Arc::new(Self {
             reader: Mutex::new(r),
@@ -94,27 +113,78 @@ impl ClientConnection {
             sending: DashMap::new(),
             reciver: DashMap::new(),
             session_ref: OnceCell::new(),
+            cancel,
+            stop_writes: CancellationToken::new(),
         })
+    }
+
+    /// Forbid new writes (no FIN). The reader continues to receive and deliver
+    /// all in-flight responses into per-ITT channels.
+    fn quiesce_writes(&self) {
+        self.stop_writes.cancel();
+    }
+
+    /// Wait until all in-flight requests have received their FINAL PDUs
+    /// and have been delivered to per-ITT channels. Does not tear down TCP.
+    /// Can be interrupted by the global `cancel` token.
+    async fn wait_inflight_drained(&self, max_wait: Duration) -> Result<()> {
+        let deadline = Instant::now() + max_wait;
+
+        let mut left = self.sending.iter().map(|c| *c.key()).collect::<Vec<_>>();
+        left.sort();
+        debug!("left_sending {:?}", left);
+        loop {
+            if self.sending.is_empty() {
+                return Ok(());
+            }
+            if Instant::now() >= deadline {
+                bail!("drain timeout: still {} in-flight", self.sending.len());
+            }
+            select! {
+                _ = self.cancel.cancelled() => return Err(anyhow!("cancelled")),
+                _ = sleep(Duration::from_millis(100)) => {},
+            }
+        }
+    }
+
+    /// Convenience: forbid new writes and wait for the input side to drain.
+    /// No FIN is sent; use `half_close_writes()` if you also want a write-side
+    /// FIN.
+    pub async fn graceful_quiesce(&self, max_wait: Duration) -> Result<()> {
+        self.quiesce_writes();
+        self.wait_inflight_drained(max_wait).await
+    }
+
+    /// Optionally half-close the write side (send FIN). This is irreversible.
+    /// Useful for full shutdown after draining. The reader will still consume
+    /// any remaining inbound PDUs until EOF.
+    pub async fn half_close_writes(&self) -> Result<()> {
+        let mut w = self.writer.lock().await;
+        let _ = w.shutdown().await; // ignore errors if already closed
+        Ok(())
+    }
+
+    /// Hard stop: cancel both read and write paths immediately.
+    /// Prefer `graceful_quiesce()` + `half_close_writes()` for graceful
+    /// shutdowns.
+    pub fn kill_now(&self) {
+        self.cancel.cancel();
     }
 
     /// Helper to serialize and write a PDU to the socket.
     async fn write(
         &self,
-        mut req: impl ToBytes<Header = Vec<u8>> + fmt::Debug,
+        mut req: impl ToBytes<Header = [u8; HEADER_LEN]> + fmt::Debug,
     ) -> Result<()> {
+        if self.cancel.is_cancelled() {
+            bail!("cancelled");
+        }
+
         let mut w = self.writer.lock().await;
         let (out_header, out_data) = req.to_bytes(
             self.cfg.login.negotiation.max_recv_data_segment_length as usize,
-            self.cfg
-                .login
-                .negotiation
-                .header_digest
-                .eq_ignore_ascii_case("CRC32C"),
-            self.cfg
-                .login
-                .negotiation
-                .data_digest
-                .eq_ignore_ascii_case("CRC32C"),
+            self.cfg.login.negotiation.header_digest == Digest::CRC32C,
+            self.cfg.login.negotiation.data_digest == Digest::CRC32C,
         )?;
         debug!("SEND {req:?}");
         debug!(
@@ -122,34 +192,40 @@ impl ClientConnection {
             out_header.len(),
             out_data.len()
         );
-        io_with_timeout("write header", w.write_all(&out_header)).await?;
-        if !out_data.is_empty() {
-            io_with_timeout("write data", w.write_all(&out_data)).await?;
-        }
-        Ok(())
-    }
 
-    pub async fn send_segment(
-        &self,
-        req: impl ToBytes<Header = Vec<u8>> + fmt::Debug,
-    ) -> Result<()> {
-        self.write(req).await
+        let bufs = [IoSlice::new(&out_header), IoSlice::new(&out_data)];
+        io_with_timeout(
+            "write vectored",
+            w.write_vectored(&bufs[..]),
+            self.cfg.extra_data.connections.timeout_connection,
+            &self.cancel,
+        )
+        .await?;
+
+        Ok(())
     }
 
     pub async fn send_request(
         &self,
         initiator_task_tag: u32,
-        req: impl ToBytes<Header = Vec<u8>> + Debug,
+        req: impl ToBytes<Header = [u8; HEADER_LEN]> + Debug,
     ) -> Result<()> {
-        if !self.sending.contains_key(&initiator_task_tag) {
+        if self.cancel.is_cancelled() {
+            bail!("cancelled");
+        }
+
+        let is_forget = initiator_task_tag == u32::MAX;
+        if !is_forget && !self.sending.contains_key(&initiator_task_tag) {
             let (tx, rx) = mpsc::channel::<RawPdu>(32);
             self.sending.insert(initiator_task_tag, tx);
             self.reciver.insert(initiator_task_tag, rx);
         }
 
         if let Err(e) = self.write(req).await {
-            let _ = self.sending.remove(&initiator_task_tag);
-            let _ = self.reciver.remove(&initiator_task_tag);
+            if !is_forget {
+                let _ = self.sending.remove(&initiator_task_tag);
+                let _ = self.reciver.remove(&initiator_task_tag);
+            }
             return Err(e);
         }
 
@@ -169,9 +245,10 @@ impl ClientConnection {
         let RawPdu {
             mut last_hdr_with_updated_data,
             data,
-        } = rx.recv().await.ok_or_else(|| {
-            anyhow!("Failed to read response: connection closed before answer")
-        })?;
+        } = tokio::select! {
+            _ = self.cancel.cancelled() => return Err(anyhow!("cancelled")),
+            msg = rx.recv() => msg.ok_or_else(|| anyhow!("conn closed before answer"))?,
+        };
 
         let pdu_header = Pdu::from_bhs_bytes(&mut last_hdr_with_updated_data)?;
         debug!(
@@ -198,19 +275,9 @@ impl ClientConnection {
 
         let header: &T = pdu.header_view()?;
 
-        let hd = self
-            .cfg
-            .login
-            .negotiation
-            .header_digest
-            .eq_ignore_ascii_case("CRC32C");
+        let hd = self.cfg.login.negotiation.header_digest == Digest::CRC32C;
         let hd = header.get_header_diggest(hd);
-        let dd = self
-            .cfg
-            .login
-            .negotiation
-            .data_digest
-            .eq_ignore_ascii_case("CRC32C");
+        let dd = self.cfg.login.negotiation.data_digest == Digest::CRC32C;
         let dd = header.get_data_diggest(dd);
 
         pdu.parse_with_buff(data.as_slice(), hd != 0, dd != 0)?;
@@ -221,23 +288,23 @@ impl ClientConnection {
     async fn read_loop(self: Arc<Self>) -> Result<()> {
         let mut hdr = [0u8; HEADER_LEN];
 
-        let hd = self
-            .cfg
-            .login
-            .negotiation
-            .header_digest
-            .eq_ignore_ascii_case("CRC32C");
-        let dd = self
-            .cfg
-            .login
-            .negotiation
-            .data_digest
-            .eq_ignore_ascii_case("CRC32C");
+        let hd = self.cfg.login.negotiation.header_digest == Digest::CRC32C;
+        let dd = self.cfg.login.negotiation.data_digest == Digest::CRC32C;
 
         loop {
+            if self.cancel.is_cancelled() {
+                bail!("cancelled");
+            }
+
             {
                 let mut r = self.reader.lock().await;
-                io_with_timeout("read header", r.read_exact(&mut hdr)).await?;
+                io_with_timeout(
+                    "read header",
+                    r.read_exact(&mut hdr),
+                    self.cfg.extra_data.connections.timeout_connection,
+                    &self.cancel,
+                )
+                .await?;
             }
 
             let pdu_hdr = Pdu::from_bhs_bytes(&mut hdr)?;
@@ -257,7 +324,13 @@ impl ClientConnection {
             let payload = if total > HEADER_LEN {
                 let mut data = vec![0u8; total - HEADER_LEN];
                 let mut r = self.reader.lock().await;
-                io_with_timeout("read payload", r.read_exact(&mut data)).await?;
+                io_with_timeout(
+                    "read payload",
+                    r.read_exact(&mut data),
+                    self.cfg.extra_data.connections.timeout_connection,
+                    &self.cancel,
+                )
+                .await?;
                 data
             } else {
                 vec![]
@@ -308,7 +381,6 @@ impl ClientConnection {
         Ok(())
     }
 
-    /// Сахар: keep-alive на method-0 LUN=1 (1<<48).
     pub async fn send_keepalive_via_pool(self: &Arc<Self>) -> Result<()> {
         self.send_keepalive_via_pool_lun(1u64 << 48).await
     }
@@ -320,7 +392,6 @@ impl ClientConnection {
     ) -> bool {
         let mut pdu = PDUWithData::<NopInResponse>::from_header_slice(hdr);
 
-        // --- вытащим всё нужное из header и сразу "уроним" заимствование
         let (hd, dd, ttt) = {
             let header = match pdu.header_view() {
                 Ok(h) => h,
@@ -330,33 +401,21 @@ impl ClientConnection {
                 },
             };
 
-            let hd_en = self
-                .cfg
-                .login
-                .negotiation
-                .header_digest
-                .eq_ignore_ascii_case("CRC32C");
-            let dd_en = self
-                .cfg
-                .login
-                .negotiation
-                .data_digest
-                .eq_ignore_ascii_case("CRC32C");
+            let hd_en = self.cfg.login.negotiation.header_digest == Digest::CRC32C;
+            let dd_en = self.cfg.login.negotiation.data_digest == Digest::CRC32C;
 
             let hd = header.get_header_diggest(hd_en);
             let dd = header.get_data_diggest(dd_en);
             let ttt = header.target_task_tag.get();
             (hd, dd, ttt)
-        }; // <--- header больше не заимствует pdu
+        };
 
-        // Если не удалось распарсить — это был не NOP-In или битый PDU
         if let Err(e) = pdu.parse_with_buff(payload.as_slice(), hd != 0, dd != 0) {
             debug!("NOP-In parse failed (probably other opcode): {e}");
             return false;
         }
 
         if ttt == 0xffff_ffff {
-            // Ответ не требуется (NOP-In keep-alive без запроса ответа)
             debug!("NOP-In (TTT=0xffffffff): reply not required");
             return true;
         }
@@ -370,7 +429,7 @@ impl ClientConnection {
             return false;
         };
 
-        let pdu_for_reply = pdu; // переносим владение в задачу
+        let pdu_for_reply = pdu;
         tokio::spawn(async move {
             let res = pool
                 .execute_with(sr.tsih, sr.cid, |conn, itt, cmd_sn, exp_stat_sn| {
