@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use anyhow::{Context, Result};
 use iscsi_client_rs::{
@@ -9,7 +9,6 @@ use iscsi_client_rs::{
     client::pool_sessions::Pool,
     state_machine::tur_states::TurCtx,
 };
-use tokio::time::timeout;
 
 use crate::integration_tests::common::{
     connect_cfg, get_lun, load_config, test_isid, test_path,
@@ -51,12 +50,7 @@ async fn login_and_tur() -> Result<()> {
     .await
     .context("TUR failed")?;
 
-    timeout(
-        cfg.extra_data.connections.timeout_connection,
-        pool.logout_all(),
-    )
-    .await
-    .context("logout timeout")??;
+    pool.shutdown_gracefully(Duration::from_secs(10)).await?;
 
     assert!(
         pool.sessions.get(&tsih).is_none(),

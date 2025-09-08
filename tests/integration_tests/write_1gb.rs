@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use anyhow::{Context, Result, bail};
 use iscsi_client_rs::{
@@ -15,7 +15,6 @@ use iscsi_client_rs::{
     state_machine::{read_states::ReadCtx, write_states::WriteCtx},
 };
 use serial_test::serial;
-use tokio::time::timeout;
 
 use crate::integration_tests::common::{connect_cfg, get_lun, load_config, test_path};
 
@@ -280,12 +279,7 @@ async fn write10_read10_1_gib_plain_pool_multi_tsih_mcs() -> Result<()> {
         h.await.expect("join read task")?;
     }
 
-    timeout(
-        cfg.extra_data.connections.timeout_connection,
-        pool.logout_all(),
-    )
-    .await
-    .context("logout timeout")??;
+    pool.shutdown_gracefully(Duration::from_secs(10)).await?;
 
     Ok(())
 }

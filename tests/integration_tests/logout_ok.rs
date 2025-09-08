@@ -10,7 +10,6 @@ use iscsi_client_rs::{
     models::{logout::common::LogoutReason, nop::request::NopOutRequest},
     state_machine::nop_states::NopCtx,
 };
-use tokio::time::timeout;
 
 use crate::integration_tests::common::{
     connect_cfg, get_lun, load_config, test_isid, test_path,
@@ -52,12 +51,8 @@ async fn logout_close_session() -> Result<()> {
     .await
     .context("nop failed")?;
 
-    timeout(
-        cfg.extra_data.connections.timeout_connection,
-        pool.logout(tsih, LogoutReason::CloseConnection, Some(cid)),
-    )
-    .await
-    .context("logout timeout")??;
+    pool.logout(tsih, LogoutReason::CloseConnection, Some(cid))
+        .await?;
 
     assert!(
         pool.sessions.get(&tsih).is_none(),

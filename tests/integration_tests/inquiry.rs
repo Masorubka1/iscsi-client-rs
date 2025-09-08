@@ -5,7 +5,7 @@
 //!             -> TUR (GOOD) -> INQUIRY (standard 36)
 //!             -> VPD 0x00 header (4) -> full -> optionally 0x80/0x83
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use anyhow::{Context, Result};
 use iscsi_client_rs::{
@@ -21,7 +21,6 @@ use iscsi_client_rs::{
     },
     state_machine::{read_states::ReadCtx, tur_states::TurCtx},
 };
-use tokio::time::timeout;
 
 use crate::integration_tests::common::{
     connect_cfg, get_lun, load_config, test_isid, test_path,
@@ -197,12 +196,7 @@ async fn login_tur_sense_inquiry_vpd() -> Result<()> {
         std_info.vendor_id, std_info.product_id, std_info.product_rev, pages
     );
 
-    timeout(
-        cfg.extra_data.connections.timeout_connection,
-        pool.logout_all(),
-    )
-    .await
-    .context("logout timeout")??;
+    pool.shutdown_gracefully(Duration::from_secs(10)).await?;
 
     assert!(
         pool.sessions.get(&tsih).is_none(),

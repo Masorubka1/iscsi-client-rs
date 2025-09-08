@@ -41,4 +41,4 @@ extra_data:
   connections:
     MaxConnections: 1
     MaxSessions: 1 # не RFC-ключ, внешний параметр; ок
-    TimeoutConnection: 30 # seconds
+    TimeoutConnection: 7 # seconds

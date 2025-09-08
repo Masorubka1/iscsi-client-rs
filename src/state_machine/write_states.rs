@@ -11,6 +11,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow, bail};
+use tokio_util::sync::CancellationToken;
 use tracing::debug;
 
 use crate::{
@@ -476,7 +477,7 @@ pub struct WriteOutcome {
 }
 
 impl<'ctx> StateMachineCtx<WriteCtx<'ctx>, WriteOutcome> for WriteCtx<'ctx> {
-    async fn execute(&mut self) -> Result<WriteOutcome> {
+    async fn execute(&mut self, _cancel: &CancellationToken) -> Result<WriteOutcome> {
         debug!("Loop WRITE");
 
         loop {

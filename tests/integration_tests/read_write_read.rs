@@ -11,7 +11,7 @@ use iscsi_client_rs::{
     state_machine::{read_states::ReadCtx, write_states::WriteCtx},
 };
 use serial_test::serial;
-use tokio::time::{sleep, timeout};
+use tokio::time::sleep;
 
 use crate::integration_tests::common::{
     connect_cfg, get_lun, load_config, test_isid, test_path,
@@ -127,12 +127,7 @@ async fn read10_write10_read10_plain_pool() -> Result<()> {
 
     assert_eq!(rd2.data, payload, "read data differs from what was written");
 
-    timeout(
-        cfg.extra_data.connections.timeout_connection,
-        pool.logout_all(),
-    )
-    .await
-    .context("logout timeout")??;
+    pool.shutdown_gracefully(Duration::from_secs(10)).await?;
 
     assert!(
         pool.sessions.get(&tsih).is_none(),

@@ -11,6 +11,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow, bail};
+use tokio_util::sync::CancellationToken;
 use tracing::debug;
 
 use crate::{
@@ -225,7 +226,10 @@ impl<'ctx> StateMachine<NopCtx<'ctx>, NopStepOut> for Reply {
 }
 
 impl<'s> StateMachineCtx<NopCtx<'s>, PDUWithData<NopInResponse>> for NopCtx<'s> {
-    async fn execute(&mut self) -> Result<PDUWithData<NopInResponse>> {
+    async fn execute(
+        &mut self,
+        _cancel: &CancellationToken,
+    ) -> Result<PDUWithData<NopInResponse>> {
         debug!("Loop Nop");
         loop {
             let state = self.state.take().context("state must be set NopCtx")?;

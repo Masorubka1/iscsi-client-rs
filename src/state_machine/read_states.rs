@@ -12,6 +12,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow};
+use tokio_util::sync::CancellationToken;
 use tracing::debug;
 
 use crate::{
@@ -352,7 +353,7 @@ pub struct ReadOutcome {
 }
 
 impl<'ctx> StateMachineCtx<ReadCtx<'ctx>, ReadOutcome> for ReadCtx<'ctx> {
-    async fn execute(&mut self) -> Result<ReadOutcome> {
+    async fn execute(&mut self, _cancel: &CancellationToken) -> Result<ReadOutcome> {
         debug!("Loop Read");
 
         loop {

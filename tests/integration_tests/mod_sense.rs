@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use anyhow::{Context, Result};
 use iscsi_client_rs::{
@@ -10,7 +10,6 @@ use iscsi_client_rs::{
     control_block::mod_sense::{fill_mode_sense6_simple, fill_mode_sense10_simple},
     state_machine::{read_states::ReadCtx, tur_states::TurCtx},
 };
-use tokio::time::timeout;
 
 use crate::integration_tests::common::{
     connect_cfg, get_lun, load_config, test_isid, test_path,
@@ -78,12 +77,7 @@ async fn login_tur_mode_sense_pool() -> Result<()> {
     assert_eq!(ms6.data.len(), 4, "MODE SENSE(6) must return 4 bytes");
 
     // --- CloseSession + ensure session is gone ---
-    timeout(
-        cfg.extra_data.connections.timeout_connection,
-        pool.logout_all(),
-    )
-    .await
-    .context("logout timeout")??;
+    pool.shutdown_gracefully(Duration::from_secs(10)).await?;
 
     assert!(
         pool.sessions.get(&tsih).is_none(),

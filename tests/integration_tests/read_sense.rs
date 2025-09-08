@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use anyhow::{Context, Result};
 use iscsi_client_rs::{
@@ -10,7 +10,6 @@ use iscsi_client_rs::{
     control_block::request_sense::fill_request_sense_simple,
     state_machine::{read_states::ReadCtx, tur_states::TurCtx},
 };
-use tokio::time::timeout;
 
 use crate::integration_tests::common::{
     connect_cfg, get_lun, load_config, test_isid, test_path,
@@ -102,12 +101,7 @@ async fn login_ua_request_sense_then_clear_with_tur_pool() -> Result<()> {
     assert_eq!(inq.data.len(), 36, "INQUIRY should return 36 bytes now");
 
     // --- CloseSession + ensure session is gone ---
-    timeout(
-        cfg.extra_data.connections.timeout_connection,
-        pool.logout_all(),
-    )
-    .await
-    .context("logout timeout")??;
+    pool.shutdown_gracefully(Duration::from_secs(10)).await?;
 
     assert!(
         pool.sessions.get(&tsih).is_none(),

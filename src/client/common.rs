@@ -5,21 +5,28 @@ use std::time::Duration;
 
 use anyhow::{Result, anyhow};
 use tokio::time::timeout;
+use tokio_util::sync::CancellationToken;
 
 use crate::models::common::HEADER_LEN;
 
-pub async fn io_with_timeout<F, T>(
+pub(super) async fn io_with_timeout<F, T>(
     label: &'static str,
     fut: F,
     io_timeout: Duration,
+    cancel: &CancellationToken,
 ) -> Result<T>
 where
     F: Future<Output = std::io::Result<T>>,
 {
-    match timeout(io_timeout, fut).await {
-        Ok(Ok(v)) => Ok(v),
-        Ok(Err(e)) => Err(e.into()),
-        Err(_) => Err(anyhow!("{label} timeout")),
+    tokio::select! {
+        _ = cancel.cancelled() => Err(anyhow!("{label} cancelled")),
+        res = timeout(io_timeout, fut) => {
+            match res {
+                Ok(Ok(v)) => Ok(v),
+                Ok(Err(e)) => Err(e.into()),
+                Err(_) => Err(anyhow!("{label} timeout")),
+            }
+        }
     }
 }
 

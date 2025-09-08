@@ -60,12 +60,7 @@ async fn logout_close_session() -> Result<()> {
 
     sleep(Duration::from_secs(1)).await;
 
-    timeout(
-        cfg.extra_data.connections.timeout_connection,
-        pool.logout_all(),
-    )
-    .await
-    .context("logout timeout")??;
+    pool.shutdown_gracefully(Duration::from_secs(10)).await?;
 
     assert!(
         pool.sessions.get(&tsih).is_none(),

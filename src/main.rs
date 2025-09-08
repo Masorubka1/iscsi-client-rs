@@ -18,7 +18,8 @@ use iscsi_client_rs::{
     models::nop::request::NopOutRequest,
     state_machine::{nop_states::NopCtx, read_states::ReadCtx, write_states::WriteCtx},
 };
-use tokio::time::{sleep, timeout};
+use tokio::time::sleep;
+use tokio_util::sync::CancellationToken;
 use tracing::info;
 
 fn fill_pattern(buf: &mut [u8], blk_sz: usize, lba_start: u64) {
@@ -54,7 +55,7 @@ async fn main() -> Result<()> {
 
     // Load config
     let cfg: Arc<Config> = Arc::new(
-        resolve_config_path("docker/lio/config.lio.yaml")
+        resolve_config_path("tests/config.yaml")
             .and_then(Config::load_from_file)
             .context("failed to resolve or load config")?,
     );
@@ -78,7 +79,9 @@ async fn main() -> Result<()> {
     if max_conns > 1 {
         for &tsih in &tsihs {
             for cid in 1..max_conns {
-                let conn = ClientConnection::connect((*cfg).clone()).await?;
+                let conn =
+                    ClientConnection::connect((*cfg).clone(), CancellationToken::new())
+                        .await?;
                 pool.add_connection_to_session(tsih, cid, conn)
                     .await
                     .with_context(|| {
@@ -103,18 +106,23 @@ async fn main() -> Result<()> {
 
     // Do one small warm-up NOP on each session (optional)
     for &(tsih, cid) in &workers {
-        timeout(
-            Duration::from_secs(5),
-            pool.execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
-                NopCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, NopOutRequest::DEFAULT_TAG)
-            }),
-        )
+        pool.execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
+            NopCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, NopOutRequest::DEFAULT_TAG)
+        })
         .await
         .ok();
     }
 
     // Read capacity(10/16) using the first worker
     let (tsih0, cid0) = workers[0];
+
+    let _ = pool
+        .execute_with(tsih0, cid0, |c, itt, cmd_sn, exp_stat_sn| {
+            let mut cdb = [0u8; 16];
+            build_read_capacity10(&mut cdb, 0, false, 0);
+            ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, 8, cdb)
+        })
+        .await;
 
     let rc10 = pool
         .execute_with(tsih0, cid0, |c, itt, cmd_sn, exp_stat_sn| {
@@ -324,7 +332,7 @@ async fn main() -> Result<()> {
     info!("READ verify done.");
 
     // ---- Clean logout ----
-    timeout(Duration::from_secs(30), pool.logout_all()).await??;
+    pool.shutdown_gracefully(Duration::from_secs(10)).await?;
     info!("All sessions logged out.");
 
     Ok(())
