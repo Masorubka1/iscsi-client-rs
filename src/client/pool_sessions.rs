@@ -343,12 +343,7 @@ impl Pool {
 
         debug!("notify state machines to stop writing ti socket");
         for c in &all_connections {
-            c.conn.quiesce_writes();
-        }
-
-        debug!("Wait till all state machines read last pdu");
-        for c in &all_connections {
-            if let Err(e) = c.conn.wait_inflight_drained(max_wait_per_conn).await {
+            if let Err(e) = c.conn.graceful_quiesce(max_wait_per_conn).await {
                 warn!("drain failed on TSIH={}?, CID={}: {}", c.cid, c.cid, e);
             }
         }
@@ -426,7 +421,7 @@ impl Drop for Pool {
         // the runtime may already be shutting down and spawned tasks might never run.
         for sess in self.sessions.iter() {
             for c in sess.conns.iter() {
-                c.value().conn.quiesce_writes();
+                c.value().conn.stop_writes.cancel();
             }
         }
         // Abort remaining I/O at the nearest await.

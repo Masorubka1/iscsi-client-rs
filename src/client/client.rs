@@ -120,14 +120,14 @@ impl ClientConnection {
 
     /// Forbid new writes (no FIN). The reader continues to receive and deliver
     /// all in-flight responses into per-ITT channels.
-    pub fn quiesce_writes(&self) {
+    fn quiesce_writes(&self) {
         self.stop_writes.cancel();
     }
 
     /// Wait until all in-flight requests have received their FINAL PDUs
     /// and have been delivered to per-ITT channels. Does not tear down TCP.
     /// Can be interrupted by the global `cancel` token.
-    pub async fn wait_inflight_drained(&self, max_wait: Duration) -> Result<()> {
+    async fn wait_inflight_drained(&self, max_wait: Duration) -> Result<()> {
         let deadline = Instant::now() + max_wait;
 
         let mut left = self.sending.iter().map(|c| *c.key()).collect::<Vec<_>>();
