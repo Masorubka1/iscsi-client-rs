@@ -12,6 +12,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow};
+use bytes::Bytes;
 use tokio_util::sync::CancellationToken;
 use tracing::debug;
 
@@ -97,7 +98,7 @@ impl<'a> ReadCtx<'a> {
     }
 
     pub async fn recv_any(&self, itt: u32) -> anyhow::Result<ReadPdu> {
-        let (p_any, data): (PDUWithData<Pdu>, Vec<u8>) =
+        let (p_any, data): (PDUWithData<Pdu>, Bytes) =
             self.conn.read_response_raw(itt).await?;
         let op = BhsOpcode::try_from(p_any.header_buf[0])?.opcode;
 
@@ -113,7 +114,7 @@ impl<'a> ReadCtx<'a> {
                 let hd = header.get_header_diggest(hd);
                 let dd = header.get_data_diggest(dd);
 
-                pdu.parse_with_buff(data.as_slice(), hd != 0, dd != 0)?;
+                pdu.parse_with_buff(&data, hd != 0, dd != 0)?;
                 pdu
             })),
             Opcode::ScsiCommandResp => Ok(ReadPdu::CmdResp({
@@ -124,7 +125,7 @@ impl<'a> ReadCtx<'a> {
                 let hd = header.get_header_diggest(hd);
                 let dd = header.get_data_diggest(dd);
 
-                pdu.parse_with_buff(data.as_slice(), hd != 0, dd != 0)?;
+                pdu.parse_with_buff(&data, hd != 0, dd != 0)?;
                 pdu
             })),
             other => anyhow::bail!("unexpected PDU opcode for read path: {other:?}"),

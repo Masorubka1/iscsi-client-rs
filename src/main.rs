@@ -23,7 +23,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::info;
 
 fn fill_pattern(buf: &mut [u8], blk_sz: usize, lba_start: u64) {
-    assert!(blk_sz > 0 && buf.len() % blk_sz == 0);
+    assert!(blk_sz > 0 && buf.len().is_multiple_of(blk_sz));
     for (i, chunk) in buf.chunks_exact(blk_sz).enumerate() {
         let v = (((lba_start as usize) + i) as u8) ^ 0xA5;
         unsafe { std::ptr::write_bytes(chunk.as_ptr() as *mut u8, v, blk_sz) }
