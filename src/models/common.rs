@@ -183,7 +183,7 @@ pub trait Builder: Sized {
 
     /// Append raw bytes to the **Data-Segment** and update the
     /// `DataSegmentLength` field inside the owned header.
-    fn append_data(&mut self, more: Vec<u8>);
+    fn append_data(&mut self, more: &[u8]);
 
     /// Finish the builder and produce one or more ready-to-send
     /// `(header_bytes, data_bytes)` frames.

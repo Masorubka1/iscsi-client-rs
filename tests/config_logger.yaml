@@ -1,5 +1,5 @@
 logger:
-  level: "debug" # Уровень логирования: trace, debug, info, warn, error
+  level: "info" # Уровень логирования: trace, debug, info, warn, error
   output: "stdout" # Куда выводить логи: stdout, stderr, file
   is_show_line: false # Показывать ли номер строки в логах: true, false
   is_show_module_path: false # Показывать ли путь до файла: true, false

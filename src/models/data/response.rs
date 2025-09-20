@@ -51,6 +51,20 @@ impl ScsiDataIn {
         }
     }
 
+    #[inline]
+    pub fn residual_valid(&self) -> bool {
+        self.flags.u() || self.flags.o()
+    }
+
+    #[inline]
+    pub fn residual_effective(&self) -> u32 {
+        if self.residual_valid() {
+            self.residual_count.get()
+        } else {
+            0
+        }
+    }
+
     /// Sets/clears SCSI status and enforces `S ⇒ F`.
     #[inline]
     pub fn set_scsi_status(&mut self, st: Option<ScsiStatus>) {

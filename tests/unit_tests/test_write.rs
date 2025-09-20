@@ -58,8 +58,9 @@ fn test_write_pdu_build() -> Result<()> {
     let mut header_buf = [0u8; HEADER_LEN];
     header_builder.header.to_bhs_bytes(&mut header_buf)?;
 
-    let mut builder = PDUWithData::<ScsiCommandRequest>::from_header_slice(header_buf);
-    builder.append_data(write_buf);
+    let mut builder =
+        PDUWithData::<ScsiCommandRequest>::from_header_slice(header_buf, &cfg);
+    builder.append_data(write_buf.as_slice());
 
     let hd = cfg.login.negotiation.header_digest == Digest::CRC32C;
     let dd = cfg.login.negotiation.data_digest == Digest::CRC32C;
@@ -96,10 +97,10 @@ fn test_write_response_parse() -> Result<()> {
     let mut hdr_buf = [0u8; HEADER_LEN];
     hdr_buf.copy_from_slice(&bytes[..HEADER_LEN]);
 
-    let mut pdu = PDUWithData::<ScsiCommandResponse>::from_header_slice(hdr_buf);
+    let mut pdu = PDUWithData::<ScsiCommandResponse>::from_header_slice(hdr_buf, &cfg);
     pdu.parse_with_buff(&bytes[HEADER_LEN..], hd, dd)?;
 
-    assert!(pdu.data.is_empty());
+    assert!(pdu.data()?.is_empty());
     assert!(pdu.header_digest.is_none());
     assert!(pdu.data_digest.is_none());
 

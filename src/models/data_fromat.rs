@@ -10,6 +10,7 @@ use zerocopy::{
 };
 
 use crate::{
+    cfg::{config::Config, enums::Digest},
     client::pdu_connection::FromBytes,
     models::{
         common::{BasicHeaderSegment, Builder, HEADER_LEN, SendingData},
@@ -59,9 +60,11 @@ fn compute_data_digest(data: &[u8]) -> u32 {
 #[derive(PartialEq)]
 pub struct PDUWithData<T> {
     pub header_buf: [u8; HEADER_LEN],
-    pub aditional_heder: Vec<u8>,
+    payload: Vec<u8>,
+
+    enable_header_digest: bool,
+    enable_data_digest: bool,
     pub header_digest: Option<U32<BigEndian>>,
-    pub data: Vec<u8>,
     pub data_digest: Option<U32<BigEndian>>,
 
     _marker: PhantomData<T>,
@@ -74,9 +77,9 @@ where
     type Header = [u8; HEADER_LEN];
 
     /// Appends raw bytes to the Data Segment and updates its length field.
-    fn append_data(&mut self, more: Vec<u8>) {
-        self.data.extend_from_slice(&more);
-        let len = self.data.len() as u32;
+    fn append_data(&mut self, more: &[u8]) {
+        self.payload.extend_from_slice(more);
+        let len = self.payload.len() as u32;
         self.header_view_mut()
             .expect("WFT unitialized pdu headers")
             .set_data_length_bytes(len);
@@ -89,19 +92,17 @@ where
         enable_header_digest: bool,
         enable_data_digest: bool,
     ) -> Result<(Self::Header, Vec<u8>)> {
-        if max_recv_data_segment_length < self.data.len() {
+        if max_recv_data_segment_length < self.payload.len() {
             bail!(
                 "MaxRecvDataSegmentLength is less than data len: {}",
-                self.data.len()
+                self.payload.len()
             );
         }
 
-        let data_len = self.data.len() as u32;
-
-        let opcode = {
+        let (opcode, size_hd, size_dd, ahs_len, data_len) = {
+            let hd_en = self.enable_header_digest;
+            let dd_en = self.enable_data_digest;
             let header = self.header_view_mut().expect("building without header_buf");
-
-            header.set_data_length_bytes(data_len);
 
             let opcode = header.get_opcode()?.opcode;
 
@@ -109,48 +110,47 @@ where
                 header.set_final_bit();
             }
 
-            opcode
+            (
+                opcode,
+                header.get_header_diggest(hd_en),
+                header.get_data_diggest(dd_en),
+                header.get_ahs_length_bytes(),
+                header.get_data_length_bytes(),
+            )
         };
 
-        let padding_ahs = (4 - (self.aditional_heder.len() % 4)) % 4;
-        let padding_chunk = (4 - (self.data.len() % 4)) % 4;
+        let padding_ahs = (4 - (ahs_len % 4)) % 4;
+        let padding_chunk = (4 - (data_len % 4)) % 4;
         let mut body = Vec::with_capacity(
-            self.aditional_heder.len()
-                + padding_ahs
-                + (self.header_digest.is_some() as usize) * 4
-                + self.data.len()
-                + padding_chunk
-                + (self.data_digest.is_some() as usize) * 4,
+            ahs_len + padding_ahs + size_hd + data_len + padding_chunk + size_dd,
         );
 
         self.header_digest = if enable_header_digest && opcode != Opcode::LoginReq {
             Some(U32::<BigEndian>::new(compute_header_digest(
                 &self.header_buf,
-                &self.aditional_heder,
+                self.additional_header()?,
             )))
         } else {
             None
         };
 
         self.data_digest = if enable_data_digest
-            && !self.data.is_empty()
+            && !self.payload.is_empty()
             && opcode != Opcode::LoginReq
         {
-            Some(U32::<BigEndian>::new(compute_data_digest(&self.data)))
+            Some(U32::<BigEndian>::new(compute_data_digest(self.data()?)))
         } else {
             None
         };
 
-        if !self.aditional_heder.is_empty() {
-            body.extend_from_slice(&self.aditional_heder);
-            body.extend(std::iter::repeat_n(0u8, padding_ahs));
-        }
+        body.extend_from_slice(self.additional_header()?);
+        body.extend(std::iter::repeat_n(0u8, padding_ahs));
 
         if let Some(hd) = self.header_digest {
             body.extend_from_slice(&hd.to_bytes());
         }
 
-        body.extend_from_slice(&self.data[..]);
+        body.extend_from_slice(self.data()?);
         body.extend(std::iter::repeat_n(0u8, padding_chunk));
 
         if let Some(dd) = self.data_digest {
@@ -162,12 +162,13 @@ where
 }
 
 impl<T> PDUWithData<T> {
-    pub fn from_header_slice(header_buf: [u8; HEADER_LEN]) -> Self {
+    pub fn from_header_slice(header_buf: [u8; HEADER_LEN], cfg: &Config) -> Self {
         Self {
             header_buf,
-            aditional_heder: Vec::new(),
+            payload: Vec::new(),
+            enable_header_digest: cfg.login.negotiation.header_digest == Digest::CRC32C,
             header_digest: None,
-            data: Vec::new(),
+            enable_data_digest: cfg.login.negotiation.data_digest == Digest::CRC32C,
             data_digest: None,
             _marker: PhantomData,
         }
@@ -179,9 +180,10 @@ impl<T> PDUWithData<T> {
     {
         Ok(PDUWithData::<U> {
             header_buf: self.header_buf,
-            aditional_heder: self.aditional_heder,
+            payload: self.payload,
+            enable_header_digest: self.enable_header_digest,
             header_digest: self.header_digest,
-            data: self.data,
+            enable_data_digest: self.enable_data_digest,
             data_digest: self.data_digest,
             _marker: core::marker::PhantomData,
         })
@@ -206,6 +208,28 @@ where
             .map_err(|e| anyhow!("{}", e.to_string()))
     }
 
+    pub fn additional_header(&self) -> Result<&[u8]> {
+        let ahs_size = {
+            let header = self.header_view()?;
+            header.get_ahs_length_bytes()
+        };
+        Ok(&self.payload[0..ahs_size])
+    }
+
+    pub fn data(&self) -> Result<&[u8]> {
+        let (ahs_size, hd, data_size) = {
+            let hd_en = self.enable_header_digest;
+            let header = self.header_view()?;
+            (
+                header.get_ahs_length_bytes(),
+                header.get_header_diggest(hd_en),
+                header.get_data_length_bytes(),
+            )
+        };
+        let total = ahs_size + pad_len(ahs_size) + hd;
+        Ok(&self.payload[total..total + data_size])
+    }
+
     /// Parse PDU: BHS(=48) + AHS + pad(AHS) + [HeaderDigest?] + Data +
     /// pad(Data) + [DataDigest?]
     pub fn parse_with_buff(
@@ -216,17 +240,23 @@ where
     ) -> Result<()> {
         let tn = type_name::<T>();
 
-        let header = self.header_view().context("parsing without header_buf")?;
+        let (ahs_len, hd_len, data_len, dd_len) = {
+            let header = self.header_view().context("parsing without header_buf")?;
+            (
+                header.get_ahs_length_bytes(),
+                header.get_header_diggest(enable_header_digest),
+                header.get_data_length_bytes(),
+                header.get_data_diggest(enable_data_digest),
+            )
+        };
 
-        let ahs_len = header.get_ahs_length_bytes();
-        let data_len = header.get_data_length_bytes();
         let ahs_pad = (4 - (ahs_len % 4)) % 4;
         let data_pad = (4 - (data_len % 4)) % 4;
 
         let mut off = 0;
 
         // --- AHS ---
-        self.aditional_heder = if ahs_len > 0 {
+        if ahs_len > 0 {
             if buf.len() < off + ahs_len {
                 bail!(
                     "{tn}: buffer {} too small for AHS end {}",
@@ -245,22 +275,20 @@ where
                 );
             }
             off += ahs_pad;
-            v
-        } else {
-            Vec::new()
-        };
+            self.payload.extend(v);
+        }
 
         // --- HeaderDigest? ---
         self.header_digest = if enable_header_digest {
-            if buf.len() < off + 4 {
+            if buf.len() < off + hd_len {
                 bail!("{tn}: no room for HeaderDigest");
             }
             let hd = u32::from_be_bytes(
-                buf[off..off + 4]
+                buf[off..off + hd_len]
                     .try_into()
                     .context("expected header_digest, but failed to build")?,
             );
-            off += 4;
+            off += hd_len;
             Some(U32::<BigEndian>::new(hd))
         } else {
             None
@@ -274,7 +302,7 @@ where
                 off + data_len
             );
         }
-        self.data = buf[off..off + data_len].to_vec();
+        self.payload.extend_from_slice(&buf[off..off + data_len]);
         off += data_len;
 
         if buf.len() < off + data_pad {
@@ -288,11 +316,11 @@ where
 
         // --- DataDigest? ---
         self.data_digest = if enable_data_digest {
-            if buf.len() < off + 4 {
+            if buf.len() < off + dd_len {
                 bail!("{tn}: no room for DataDigest");
             }
             let dd = u32::from_be_bytes(
-                buf[off..off + 4]
+                buf[off..off + dd_len]
                     .try_into()
                     .context("expected data_digest, but failed to build")?,
             );
@@ -303,7 +331,7 @@ where
         };
 
         if enable_header_digest {
-            let want = compute_header_digest(&self.header_buf, &self.aditional_heder);
+            let want = compute_header_digest(&self.header_buf, self.additional_header()?);
             if self.header_digest.map(|hd| hd.get()) != Some(want) {
                 bail!(
                     "{tn}: HeaderDigest mismatch: got={:?}, want={:#010x}",
@@ -312,9 +340,10 @@ where
                 );
             }
         }
-        if enable_data_digest && !self.data.is_empty() {
-            let want = compute_data_digest(&self.data);
-            if self.data_digest.map(|dd| dd.get()) != Some(want) {
+        if enable_data_digest {
+            let data = self.data()?;
+            let want = compute_data_digest(self.data()?);
+            if !data.is_empty() && self.data_digest.map(|dd| dd.get()) != Some(want) {
                 bail!(
                     "{tn}: DataDigest mismatch: got={:?}, want={:#010x}",
                     self.data_digest,
@@ -363,7 +392,9 @@ where
 
         ds.field("header", header);
 
-        ds.field("data_len", &self.data.len());
+        let data = &self.data().expect("invlid pdu");
+
+        ds.field("data_len", &data.len());
 
         match self.header_digest {
             Some(hd) => ds.field("header_digest", &format_args!("{hd:#010x}")),
@@ -377,18 +408,18 @@ where
 
         if header.get_opcode().expect("unable to get opcode").opcode
             == Opcode::ScsiCommandResp
-            && !self.data.is_empty()
+            && !data.is_empty()
         {
-            match SenseData::parse(&self.data) {
+            match SenseData::parse(data) {
                 Ok(sense) => {
                     ds.field("sense", &sense);
                 },
                 Err(_e) => {
-                    ds.field("data_preview", &HexPreview(&self.data));
+                    ds.field("data_preview", &HexPreview(data));
                 },
             }
-        } else if !self.data.is_empty() {
-            ds.field("data_preview", &HexPreview(&self.data));
+        } else if !data.is_empty() {
+            ds.field("data_preview", &HexPreview(data));
         } else {
             ds.field("data", &r"[]");
         }

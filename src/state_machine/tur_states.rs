@@ -84,7 +84,7 @@ impl<'a> TurCtx<'a> {
 
         header.header.to_bhs_bytes(&mut self.buf)?;
         let pdu: PDUWithData<ScsiCommandRequest> =
-            PDUWithData::from_header_slice(self.buf);
+            PDUWithData::from_header_slice(self.buf, &self.conn.cfg);
 
         self.conn.send_request(self.itt, pdu).await?;
         Ok(())
@@ -105,12 +105,13 @@ impl<'a> TurCtx<'a> {
 
         let scsi_status = hv.status.decode()?;
         if scsi_status != ScsiStatus::Good {
-            if !lr.data.is_empty() {
+            let data = lr.data()?;
+            if !data.is_empty() {
                 bail!(
                     "TEST UNIT READY failed: status={:?}, sense ({} bytes)={:02X?}",
                     scsi_status,
-                    lr.data.len(),
-                    lr.data
+                    data.len(),
+                    data
                 );
             }
             bail!("TEST UNIT READY failed: status={:?}", scsi_status);

@@ -41,9 +41,10 @@ pub async fn send_text(
     let mut buf = [0u8; HEADER_LEN];
     header.header.to_bhs_bytes(&mut buf)?;
 
-    let mut builder: PDUWithData<TextRequest> = PDUWithData::from_header_slice(buf);
+    let mut builder: PDUWithData<TextRequest> =
+        PDUWithData::from_header_slice(buf, &conn.cfg);
 
-    builder.append_data(b"X-Ping=1\0".to_vec());
+    builder.append_data(b"X-Ping=1\0".as_slice());
 
     /*info!(
         "TextRequest hdr={:?} data={}",

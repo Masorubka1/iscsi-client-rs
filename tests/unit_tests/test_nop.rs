@@ -1,10 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
-use std::fs;
 
 use anyhow::Result;
-use hex::FromHex;
 use iscsi_client_rs::{
     cfg::{cli::resolve_config_path, config::Config, enums::Digest},
     models::{
@@ -19,28 +17,7 @@ use iscsi_client_rs::{
 };
 use zerocopy::FromBytes;
 
-// Helper to load a hex fixture and decode it to a byte vector.
-fn load_fixture(path: &str) -> Result<Vec<u8>> {
-    let s = fs::read_to_string(path)?;
-    let cleaned = s.trim().replace(|c: char| c.is_whitespace(), "");
-    Ok(Vec::from_hex(&cleaned)?)
-}
-
-fn parse_nop_out(bytes: &[u8]) -> Result<PDUWithData<NopOutRequest>> {
-    let mut header_buf = [0u8; HEADER_LEN];
-    header_buf.copy_from_slice(&bytes[..HEADER_LEN]);
-    let mut pdu = PDUWithData::<NopOutRequest>::from_header_slice(header_buf);
-    pdu.parse_with_buff(&bytes[HEADER_LEN..], false, false)?;
-    Ok(pdu)
-}
-
-fn parse_nop_in(bytes: &[u8]) -> Result<PDUWithData<NopInResponse>> {
-    let mut header_buf = [0u8; HEADER_LEN];
-    header_buf.copy_from_slice(&bytes[..HEADER_LEN]);
-    let mut pdu = PDUWithData::<NopInResponse>::from_header_slice(header_buf);
-    pdu.parse_with_buff(&bytes[HEADER_LEN..], false, false)?;
-    Ok(pdu)
-}
+use crate::unit_tests::{load_fixture, parse};
 
 #[test]
 fn test_nop_out_minimal() -> Result<()> {
@@ -50,8 +27,8 @@ fn test_nop_out_minimal() -> Result<()> {
     let bytes = load_fixture("tests/unit_tests/fixtures/nop/nop_out_request.hex")?;
     assert!(bytes.len() >= HEADER_LEN);
 
-    let parsed = parse_nop_out(&bytes)?;
-    assert!(parsed.data.is_empty());
+    let parsed: PDUWithData<NopOutRequest> = parse(&bytes, &cfg)?;
+    assert!(parsed.data()?.is_empty());
     assert!(parsed.header_digest.is_none());
     assert!(parsed.data_digest.is_none());
 
@@ -71,7 +48,7 @@ fn test_nop_out_minimal() -> Result<()> {
     let mut header_buf = [0u8; HEADER_LEN];
     header_builder.header.to_bhs_bytes(&mut header_buf)?;
 
-    let mut builder = PDUWithData::<NopOutRequest>::from_header_slice(header_buf);
+    let mut builder = PDUWithData::<NopOutRequest>::from_header_slice(header_buf, &cfg);
 
     let (hdr_bytes, body) = &builder.build(
         cfg.login.negotiation.max_recv_data_segment_length as usize,
@@ -90,11 +67,14 @@ fn test_nop_out_minimal() -> Result<()> {
 
 #[test]
 fn test_nop_in_parse() -> Result<()> {
+    let cfg =
+        resolve_config_path("tests/config.yaml").and_then(Config::load_from_file)?;
+
     let bytes = load_fixture("tests/unit_tests/fixtures/nop/nop_in_response.hex")?;
     assert!(bytes.len() >= HEADER_LEN);
 
-    let parsed = parse_nop_in(&bytes)?;
-    assert!(parsed.data.is_empty());
+    let parsed: PDUWithData<NopInResponse> = parse(&bytes, &cfg)?;
+    assert!(parsed.data()?.is_empty());
     assert!(parsed.header_digest.is_none());
     assert!(parsed.data_digest.is_none());
 

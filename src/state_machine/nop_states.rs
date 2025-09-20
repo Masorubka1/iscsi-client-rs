@@ -120,7 +120,7 @@ impl<'a> NopCtx<'a> {
         header.header.to_bhs_bytes(self.buf.as_mut_slice())?;
 
         let builder: PDUWithData<NopOutRequest> =
-            PDUWithData::from_header_slice(self.buf);
+            PDUWithData::from_header_slice(self.buf, &self.conn.cfg);
         self.conn.send_request(self.itt, builder).await?;
         Ok(())
     }
@@ -213,7 +213,8 @@ impl<'ctx> StateMachine<NopCtx<'ctx>, NopStepOut> for Reply {
             if let Err(e) = hdr.to_bhs_bytes(ctx.buf.as_mut_slice()) {
                 return Transition::Done(Err(e));
             }
-            let pdu: PDUWithData<NopOutRequest> = PDUWithData::from_header_slice(ctx.buf);
+            let pdu: PDUWithData<NopOutRequest> =
+                PDUWithData::from_header_slice(ctx.buf, &ctx.conn.cfg);
 
             // Response — fire-and-forget
             if let Err(e) = ctx.conn.send_request(u32::MAX, pdu).await {

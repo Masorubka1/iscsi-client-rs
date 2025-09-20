@@ -57,7 +57,8 @@ fn test_read_pdu_build() -> Result<()> {
     let mut header_buf = [0u8; HEADER_LEN];
     header_builder.header.to_bhs_bytes(&mut header_buf)?;
 
-    let mut builder = PDUWithData::<ScsiCommandRequest>::from_header_slice(header_buf);
+    let mut builder =
+        PDUWithData::<ScsiCommandRequest>::from_header_slice(header_buf, &cfg);
 
     let (hdr_bytes, body_bytes) = &builder.build(
         cfg.login.negotiation.max_recv_data_segment_length as usize,
@@ -76,6 +77,10 @@ fn test_read_pdu_build() -> Result<()> {
 
 #[test]
 fn test_read_response_good() -> Result<()> {
+    let cfg = resolve_config_path("tests/config.yaml")
+        .and_then(Config::load_from_file)
+        .context("failed to resolve or load config")?;
+
     let raw =
         load_fixture("tests/unit_tests/fixtures/scsi_commands/read10_response_good.hex")
             .context("failed to load read_response_good fixture")?;
@@ -91,7 +96,7 @@ fn test_read_response_good() -> Result<()> {
     let mut hdr_buf = [0u8; HEADER_LEN];
     hdr_buf.copy_from_slice(hdr_bytes);
 
-    let mut pdu = PDUWithData::<ScsiDataIn>::from_header_slice(hdr_buf);
+    let mut pdu = PDUWithData::<ScsiDataIn>::from_header_slice(hdr_buf, &cfg);
     pdu.parse_with_buff(body_bytes, false, false)
         .context("failed to parse ScsiDataIn PDU body")?;
 
@@ -111,13 +116,13 @@ fn test_read_response_good() -> Result<()> {
     assert!(!header.flags.u(), "U bit must be 0");
 
     assert_eq!(
-        pdu.data.len(),
+        pdu.data()?.len(),
         header.get_data_length_bytes(),
         "payload length mismatch: data.len() vs DataSegmentLength"
     );
 
     let payload = vec![0x00; header.get_data_length_bytes()];
-    assert_eq!(&pdu.data, &payload);
+    assert_eq!(&pdu.data()?, &payload);
 
     Ok(())
 }

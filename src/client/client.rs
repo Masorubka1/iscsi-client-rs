@@ -262,7 +262,7 @@ impl ClientConnection {
             let _ = self.reciver.insert(initiator_task_tag, rx);
         }
 
-        let pdu = PDUWithData::<T>::from_header_slice(hdr_arr);
+        let pdu = PDUWithData::<T>::from_header_slice(hdr_arr, &self.cfg);
 
         Ok((pdu, payload))
     }
@@ -300,27 +300,24 @@ impl ClientConnection {
                 bail!("cancelled");
             }
 
-            if scratch.capacity() - scratch.len() < HEADER_LEN {
-                scratch.reserve(HEADER_LEN - (scratch.capacity() - scratch.len()));
-            }
+            scratch.clear();
 
-            let start = scratch.len();
-            unsafe {
-                scratch.set_len(start + HEADER_LEN);
-            }
+            scratch.resize(HEADER_LEN, 0);
             {
                 let mut r = self.reader.lock().await;
                 io_with_timeout(
                     "read header",
-                    r.read_exact(&mut scratch[start..start + HEADER_LEN]),
+                    r.read_exact(&mut scratch[..HEADER_LEN]),
                     self.cfg.extra_data.connections.timeout_connection,
                     &self.cancel,
                 )
                 .await?;
             }
 
-            let hdr = &mut scratch[start..start + HEADER_LEN];
-            let pdu_hdr = Pdu::from_bhs_bytes(hdr)?;
+            let pdu_hdr = {
+                let hdr_slice: &mut [u8] = &mut scratch[..HEADER_LEN];
+                Pdu::from_bhs_bytes(hdr_slice)?
+            };
             debug!("PRE BHS: {pdu_hdr:?}");
             let itt = pdu_hdr.get_initiator_task_tag();
             let fin_bit = pdu_hdr.get_final_bit();
@@ -332,20 +329,16 @@ impl ClientConnection {
             } else {
                 total += pdu_hdr.get_header_diggest(hd);
             }
+            let payload_len = total.saturating_sub(HEADER_LEN);
             debug!("total with crc32c {total}");
 
-            if total > HEADER_LEN {
-                if scratch.capacity() - scratch.len() < total {
-                    scratch.reserve(total - (scratch.capacity() - scratch.len()));
-                }
-                let pstart = scratch.len();
-                unsafe {
-                    scratch.set_len(pstart + total);
-                }
+            if payload_len > 0 {
+                let old = scratch.len();
+                scratch.resize(old + payload_len, 0);
                 let mut r = self.reader.lock().await;
                 io_with_timeout(
                     "read payload",
-                    r.read_exact(&mut scratch[pstart..pstart + total]),
+                    r.read_exact(&mut scratch[old..old + payload_len]),
                     self.cfg.extra_data.connections.timeout_connection,
                     &self.cancel,
                 )
@@ -410,7 +403,7 @@ impl ClientConnection {
         hdr: [u8; HEADER_LEN],
         payload: Bytes,
     ) -> bool {
-        let mut pdu = PDUWithData::<NopInResponse>::from_header_slice(hdr);
+        let mut pdu = PDUWithData::<NopInResponse>::from_header_slice(hdr, &self.cfg);
 
         let (hd, dd, ttt) = {
             let header = match pdu.header_view() {

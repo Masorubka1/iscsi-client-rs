@@ -46,9 +46,10 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for PlainStart {
                 return Transition::Done(Err(e));
             }
 
-            let mut pdu = PDUWithData::<LoginRequest>::from_header_slice(ctx.buf);
+            let mut pdu =
+                PDUWithData::<LoginRequest>::from_header_slice(ctx.buf, &ctx.conn.cfg);
             for key in ctx.conn.cfg.to_login_keys() {
-                pdu.append_data(key.into_bytes());
+                pdu.append_data(key.into_bytes().as_slice());
             }
 
             match ctx.conn.send_request(ctx.itt, pdu).await {

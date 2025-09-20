@@ -150,7 +150,7 @@ impl<'a> ReadCtx<'a> {
 
         header.header.to_bhs_bytes(self.buf.as_mut_slice())?;
         let builder: PDUWithData<ScsiCommandRequest> =
-            PDUWithData::from_header_slice(self.buf);
+            PDUWithData::from_header_slice(self.buf, &self.conn.cfg);
         self.conn.send_request(self.itt, builder).await?;
 
         self.rt.cur_cmd_sn = Some(sn);
@@ -172,8 +172,11 @@ impl<'a> ReadCtx<'a> {
                 self.rt.acc.len()
             ));
         }
-        if !pdu.data.is_empty() {
-            self.rt.acc.extend_from_slice(&pdu.data);
+
+        let data = pdu.data()?;
+
+        if !data.is_empty() {
+            self.rt.acc.extend_from_slice(data);
         }
 
         if h.stat_sn_or_rsvd.get() != 0 {
@@ -182,7 +185,7 @@ impl<'a> ReadCtx<'a> {
         }
         if h.get_status_bit() {
             self.rt.status_in_datain = h.scsi_status();
-            self.rt.residual_in_datain = Some(h.residual_count.get());
+            self.rt.residual_in_datain = Some(h.residual_effective());
         }
 
         Ok(h.get_real_final_bit())
@@ -216,12 +219,14 @@ impl<'a> ReadCtx<'a> {
         self.exp_stat_sn
             .store(h.stat_sn.get().wrapping_add(1), Ordering::SeqCst);
 
-        let sense = if lr.data.is_empty() {
+        let data = lr.data()?;
+
+        let sense = if data.is_empty() {
             None
         } else {
-            Some(lr.data.clone())
+            Some(data.to_vec())
         };
-        Ok((status, h.residual_count.get(), sense))
+        Ok((status, h.residual_effective(), sense))
     }
 }
 
@@ -329,13 +334,17 @@ impl<'ctx> StateMachine<ReadCtx<'ctx>, ReadStepOut> for Finish {
                 )));
             }
 
-            let expected = ctx.read_len as usize;
-            if ctx.rt.acc.len() != expected || residual != 0 {
+            let requested = ctx.read_len as usize;
+            let expected_after_residual = requested.saturating_sub(residual as usize);
+            let got = ctx.rt.acc.len();
+
+            if got != expected_after_residual {
                 return Transition::Done(Err(anyhow!(
-                    "short/long read: expected {} bytes, got {}; residual={}",
-                    expected,
-                    ctx.rt.acc.len(),
-                    residual
+                    "read length mismatch: requested={}, residual={}, expected_after_residual={}, got={}",
+                    requested,
+                    residual,
+                    expected_after_residual,
+                    got
                 )));
             }
 

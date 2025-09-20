@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// Copyright (C) 2012-2025 Andrei Maltsev
+// Copyright (C) ...
 
 use std::{sync::Arc, time::Duration};
 
@@ -7,7 +7,14 @@ use anyhow::{Context, Result};
 use iscsi_client_rs::{
     cfg::{config::AuthConfig, logger::init_logger},
     client::pool_sessions::Pool,
-    control_block::{read::build_read10, write::build_write10},
+    control_block::{
+        read::build_read10,
+        read_capacity::{
+            Rc10Raw, Rc16Raw, build_read_capacity10, build_read_capacity16,
+            parse_read_capacity10_zerocopy, parse_read_capacity16_zerocopy,
+        },
+        write::build_write10,
+    },
     state_machine::{read_states::ReadCtx, write_states::WriteCtx},
 };
 use serial_test::serial;
@@ -49,50 +56,66 @@ async fn read10_write10_read10_plain_pool() -> Result<()> {
         .context("pool login failed")?;
 
     let lun = get_lun();
-    const BLK: usize = 512;
     let blocks: u16 = 1;
     let lba: u32 = pick_lba_from_isid(isid);
 
-    // --- READ(10) #1 ---
+    // --- READ CAPACITY: узнаём реальный размер логического блока ---
+    let blk_len: usize = match pool
+        .execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
+            let mut cdb = [0u8; 16];
+            build_read_capacity16(&mut cdb, 0, false, 32, 0);
+            ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, 32, cdb)
+        })
+        .await
+    {
+        Ok(rc16) => {
+            let rc16_raw: &Rc16Raw =
+                parse_read_capacity16_zerocopy(&rc16.data).context("parse RC16")?;
+            rc16_raw.block_len.get() as usize
+        },
+        Err(_) => {
+            let rc10 = pool
+                .execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
+                    let mut cdb = [0u8; 16];
+                    build_read_capacity10(&mut cdb, 0, false, 0);
+                    ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, 8, cdb)
+                })
+                .await
+                .context("READ CAPACITY(10) failed")?;
+            let rc10_raw: &Rc10Raw =
+                parse_read_capacity10_zerocopy(&rc10.data).context("parse RC10")?;
+            rc10_raw.block_len.get() as usize
+        },
+    };
+
+    let expected_len: u32 = (blk_len as u32) * (blocks as u32);
+
+    // --- READ(10) #1 (прогрев) ---
     let _ = pool
         .execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
             let mut cdb = [0u8; 16];
             build_read10(&mut cdb, lba, blocks, 0, 0);
-            ReadCtx::new(
-                c,
-                lun,
-                itt,         // Arc<AtomicU32>
-                cmd_sn,      // Arc<AtomicU32>
-                exp_stat_sn, // Arc<AtomicU32>
-                (BLK * blocks as usize) as u32,
-                cdb,
-            )
+            ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, expected_len, cdb)
         })
         .await;
+
+    // --- READ(10) #1.2 ---
     let rd1 = pool
         .execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
             let mut cdb = [0u8; 16];
             build_read10(&mut cdb, lba, blocks, 0, 0);
-            ReadCtx::new(
-                c,
-                lun,
-                itt,         // Arc<AtomicU32>
-                cmd_sn,      // Arc<AtomicU32>
-                exp_stat_sn, // Arc<AtomicU32>
-                (BLK * blocks as usize) as u32,
-                cdb,
-            )
+            ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, expected_len, cdb)
         })
         .await
         .context("READ(10) #1.2 failed")?;
     assert_eq!(
         rd1.data.len(),
-        BLK,
+        blk_len,
         "first READ must return exactly 1 block"
     );
 
     // --- WRITE(10) ---
-    let payload = vec![0xA5u8; BLK];
+    let payload = vec![0xA5u8; blk_len];
     let write_once = || {
         pool.execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
             let mut cdb = [0u8; 16];
@@ -112,15 +135,7 @@ async fn read10_write10_read10_plain_pool() -> Result<()> {
         .execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
             let mut cdb = [0u8; 16];
             build_read10(&mut cdb, lba, blocks, 0, 0);
-            ReadCtx::new(
-                c,
-                lun,
-                itt,
-                cmd_sn,
-                exp_stat_sn,
-                (BLK * blocks as usize) as u32,
-                cdb,
-            )
+            ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, expected_len, cdb)
         })
         .await
         .context("READ(10) #2 failed")?;

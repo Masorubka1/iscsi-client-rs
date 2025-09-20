@@ -23,7 +23,7 @@ use crate::{
             request::{ScsiCommandRequest, ScsiCommandRequestBuilder},
             response::ScsiCommandResponse,
         },
-        common::{BasicHeaderSegment, HEADER_LEN, SendingData},
+        common::{BasicHeaderSegment, Builder, HEADER_LEN, SendingData},
         data::{
             request::{ScsiDataOut, ScsiDataOutBuilder},
             sense_data::SenseData,
@@ -102,7 +102,7 @@ impl<'a> WriteCtx<'a> {
 
         header.header.to_bhs_bytes(&mut self.buf)?;
         let pdu: PDUWithData<ScsiCommandRequest> =
-            PDUWithData::from_header_slice(self.buf);
+            PDUWithData::from_header_slice(self.buf, &self.conn.cfg);
         self.conn.send_request(self.itt, pdu).await?;
 
         Ok(())
@@ -162,7 +162,7 @@ impl<'a> WriteCtx<'a> {
             header.header.to_bhs_bytes(self.buf.as_mut_slice())?;
 
             let mut pdu: PDUWithData<ScsiDataOut> =
-                PDUWithData::from_header_slice(self.buf);
+                PDUWithData::from_header_slice(self.buf, &self.conn.cfg);
 
             let header = pdu.header_view_mut()?;
 
@@ -173,7 +173,7 @@ impl<'a> WriteCtx<'a> {
                 header.set_continue_bit();
             }
 
-            pdu.data.extend_from_slice(&self.payload[off..off + take]);
+            pdu.append_data(&self.payload[off..off + take]);
 
             self.conn.send_request(itt, pdu).await?;
 
@@ -195,7 +195,7 @@ impl<'a> WriteCtx<'a> {
             bail!("WRITE failed: response={:?}", header.response);
         }
         if header.status.decode()? != ScsiStatus::Good {
-            let sense = SenseData::parse(&rsp.data)?;
+            let sense = SenseData::parse(rsp.data()?)?;
             bail!("WRITE failed: {:?}", sense);
         }
 
@@ -246,10 +246,10 @@ impl<'a> WriteCtx<'a> {
 
         header.header.to_bhs_bytes(&mut self.buf)?;
         let mut pdu: PDUWithData<ScsiCommandRequest> =
-            PDUWithData::from_header_slice(self.buf);
+            PDUWithData::from_header_slice(self.buf, &self.conn.cfg);
 
         if imm_len > 0 {
-            pdu.data.extend_from_slice(&self.payload[0..imm_len]);
+            pdu.append_data(&self.payload[0..imm_len]);
         }
 
         self.conn.send_request(self.itt, pdu).await?;
@@ -292,7 +292,7 @@ impl<'a> WriteCtx<'a> {
             header.header.to_bhs_bytes(self.buf.as_mut_slice())?;
 
             let mut pdu: PDUWithData<ScsiDataOut> =
-                PDUWithData::from_header_slice(self.buf);
+                PDUWithData::from_header_slice(self.buf, &self.conn.cfg);
             {
                 let h = pdu.header_view_mut()?;
                 h.set_data_length_bytes(take as u32);
@@ -302,7 +302,7 @@ impl<'a> WriteCtx<'a> {
                     h.set_continue_bit();
                 }
             }
-            pdu.data.extend_from_slice(&self.payload[off..off + take]);
+            pdu.append_data(&self.payload[off..off + take]);
             self.conn.send_request(self.itt, pdu).await?;
 
             next_data_sn = next_data_sn.wrapping_add(1);

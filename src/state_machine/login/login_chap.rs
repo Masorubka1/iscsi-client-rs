@@ -99,8 +99,9 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for ChapSecurity {
                 return Transition::Done(Err(e));
             }
 
-            let mut pdu = PDUWithData::<LoginRequest>::from_header_slice(ctx.buf);
-            pdu.append_data(login_keys_security(&ctx.conn.cfg));
+            let mut pdu =
+                PDUWithData::<LoginRequest>::from_header_slice(ctx.buf, &ctx.conn.cfg);
+            pdu.append_data(login_keys_security(&ctx.conn.cfg).as_slice());
 
             match ctx.conn.send_request(ctx.itt, pdu).await {
                 Err(e) => Transition::Done(Err(e)),
@@ -152,8 +153,9 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for ChapA {
                 return Transition::Done(Err(e));
             }
 
-            let mut pdu = PDUWithData::<LoginRequest>::from_header_slice(ctx.buf);
-            pdu.append_data(b"CHAP_A=5\x00".to_vec());
+            let mut pdu =
+                PDUWithData::<LoginRequest>::from_header_slice(ctx.buf, &ctx.conn.cfg);
+            pdu.append_data(b"CHAP_A=5\x00".as_slice());
 
             match ctx.conn.send_request(itt, pdu).await {
                 Err(e) => Transition::Done(Err(e)),
@@ -192,7 +194,12 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for ChapAnswer {
                     Err(e) => return Transition::Done(Err(e)),
                 };
 
-                let (id, chal) = match parse_chap_challenge(&last.data) {
+                let data = match last.data() {
+                    Ok(data) => data,
+                    Err(e) => return Transition::Done(Err(e)),
+                };
+
+                let (id, chal) = match parse_chap_challenge(data) {
                     Ok(v) => v,
                     Err(e) => return Transition::Done(Err(e)),
                 };
@@ -225,8 +232,9 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for ChapAnswer {
                 return Transition::Done(Err(e));
             }
 
-            let mut pdu = PDUWithData::<LoginRequest>::from_header_slice(ctx.buf);
-            pdu.append_data(login_keys_chap_response(user, &chap_r));
+            let mut pdu =
+                PDUWithData::<LoginRequest>::from_header_slice(ctx.buf, &ctx.conn.cfg);
+            pdu.append_data(login_keys_chap_response(user, &chap_r).as_slice());
 
             if let Err(e) = ctx.conn.send_request(itt, pdu).await {
                 return Transition::Done(Err(e));
@@ -278,8 +286,9 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for ChapOpToFull {
                 return Transition::Done(Err(e));
             }
 
-            let mut pdu = PDUWithData::<LoginRequest>::from_header_slice(ctx.buf);
-            pdu.append_data(login_keys_operational(&ctx.conn.cfg));
+            let mut pdu =
+                PDUWithData::<LoginRequest>::from_header_slice(ctx.buf, &ctx.conn.cfg);
+            pdu.append_data(login_keys_operational(&ctx.conn.cfg).as_slice());
 
             match ctx.conn.send_request(itt, pdu).await {
                 Err(e) => Transition::Done(Err(e)),
