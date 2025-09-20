@@ -4,7 +4,6 @@
 use std::{
     any::type_name,
     fmt::{self, Debug},
-    io::IoSlice,
     sync::{Arc, Weak},
     time::Duration,
 };
@@ -194,14 +193,23 @@ impl ClientConnection {
             out_data.len()
         );
 
-        let bufs = [IoSlice::new(&out_header), IoSlice::new(&out_data)];
         io_with_timeout(
-            "write vectored",
-            w.write_vectored(&bufs[..]),
+            "write header (write_all)",
+            w.write_all(&out_header),
             self.cfg.extra_data.connections.timeout_connection,
             &self.cancel,
         )
         .await?;
+
+        if !out_data.is_empty() {
+            io_with_timeout(
+                "write data (write_all)",
+                w.write_all(&out_data),
+                self.cfg.extra_data.connections.timeout_connection,
+                &self.cancel,
+            )
+            .await?;
+        }
 
         Ok(())
     }
