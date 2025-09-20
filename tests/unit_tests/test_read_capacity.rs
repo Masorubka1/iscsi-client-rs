@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
-
 use anyhow::{Context, Result};
+use bytes::Bytes;
 use iscsi_client_rs::{
     cfg::{cli::resolve_config_path, config::Config, enums::Digest},
     control_block::read_capacity::{
@@ -16,7 +16,7 @@ use iscsi_client_rs::{
         },
         common::{BasicHeaderSegment, Builder, HEADER_LEN},
         data::response::ScsiDataIn,
-        data_fromat::PDUWithData,
+        data_fromat::{PduRequest, PduResponse},
     },
 };
 
@@ -55,7 +55,7 @@ fn test_read_capacity10_request_build() -> Result<()> {
     let mut header_buf = [0u8; HEADER_LEN];
     header_builder.header.to_bhs_bytes(&mut header_buf)?;
 
-    let mut pdu = PDUWithData::<ScsiCommandRequest>::from_header_slice(header_buf, &cfg);
+    let mut pdu = PduRequest::<ScsiCommandRequest>::new_request(header_buf, &cfg);
 
     let (hdr_bytes, body_bytes) = pdu.build(
         cfg.login.negotiation.max_recv_data_segment_length as usize,
@@ -106,7 +106,7 @@ fn test_read_capacity16_request_build() -> Result<()> {
     let mut header_buf = [0u8; HEADER_LEN];
     header_builder.header.to_bhs_bytes(&mut header_buf)?;
 
-    let mut pdu = PDUWithData::<ScsiCommandRequest>::from_header_slice(header_buf, &cfg);
+    let mut pdu = PduRequest::<ScsiCommandRequest>::new_request(header_buf, &cfg);
 
     let (hdr_bytes, body_bytes) = pdu.build(
         cfg.login.negotiation.max_recv_data_segment_length as usize,
@@ -148,8 +148,8 @@ fn test_rc10_response_parse() -> Result<()> {
     let mut hdr_buf = [0u8; HEADER_LEN];
     hdr_buf.copy_from_slice(hdr_bytes);
 
-    let mut pdu = PDUWithData::<ScsiDataIn>::from_header_slice(hdr_buf, &cfg);
-    pdu.parse_with_buff(body_bytes, false, false)
+    let mut pdu = PduResponse::<ScsiDataIn>::from_header_slice(hdr_buf, &cfg);
+    pdu.parse_with_buff(&Bytes::copy_from_slice(body_bytes), false, false)
         .context("failed to parse ScsiDataIn PDU body")?;
 
     let header = pdu.header_view()?;
@@ -213,8 +213,8 @@ fn test_rc16_response_parse() -> Result<()> {
     let mut hdr_buf = [0u8; HEADER_LEN];
     hdr_buf.copy_from_slice(hdr_bytes);
 
-    let mut pdu = PDUWithData::<ScsiDataIn>::from_header_slice(hdr_buf, &cfg);
-    pdu.parse_with_buff(body_bytes, false, false)
+    let mut pdu = PduResponse::<ScsiDataIn>::from_header_slice(hdr_buf, &cfg);
+    pdu.parse_with_buff(&Bytes::copy_from_slice(body_bytes), false, false)
         .context("failed to parse ScsiDataIn PDU body")?;
 
     let header = pdu.header_view()?;

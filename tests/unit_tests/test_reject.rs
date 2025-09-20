@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
-
 use anyhow::{Context, Result};
+use bytes::Bytes;
 use iscsi_client_rs::{
     cfg::{cli::resolve_config_path, config::Config},
     models::{
@@ -29,7 +29,7 @@ fn test_reject_parse() -> Result<()> {
     hdr_buf.copy_from_slice(&bytes[..HEADER_LEN]);
 
     let mut pdu = PDUWithData::<RejectPdu>::from_header_slice(hdr_buf, &cfg);
-    pdu.parse_with_buff(&bytes[HEADER_LEN..], false, false)?;
+    pdu.parse_with_buff(&Bytes::copy_from_slice(&bytes[HEADER_LEN..]), false, false)?;
 
     assert!(!pdu.data()?.is_empty());
     assert!(pdu.header_digest.is_none());

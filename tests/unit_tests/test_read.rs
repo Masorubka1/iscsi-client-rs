@@ -4,6 +4,7 @@
 use std::fs;
 
 use anyhow::{Context, Result};
+use bytes::Bytes;
 use hex::FromHex;
 use iscsi_client_rs::{
     cfg::{cli::resolve_config_path, config::Config, enums::Digest},
@@ -15,7 +16,7 @@ use iscsi_client_rs::{
         },
         common::{BasicHeaderSegment, Builder, HEADER_LEN},
         data::response::ScsiDataIn,
-        data_fromat::PDUWithData,
+        data_fromat::{PduRequest, PduResponse},
     },
 };
 
@@ -57,8 +58,7 @@ fn test_read_pdu_build() -> Result<()> {
     let mut header_buf = [0u8; HEADER_LEN];
     header_builder.header.to_bhs_bytes(&mut header_buf)?;
 
-    let mut builder =
-        PDUWithData::<ScsiCommandRequest>::from_header_slice(header_buf, &cfg);
+    let mut builder = PduRequest::<ScsiCommandRequest>::new_request(header_buf, &cfg);
 
     let (hdr_bytes, body_bytes) = &builder.build(
         cfg.login.negotiation.max_recv_data_segment_length as usize,
@@ -96,8 +96,8 @@ fn test_read_response_good() -> Result<()> {
     let mut hdr_buf = [0u8; HEADER_LEN];
     hdr_buf.copy_from_slice(hdr_bytes);
 
-    let mut pdu = PDUWithData::<ScsiDataIn>::from_header_slice(hdr_buf, &cfg);
-    pdu.parse_with_buff(body_bytes, false, false)
+    let mut pdu = PduResponse::<ScsiDataIn>::from_header_slice(hdr_buf, &cfg);
+    pdu.parse_with_buff(&Bytes::copy_from_slice(body_bytes), false, false)
         .context("failed to parse ScsiDataIn PDU body")?;
 
     let header = pdu.header_view()?;

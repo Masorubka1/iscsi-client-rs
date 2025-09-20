@@ -4,7 +4,7 @@ use crate::{
     cfg::config::ToLoginKeys,
     models::{
         common::Builder,
-        data_fromat::PDUWithData,
+        data_fromat::PduRequest,
         login::{
             common::Stage,
             request::{LoginRequest, LoginRequestBuilder},
@@ -46,8 +46,7 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for PlainStart {
                 return Transition::Done(Err(e));
             }
 
-            let mut pdu =
-                PDUWithData::<LoginRequest>::from_header_slice(ctx.buf, &ctx.conn.cfg);
+            let mut pdu = PduRequest::<LoginRequest>::new_request(ctx.buf, &ctx.conn.cfg);
             for key in ctx.conn.cfg.to_login_keys() {
                 pdu.append_data(key.into_bytes().as_slice());
             }

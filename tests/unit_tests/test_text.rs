@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
-
 use anyhow::{Context, Result};
+use bytes::{Bytes, BytesMut};
 use iscsi_client_rs::{
     cfg::{cli::resolve_config_path, config::Config, enums::Digest},
     models::{
         common::{BasicHeaderSegment, Builder, HEADER_LEN},
-        data_fromat::PDUWithData,
+        data_fromat::{PDUWithData, PduRequest},
         nop::request::NopOutRequest,
         opcode::{BhsOpcode, Opcode},
         text::{
@@ -30,9 +30,12 @@ fn test_text_request() -> Result<()> {
 
     let mut header_buf = [0u8; HEADER_LEN];
     header_buf.copy_from_slice(&bytes[..HEADER_LEN]);
-    let mut parsed_fixture =
-        PDUWithData::<TextRequest>::from_header_slice(header_buf, &cfg);
-    parsed_fixture.parse_with_buff(&bytes[HEADER_LEN..], false, false)?;
+    let mut parsed_fixture = PduRequest::<TextRequest>::new_request(header_buf, &cfg);
+    parsed_fixture.parse_with_buff_mut(
+        BytesMut::from(&bytes[HEADER_LEN..]),
+        false,
+        false,
+    )?;
 
     let itt = 1;
     let ttt = NopOutRequest::DEFAULT_TAG;
@@ -48,7 +51,7 @@ fn test_text_request() -> Result<()> {
 
     let mut hdr_buf = [0u8; HEADER_LEN];
     header_builder.header.to_bhs_bytes(&mut hdr_buf)?;
-    let mut builder = PDUWithData::<TextRequest>::from_header_slice(hdr_buf, &cfg);
+    let mut builder = PduRequest::<TextRequest>::new_request(hdr_buf, &cfg);
     builder.append_data(parsed_fixture.data()?);
 
     let (hdr_bytes, body_bytes) = &builder.build(
@@ -98,7 +101,11 @@ fn test_text_response() -> Result<()> {
     let mut header_buf = [0u8; HEADER_LEN];
     header_buf.copy_from_slice(&bytes[..HEADER_LEN]);
     let mut parsed = PDUWithData::<TextResponse>::from_header_slice(header_buf, &cfg);
-    parsed.parse_with_buff(&bytes[HEADER_LEN..], false, false)?;
+    parsed.parse_with_buff(
+        &Bytes::copy_from_slice(&bytes[HEADER_LEN..]),
+        false,
+        false,
+    )?;
 
     assert!(!parsed.data()?.is_empty());
     assert!(parsed.header_digest.is_none());

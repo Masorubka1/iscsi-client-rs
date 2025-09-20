@@ -7,13 +7,14 @@ mod unit_tests {
     use std::fs;
 
     use anyhow::Result;
+    use bytes::{Bytes, BytesMut};
     use hex::FromHex;
     use iscsi_client_rs::{
         cfg::config::Config,
         client::pdu_connection::FromBytes,
         models::{
             common::{BasicHeaderSegment, HEADER_LEN},
-            data_fromat::{PDUWithData, ZeroCopyType},
+            data_fromat::{PduRequest, PduResponse, ZeroCopyType},
         },
     };
 
@@ -24,14 +25,25 @@ mod unit_tests {
         Ok(Vec::from_hex(&cleaned)?)
     }
 
-    fn parse<T: BasicHeaderSegment + FromBytes + ZeroCopyType>(
-        bytes: &[u8],
-        cfg: &Config,
-    ) -> Result<PDUWithData<T>> {
+    fn parse_imm<T>(bytes: &[u8], cfg: &Config) -> anyhow::Result<PduResponse<T>>
+    where T: BasicHeaderSegment + FromBytes + ZeroCopyType {
         let mut header_buf = [0u8; HEADER_LEN];
         header_buf.copy_from_slice(&bytes[..HEADER_LEN]);
-        let mut pdu = PDUWithData::<T>::from_header_slice(header_buf, &cfg);
-        pdu.parse_with_buff(&bytes[HEADER_LEN..], false, false)?;
+
+        let mut pdu = PduResponse::<T>::from_header_slice(header_buf, cfg);
+        let payload = Bytes::copy_from_slice(&bytes[HEADER_LEN..]);
+        pdu.parse_with_buff(&payload, false, false)?;
+        Ok(pdu)
+    }
+
+    fn parse_mut<T>(bytes: &[u8], cfg: &Config) -> anyhow::Result<PduRequest<T>>
+    where T: BasicHeaderSegment + FromBytes + ZeroCopyType {
+        let mut header_buf = [0u8; HEADER_LEN];
+        header_buf.copy_from_slice(&bytes[..HEADER_LEN]);
+
+        let mut pdu = PduRequest::<T>::new_request(header_buf, cfg);
+        let payload = BytesMut::from(&bytes[HEADER_LEN..]);
+        pdu.parse_with_buff_mut(payload, false, false)?;
         Ok(pdu)
     }
 

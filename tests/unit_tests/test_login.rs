@@ -15,7 +15,7 @@ use iscsi_client_rs::{
     },
     models::{
         common::{Builder, HEADER_LEN},
-        data_fromat::PDUWithData,
+        data_fromat::{PduRequest, PduResponse},
         login::{
             common::Stage,
             request::{LoginRequest, LoginRequestBuilder},
@@ -24,7 +24,7 @@ use iscsi_client_rs::{
     },
 };
 
-use crate::unit_tests::{load_fixture, parse};
+use crate::unit_tests::{load_fixture, parse_imm, parse_mut};
 
 const ISID: [u8; 6] = [0, 2, 61, 0, 0, 14];
 
@@ -88,7 +88,7 @@ fn test_login_request() -> Result<()> {
 
     let bytes = load_fixture("tests/unit_tests/fixtures/login/login_request.hex")?;
 
-    let parsed: PDUWithData<LoginRequest> = parse(&bytes, &cfg)?;
+    let parsed: PduRequest<LoginRequest> = parse_mut(&bytes, &cfg)?;
     assert!(!parsed.data()?.is_empty());
     assert!(parsed.header_digest.is_none());
     assert!(parsed.data_digest.is_none());
@@ -105,7 +105,7 @@ fn test_login_request() -> Result<()> {
     let mut header_buf = [0u8; HEADER_LEN];
     header_builder.header.to_bhs_bytes(&mut header_buf)?;
 
-    let mut builder = PDUWithData::<LoginRequest>::from_header_slice(header_buf, &cfg);
+    let mut builder = PduRequest::<LoginRequest>::new_request(header_buf, &cfg);
 
     for key in cfg.to_login_keys() {
         builder.append_data(key.into_bytes().as_slice());
@@ -136,7 +136,7 @@ fn test_login_response_echo() -> Result<()> {
         .context("failed to resolve or load config")?;
 
     let resp_bytes = load_fixture("tests/unit_tests/fixtures/login/login_response.hex")?;
-    let parsed: PDUWithData<LoginResponse> = parse(&resp_bytes, &cfg)?;
+    let parsed: PduResponse<LoginResponse> = parse_imm(&resp_bytes, &cfg)?;
 
     assert!(!parsed.data()?.is_empty());
     assert!(parsed.header_digest.is_none());
@@ -174,7 +174,7 @@ fn chap_step1_security_only() -> Result<()> {
 
     let req_exp = load_fixture("tests/unit_tests/fixtures/login/step1_req.hex")?;
     let resp_bytes = load_fixture("tests/unit_tests/fixtures/login/step1_resp.hex")?;
-    let _r1: PDUWithData<LoginResponse> = parse(&resp_bytes, &cfg)?;
+    let _r1: PduResponse<LoginResponse> = parse_imm(&resp_bytes, &cfg)?;
 
     let s1_hdr = LoginRequestBuilder::new(ISID, 0)
         .transit()
@@ -188,7 +188,7 @@ fn chap_step1_security_only() -> Result<()> {
     let mut header_buf = [0u8; HEADER_LEN];
     s1_hdr.header.to_bhs_bytes(&mut header_buf)?;
 
-    let mut s1 = PDUWithData::<LoginRequest>::from_header_slice(header_buf, &cfg);
+    let mut s1 = PduRequest::<LoginRequest>::new_request(header_buf, &cfg);
     s1.append_data(login_keys_security(&cfg).as_slice());
 
     let (hdr_bytes, data_bytes) = &s1.build(
@@ -199,8 +199,8 @@ fn chap_step1_security_only() -> Result<()> {
     let mut got = hdr_bytes.to_vec();
     got.extend_from_slice(data_bytes);
 
-    let exp_pdu: PDUWithData<LoginRequest> = parse(&req_exp, &cfg)?;
-    let got_pdu: PDUWithData<LoginRequest> = parse(&got, &cfg)?;
+    let exp_pdu: PduRequest<LoginRequest> = parse_mut(&req_exp, &cfg)?;
+    let got_pdu: PduRequest<LoginRequest> = parse_mut(&got, &cfg)?;
     assert_eq!(got_pdu.header_buf, exp_pdu.header_buf, "step1 BHS differs");
     assert_eq!(
         split_zeroes(&got_pdu.data()?),
@@ -216,11 +216,11 @@ fn chap_step2_chap_a() -> Result<()> {
         .and_then(Config::load_from_file)
         .context("failed to load tests/unit_tests/config_chap.yaml")?;
 
-    let r1: PDUWithData<LoginResponse> = parse(
+    let r1: PduResponse<LoginResponse> = parse_imm(
         &load_fixture("tests/unit_tests/fixtures/login/step1_resp.hex")?,
         &cfg,
     )?;
-    let req_exp: PDUWithData<LoginRequest> = parse(
+    let req_exp: PduRequest<LoginRequest> = parse_mut(
         &load_fixture("tests/unit_tests/fixtures/login/step2_req.hex")?,
         &cfg,
     )?;
@@ -238,7 +238,7 @@ fn chap_step2_chap_a() -> Result<()> {
     let mut header_buf = [0u8; HEADER_LEN];
     s2_hdr.header.to_bhs_bytes(&mut header_buf)?;
 
-    let mut s2 = PDUWithData::<LoginRequest>::from_header_slice(header_buf, &cfg);
+    let mut s2 = PduRequest::<LoginRequest>::new_request(header_buf, &cfg);
     s2.append_data(b"CHAP_A=5\x00".as_slice());
 
     assert_eq!(s2.header_buf, req_exp.header_buf, "step2 BHS differs");
@@ -256,7 +256,7 @@ fn chap_step3_chap_response() -> Result<()> {
         .and_then(Config::load_from_file)
         .context("failed to load tests/config_chap.yaml")?;
 
-    let r2: PDUWithData<LoginResponse> = parse(
+    let r2: PduResponse<LoginResponse> = parse_imm(
         &load_fixture("tests/unit_tests/fixtures/login/step2_resp.hex")?,
         &cfg,
     )?;
@@ -283,7 +283,7 @@ fn chap_step3_chap_response() -> Result<()> {
     let mut header_buf = [0u8; HEADER_LEN];
     s3_hdr.header.to_bhs_bytes(&mut header_buf)?;
 
-    let mut s3 = PDUWithData::<LoginRequest>::from_header_slice(header_buf, &cfg);
+    let mut s3 = PduRequest::<LoginRequest>::new_request(header_buf, &cfg);
     s3.append_data(login_keys_chap_response(user, &chap_r).as_slice());
 
     let (hdr_bytes, data_bytes) = &s3.build(
@@ -294,8 +294,8 @@ fn chap_step3_chap_response() -> Result<()> {
     let mut got = hdr_bytes.to_vec();
     got.extend_from_slice(data_bytes);
 
-    let exp_pdu: PDUWithData<LoginRequest> = parse(&req_exp, &cfg)?;
-    let got_pdu: PDUWithData<LoginRequest> = parse(&got, &cfg)?;
+    let exp_pdu: PduRequest<LoginRequest> = parse_mut(&req_exp, &cfg)?;
+    let got_pdu: PduRequest<LoginRequest> = parse_mut(&got, &cfg)?;
     assert_eq!(got_pdu.header_buf, exp_pdu.header_buf, "step3 BHS differs");
     assert_eq!(
         split_zeroes(&got_pdu.data()?),
@@ -311,7 +311,7 @@ fn chap_step4_oper_to_ff_with_ops() -> Result<()> {
         .and_then(Config::load_from_file)
         .context("failed to load tests/config_chap.yaml")?;
 
-    let r2: PDUWithData<LoginResponse> = parse(
+    let r2: PduResponse<LoginResponse> = parse_imm(
         &load_fixture("tests/unit_tests/fixtures/login/step3_resp.hex")?,
         &cfg,
     )?;
@@ -331,7 +331,7 @@ fn chap_step4_oper_to_ff_with_ops() -> Result<()> {
     let mut header_buf = [0u8; HEADER_LEN];
     s4_hdr.header.to_bhs_bytes(&mut header_buf)?;
 
-    let mut s4 = PDUWithData::<LoginRequest>::from_header_slice(header_buf, &cfg);
+    let mut s4 = PduRequest::<LoginRequest>::new_request(header_buf, &cfg);
     s4.append_data(login_keys_operational(&cfg).as_slice());
 
     let (hdr_bytes, data_bytes) = &s4.build(
@@ -342,8 +342,8 @@ fn chap_step4_oper_to_ff_with_ops() -> Result<()> {
     let mut got = hdr_bytes.to_vec();
     got.extend_from_slice(data_bytes);
 
-    let exp_pdu: PDUWithData<LoginRequest> = parse(&req_exp, &cfg)?;
-    let got_pdu: PDUWithData<LoginRequest> = parse(&got, &cfg)?;
+    let exp_pdu: PduRequest<LoginRequest> = parse_mut(&req_exp, &cfg)?;
+    let got_pdu: PduRequest<LoginRequest> = parse_mut(&got, &cfg)?;
     assert_eq!(got_pdu.header_buf, exp_pdu.header_buf, "step4 BHS differs");
     assert_eq!(
         split_zeroes(&got_pdu.data()?),

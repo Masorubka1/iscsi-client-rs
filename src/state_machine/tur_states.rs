@@ -24,7 +24,7 @@ use crate::{
             response::ScsiCommandResponse,
         },
         common::HEADER_LEN,
-        data_fromat::PDUWithData,
+        data_fromat::{PduRequest, PduResponse},
     },
     state_machine::common::{StateMachine, StateMachineCtx, Transition},
 };
@@ -41,7 +41,7 @@ pub struct TurCtx<'a> {
     pub buf: [u8; HEADER_LEN],
     pub cbd: [u8; 16],
 
-    pub last_response: Option<PDUWithData<ScsiCommandResponse>>,
+    pub last_response: Option<PduResponse<ScsiCommandResponse>>,
     state: Option<TurStates>,
 }
 
@@ -83,8 +83,7 @@ impl<'a> TurCtx<'a> {
             .scsi_descriptor_block(&self.cbd);
 
         header.header.to_bhs_bytes(&mut self.buf)?;
-        let pdu: PDUWithData<ScsiCommandRequest> =
-            PDUWithData::from_header_slice(self.buf, &self.conn.cfg);
+        let pdu = PduRequest::<ScsiCommandRequest>::new_request(self.buf, &self.conn.cfg);
 
         self.conn.send_request(self.itt, pdu).await?;
         Ok(())
@@ -167,13 +166,13 @@ impl<'ctx> StateMachine<TurCtx<'ctx>, TurStepOut> for Wait {
     }
 }
 
-impl<'ctx> StateMachineCtx<TurCtx<'ctx>, PDUWithData<ScsiCommandResponse>>
+impl<'ctx> StateMachineCtx<TurCtx<'ctx>, PduResponse<ScsiCommandResponse>>
     for TurCtx<'ctx>
 {
     async fn execute(
         &mut self,
         _cancel: &CancellationToken,
-    ) -> Result<PDUWithData<ScsiCommandResponse>> {
+    ) -> Result<PduResponse<ScsiCommandResponse>> {
         debug!("Loop TUR");
 
         loop {

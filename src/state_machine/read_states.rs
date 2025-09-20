@@ -27,7 +27,7 @@ use crate::{
         },
         common::{BasicHeaderSegment, HEADER_LEN},
         data::{response::ScsiDataIn, sense_data::SenseData},
-        data_fromat::PDUWithData,
+        data_fromat::{PduRequest, PduResponse},
         opcode::{BhsOpcode, Opcode},
         parse::Pdu,
     },
@@ -36,8 +36,8 @@ use crate::{
 
 #[derive(Debug)]
 pub enum ReadPdu {
-    DataIn(PDUWithData<ScsiDataIn>),
-    CmdResp(PDUWithData<ScsiCommandResponse>),
+    DataIn(PduResponse<ScsiDataIn>),
+    CmdResp(PduResponse<ScsiCommandResponse>),
 }
 
 #[derive(Debug)]
@@ -61,7 +61,7 @@ pub struct ReadCtx<'a> {
     pub cdb: [u8; 16],
     pub buf: [u8; HEADER_LEN],
 
-    pub last_response: Option<PDUWithData<ScsiCommandResponse>>,
+    pub last_response: Option<PduResponse<ScsiCommandResponse>>,
     pub rt: ReadRuntime,
     state: Option<ReadStates>,
 }
@@ -98,7 +98,7 @@ impl<'a> ReadCtx<'a> {
     }
 
     pub async fn recv_any(&self, itt: u32) -> anyhow::Result<ReadPdu> {
-        let (p_any, data): (PDUWithData<Pdu>, Bytes) =
+        let (p_any, data): (PduResponse<Pdu>, Bytes) =
             self.conn.read_response_raw(itt).await?;
         let op = BhsOpcode::try_from(p_any.header_buf[0])?.opcode;
 
@@ -149,19 +149,19 @@ impl<'a> ReadCtx<'a> {
             .task_attribute(TaskAttribute::Simple);
 
         header.header.to_bhs_bytes(self.buf.as_mut_slice())?;
-        let builder: PDUWithData<ScsiCommandRequest> =
-            PDUWithData::from_header_slice(self.buf, &self.conn.cfg);
+        let builder =
+            PduRequest::<ScsiCommandRequest>::new_request(self.buf, &self.conn.cfg);
         self.conn.send_request(self.itt, builder).await?;
 
         self.rt.cur_cmd_sn = Some(sn);
         Ok(esn)
     }
 
-    pub async fn recv_datain(&self, itt: u32) -> Result<PDUWithData<ScsiDataIn>> {
+    pub async fn recv_datain(&self, itt: u32) -> Result<PduResponse<ScsiDataIn>> {
         self.conn.read_response(itt).await
     }
 
-    pub fn apply_datain_append(&mut self, pdu: &PDUWithData<ScsiDataIn>) -> Result<bool> {
+    pub fn apply_datain_append(&mut self, pdu: &PduResponse<ScsiDataIn>) -> Result<bool> {
         let h = pdu.header_view()?;
 
         let off = h.buffer_offset.get() as usize;
@@ -203,7 +203,7 @@ impl<'a> ReadCtx<'a> {
             ));
         }
 
-        let rsp: PDUWithData<ScsiCommandResponse> = match self.last_response.take() {
+        let rsp: PduResponse<ScsiCommandResponse> = match self.last_response.take() {
             Some(r) => r,
             None => self.conn.read_response(itt).await?,
         };
@@ -340,7 +340,8 @@ impl<'ctx> StateMachine<ReadCtx<'ctx>, ReadStepOut> for Finish {
 
             if got != expected_after_residual {
                 return Transition::Done(Err(anyhow!(
-                    "read length mismatch: requested={}, residual={}, expected_after_residual={}, got={}",
+                    "read length mismatch: requested={}, residual={}, \
+                     expected_after_residual={}, got={}",
                     requested,
                     residual,
                     expected_after_residual,
@@ -359,7 +360,7 @@ pub struct ReadOutcome {
     pub data: Vec<u8>,
     /// Final SCSI Command Response (if target sent one).
     /// When status was carried by the last Data-In (S-bit set), this is None.
-    pub last_response: Option<PDUWithData<ScsiCommandResponse>>,
+    pub last_response: Option<PduResponse<ScsiCommandResponse>>,
 }
 
 impl<'ctx> StateMachineCtx<ReadCtx<'ctx>, ReadOutcome> for ReadCtx<'ctx> {

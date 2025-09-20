@@ -35,7 +35,7 @@ use crate::{
     },
     models::{
         common::{BasicHeaderSegment, HEADER_LEN, SendingData},
-        data_fromat::{PDUWithData, ZeroCopyType},
+        data_fromat::{PduResponse, ZeroCopyType},
         nop::{request::NopOutRequest, response::NopInResponse},
         parse::Pdu,
     },
@@ -236,7 +236,7 @@ impl ClientConnection {
     pub async fn read_response_raw<T: BasicHeaderSegment + Debug>(
         &self,
         initiator_task_tag: u32,
-    ) -> Result<(PDUWithData<T>, Bytes)> {
+    ) -> Result<(PduResponse<T>, Bytes)> {
         let mut rx = self
             .reciver
             .remove(&initiator_task_tag)
@@ -262,7 +262,7 @@ impl ClientConnection {
             let _ = self.reciver.insert(initiator_task_tag, rx);
         }
 
-        let pdu = PDUWithData::<T>::from_header_slice(hdr_arr, &self.cfg);
+        let pdu = PduResponse::<T>::from_header_slice(hdr_arr, &self.cfg);
 
         Ok((pdu, payload))
     }
@@ -272,7 +272,7 @@ impl ClientConnection {
     >(
         &self,
         initiator_task_tag: u32,
-    ) -> Result<PDUWithData<T>> {
+    ) -> Result<PduResponse<T>> {
         let (mut pdu, data) = self.read_response_raw(initiator_task_tag).await?;
 
         let header: &T = pdu.header_view()?;
@@ -403,7 +403,7 @@ impl ClientConnection {
         hdr: [u8; HEADER_LEN],
         payload: Bytes,
     ) -> bool {
-        let mut pdu = PDUWithData::<NopInResponse>::from_header_slice(hdr, &self.cfg);
+        let mut pdu = PduResponse::<NopInResponse>::from_header_slice(hdr, &self.cfg);
 
         let (hd, dd, ttt) = {
             let header = match pdu.header_view() {

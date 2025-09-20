@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
-
 use anyhow::Result;
 use iscsi_client_rs::{
     cfg::{cli::resolve_config_path, config::Config, enums::Digest},
     models::{
         common::{Builder, HEADER_LEN},
-        data_fromat::PDUWithData,
+        data_fromat::{PduRequest, PduResponse},
         nop::{
             request::{NopOutRequest, NopOutRequestBuilder},
             response::NopInResponse,
@@ -17,7 +16,7 @@ use iscsi_client_rs::{
 };
 use zerocopy::FromBytes;
 
-use crate::unit_tests::{load_fixture, parse};
+use crate::unit_tests::{load_fixture, parse_imm, parse_mut};
 
 #[test]
 fn test_nop_out_minimal() -> Result<()> {
@@ -27,7 +26,7 @@ fn test_nop_out_minimal() -> Result<()> {
     let bytes = load_fixture("tests/unit_tests/fixtures/nop/nop_out_request.hex")?;
     assert!(bytes.len() >= HEADER_LEN);
 
-    let parsed: PDUWithData<NopOutRequest> = parse(&bytes, &cfg)?;
+    let parsed: PduRequest<NopOutRequest> = parse_mut(&bytes, &cfg)?;
     assert!(parsed.data()?.is_empty());
     assert!(parsed.header_digest.is_none());
     assert!(parsed.data_digest.is_none());
@@ -48,7 +47,7 @@ fn test_nop_out_minimal() -> Result<()> {
     let mut header_buf = [0u8; HEADER_LEN];
     header_builder.header.to_bhs_bytes(&mut header_buf)?;
 
-    let mut builder = PDUWithData::<NopOutRequest>::from_header_slice(header_buf, &cfg);
+    let mut builder = PduRequest::<NopOutRequest>::new_request(header_buf, &cfg);
 
     let (hdr_bytes, body) = &builder.build(
         cfg.login.negotiation.max_recv_data_segment_length as usize,
@@ -73,7 +72,7 @@ fn test_nop_in_parse() -> Result<()> {
     let bytes = load_fixture("tests/unit_tests/fixtures/nop/nop_in_response.hex")?;
     assert!(bytes.len() >= HEADER_LEN);
 
-    let parsed: PDUWithData<NopInResponse> = parse(&bytes, &cfg)?;
+    let parsed: PduResponse<NopInResponse> = parse_imm(&bytes, &cfg)?;
     assert!(parsed.data()?.is_empty());
     assert!(parsed.header_digest.is_none());
     assert!(parsed.data_digest.is_none());
