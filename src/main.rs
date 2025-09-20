@@ -49,9 +49,16 @@ fn choose_lba_safely(max_lba: u64, need_blocks: u64) -> Result<u32> {
     Ok(lba as u32)
 }
 
+/*#[cfg(feature = "mem-prof-dhat")]
+#[global_allocator]
+static DHAT_ALLOC: dhat::Alloc = dhat::Alloc;*/
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let _init_logger = init_logger("tests/config_logger.yaml")?;
+
+    /*#[cfg(feature = "mem-prof-dhat")]
+    let _profiler = dhat::Profiler::new_heap();*/
 
     // Load config
     let cfg: Arc<Config> = Arc::new(
