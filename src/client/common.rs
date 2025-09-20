@@ -4,10 +4,9 @@
 use std::time::Duration;
 
 use anyhow::{Result, anyhow};
+use bytes::Bytes;
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
-
-use crate::models::common::HEADER_LEN;
 
 pub(super) async fn io_with_timeout<F, T>(
     label: &'static str,
@@ -30,8 +29,10 @@ where
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RawPdu {
-    pub last_hdr_with_updated_data: [u8; HEADER_LEN],
-    pub data: Vec<u8>,
+    /// Exactly 48 bytes (BHS)
+    pub header: Bytes,
+    /// BODY (AHS + pad + [HD?] + DATA + pad + [DD?])
+    pub payload: Bytes,
 }

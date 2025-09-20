@@ -1,10 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
-use std::fs;
-
 use anyhow::{Context, Result};
-use hex::FromHex;
+use bytes::Bytes;
 use iscsi_client_rs::{
     cfg::{cli::resolve_config_path, config::Config, enums::Digest},
     control_block::read_capacity::{
@@ -18,16 +16,11 @@ use iscsi_client_rs::{
         },
         common::{BasicHeaderSegment, Builder, HEADER_LEN},
         data::response::ScsiDataIn,
-        data_fromat::PDUWithData,
+        data_fromat::{PduRequest, PduResponse},
     },
 };
 
-// Helper to load a hex fixture and decode it to a byte vector.
-fn load_fixture(path: &str) -> Result<Vec<u8>> {
-    let s = fs::read_to_string(path)?;
-    let cleaned = s.trim().replace(|c: char| c.is_whitespace(), "");
-    Ok(Vec::from_hex(&cleaned)?)
-}
+use crate::unit_tests::load_fixture;
 
 #[test]
 fn test_read_capacity10_request_build() -> Result<()> {
@@ -62,7 +55,7 @@ fn test_read_capacity10_request_build() -> Result<()> {
     let mut header_buf = [0u8; HEADER_LEN];
     header_builder.header.to_bhs_bytes(&mut header_buf)?;
 
-    let mut pdu = PDUWithData::<ScsiCommandRequest>::from_header_slice(header_buf);
+    let mut pdu = PduRequest::<ScsiCommandRequest>::new_request(header_buf, &cfg);
 
     let (hdr_bytes, body_bytes) = pdu.build(
         cfg.login.negotiation.max_recv_data_segment_length as usize,
@@ -113,7 +106,7 @@ fn test_read_capacity16_request_build() -> Result<()> {
     let mut header_buf = [0u8; HEADER_LEN];
     header_builder.header.to_bhs_bytes(&mut header_buf)?;
 
-    let mut pdu = PDUWithData::<ScsiCommandRequest>::from_header_slice(header_buf);
+    let mut pdu = PduRequest::<ScsiCommandRequest>::new_request(header_buf, &cfg);
 
     let (hdr_bytes, body_bytes) = pdu.build(
         cfg.login.negotiation.max_recv_data_segment_length as usize,
@@ -134,6 +127,10 @@ fn test_read_capacity16_request_build() -> Result<()> {
 /// READ CAPACITY(10) — response
 #[test]
 fn test_rc10_response_parse() -> Result<()> {
+    let cfg = resolve_config_path("tests/config.yaml")
+        .and_then(Config::load_from_file)
+        .context("failed to resolve or load config")?;
+
     let raw = load_fixture(
         "tests/unit_tests/fixtures/scsi_commands/read_capacity10_response.hex",
     )
@@ -151,8 +148,8 @@ fn test_rc10_response_parse() -> Result<()> {
     let mut hdr_buf = [0u8; HEADER_LEN];
     hdr_buf.copy_from_slice(hdr_bytes);
 
-    let mut pdu = PDUWithData::<ScsiDataIn>::from_header_slice(hdr_buf);
-    pdu.parse_with_buff(body_bytes, false, false)
+    let mut pdu = PduResponse::<ScsiDataIn>::from_header_slice(hdr_buf, &cfg);
+    pdu.parse_with_buff(&Bytes::copy_from_slice(body_bytes), false, false)
         .context("failed to parse ScsiDataIn PDU body")?;
 
     let header = pdu.header_view()?;
@@ -168,17 +165,17 @@ fn test_rc10_response_parse() -> Result<()> {
 
     // Length checks
     assert_eq!(
-        pdu.data.len(),
+        pdu.data()?.len(),
         header.get_data_length_bytes(),
         "payload length != DataSegmentLength"
     );
     assert!(
-        pdu.data.len() >= 8,
+        pdu.data()?.len() >= 8,
         "RC(10) payload must be at least 8 bytes"
     );
 
     // Parse RC(10) payload
-    let rc10: &Rc10Raw = parse_read_capacity10_zerocopy(&pdu.data)
+    let rc10: &Rc10Raw = parse_read_capacity10_zerocopy(&pdu.data()?)
         .context("failed to zerocopy-parse RC(10) body")?;
 
     let blk = rc10.block_len.get();
@@ -195,6 +192,10 @@ fn test_rc10_response_parse() -> Result<()> {
 /// READ CAPACITY(16) — response
 #[test]
 fn test_rc16_response_parse() -> Result<()> {
+    let cfg = resolve_config_path("tests/config.yaml")
+        .and_then(Config::load_from_file)
+        .context("failed to resolve or load config")?;
+
     let raw = load_fixture(
         "tests/unit_tests/fixtures/scsi_commands/read_capacity16_response.hex",
     )
@@ -212,8 +213,8 @@ fn test_rc16_response_parse() -> Result<()> {
     let mut hdr_buf = [0u8; HEADER_LEN];
     hdr_buf.copy_from_slice(hdr_bytes);
 
-    let mut pdu = PDUWithData::<ScsiDataIn>::from_header_slice(hdr_buf);
-    pdu.parse_with_buff(body_bytes, false, false)
+    let mut pdu = PduResponse::<ScsiDataIn>::from_header_slice(hdr_buf, &cfg);
+    pdu.parse_with_buff(&Bytes::copy_from_slice(body_bytes), false, false)
         .context("failed to parse ScsiDataIn PDU body")?;
 
     let header = pdu.header_view()?;
@@ -227,16 +228,16 @@ fn test_rc16_response_parse() -> Result<()> {
     );
 
     assert_eq!(
-        pdu.data.len(),
+        pdu.data()?.len(),
         header.get_data_length_bytes(),
         "payload length != DataSegmentLength"
     );
     assert!(
-        pdu.data.len() >= 12,
+        pdu.data()?.len() >= 12,
         "RC(16) payload must be at least 12 bytes (max_lba[8] + blk_len[4])"
     );
 
-    let rc16: &Rc16Raw = parse_read_capacity16_zerocopy(&pdu.data)
+    let rc16: &Rc16Raw = parse_read_capacity16_zerocopy(&pdu.data()?)
         .context("failed to zerocopy-parse RC(16) body head")?;
 
     let blk = rc16.block_len.get();

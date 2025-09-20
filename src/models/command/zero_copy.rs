@@ -452,10 +452,10 @@ impl fmt::Debug for RawScsiCmdRespFlags {
         if self.u_small() {
             write!(f, "U_SMALL|")?;
         }
-        if self.u_small() {
+        if self.o_big() {
             write!(f, "O_BIG|")?;
         }
-        if self.u_small() {
+        if self.u_big() {
             write!(f, "U_BIG|")?;
         }
         write!(f, "valid:{} }}", &valid)

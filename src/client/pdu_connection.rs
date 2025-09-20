@@ -13,6 +13,7 @@ pub trait ToBytes: Sized {
     // The fixed length of the PDU header in bytes.
     // rust now don`t support compile time array length
     type Header: AsRef<[u8]>;
+    type Body: AsRef<[u8]>;
 
     /// Consume the PDU builder or object and produce:
     /// - A fixed-size array of `HEADER_LEN` bytes representing the PDU header.
@@ -23,7 +24,7 @@ pub trait ToBytes: Sized {
         max_recv_data_segment_length: usize,
         enable_header_digest: bool,
         enable_data_digest: bool,
-    ) -> Result<(Self::Header, Vec<u8>)>;
+    ) -> Result<(Self::Header, Self::Body)>;
 }
 
 /// Trait for deserializing a full PDU from raw bytes.
@@ -42,6 +43,7 @@ pub trait FromBytes: Sized + BasicHeaderSegment {
 impl<B> ToBytes for B
 where B: Builder
 {
+    type Body = B::Body;
     type Header = B::Header;
 
     fn to_bytes(
@@ -49,7 +51,7 @@ where B: Builder
         max_recv_data_segment_length: usize,
         enable_header_digest: bool,
         enable_data_digest: bool,
-    ) -> Result<(Self::Header, Vec<u8>)> {
+    ) -> Result<(Self::Header, Self::Body)> {
         self.build(
             max_recv_data_segment_length,
             enable_header_digest,

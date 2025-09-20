@@ -12,6 +12,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow};
+use bytes::Bytes;
 use tokio_util::sync::CancellationToken;
 use tracing::debug;
 
@@ -26,7 +27,7 @@ use crate::{
         },
         common::{BasicHeaderSegment, HEADER_LEN},
         data::{response::ScsiDataIn, sense_data::SenseData},
-        data_fromat::PDUWithData,
+        data_fromat::{PduRequest, PduResponse},
         opcode::{BhsOpcode, Opcode},
         parse::Pdu,
     },
@@ -35,8 +36,8 @@ use crate::{
 
 #[derive(Debug)]
 pub enum ReadPdu {
-    DataIn(PDUWithData<ScsiDataIn>),
-    CmdResp(PDUWithData<ScsiCommandResponse>),
+    DataIn(PduResponse<ScsiDataIn>),
+    CmdResp(PduResponse<ScsiCommandResponse>),
 }
 
 #[derive(Debug)]
@@ -60,7 +61,7 @@ pub struct ReadCtx<'a> {
     pub cdb: [u8; 16],
     pub buf: [u8; HEADER_LEN],
 
-    pub last_response: Option<PDUWithData<ScsiCommandResponse>>,
+    pub last_response: Option<PduResponse<ScsiCommandResponse>>,
     pub rt: ReadRuntime,
     state: Option<ReadStates>,
 }
@@ -97,7 +98,7 @@ impl<'a> ReadCtx<'a> {
     }
 
     pub async fn recv_any(&self, itt: u32) -> anyhow::Result<ReadPdu> {
-        let (p_any, data): (PDUWithData<Pdu>, Vec<u8>) =
+        let (p_any, data): (PduResponse<Pdu>, Bytes) =
             self.conn.read_response_raw(itt).await?;
         let op = BhsOpcode::try_from(p_any.header_buf[0])?.opcode;
 
@@ -113,7 +114,7 @@ impl<'a> ReadCtx<'a> {
                 let hd = header.get_header_diggest(hd);
                 let dd = header.get_data_diggest(dd);
 
-                pdu.parse_with_buff(data.as_slice(), hd != 0, dd != 0)?;
+                pdu.parse_with_buff(&data, hd != 0, dd != 0)?;
                 pdu
             })),
             Opcode::ScsiCommandResp => Ok(ReadPdu::CmdResp({
@@ -124,7 +125,7 @@ impl<'a> ReadCtx<'a> {
                 let hd = header.get_header_diggest(hd);
                 let dd = header.get_data_diggest(dd);
 
-                pdu.parse_with_buff(data.as_slice(), hd != 0, dd != 0)?;
+                pdu.parse_with_buff(&data, hd != 0, dd != 0)?;
                 pdu
             })),
             other => anyhow::bail!("unexpected PDU opcode for read path: {other:?}"),
@@ -148,19 +149,19 @@ impl<'a> ReadCtx<'a> {
             .task_attribute(TaskAttribute::Simple);
 
         header.header.to_bhs_bytes(self.buf.as_mut_slice())?;
-        let builder: PDUWithData<ScsiCommandRequest> =
-            PDUWithData::from_header_slice(self.buf);
+        let builder =
+            PduRequest::<ScsiCommandRequest>::new_request(self.buf, &self.conn.cfg);
         self.conn.send_request(self.itt, builder).await?;
 
         self.rt.cur_cmd_sn = Some(sn);
         Ok(esn)
     }
 
-    pub async fn recv_datain(&self, itt: u32) -> Result<PDUWithData<ScsiDataIn>> {
+    pub async fn recv_datain(&self, itt: u32) -> Result<PduResponse<ScsiDataIn>> {
         self.conn.read_response(itt).await
     }
 
-    pub fn apply_datain_append(&mut self, pdu: &PDUWithData<ScsiDataIn>) -> Result<bool> {
+    pub fn apply_datain_append(&mut self, pdu: &PduResponse<ScsiDataIn>) -> Result<bool> {
         let h = pdu.header_view()?;
 
         let off = h.buffer_offset.get() as usize;
@@ -171,8 +172,11 @@ impl<'a> ReadCtx<'a> {
                 self.rt.acc.len()
             ));
         }
-        if !pdu.data.is_empty() {
-            self.rt.acc.extend_from_slice(&pdu.data);
+
+        let data = pdu.data()?;
+
+        if !data.is_empty() {
+            self.rt.acc.extend_from_slice(data);
         }
 
         if h.stat_sn_or_rsvd.get() != 0 {
@@ -181,7 +185,7 @@ impl<'a> ReadCtx<'a> {
         }
         if h.get_status_bit() {
             self.rt.status_in_datain = h.scsi_status();
-            self.rt.residual_in_datain = Some(h.residual_count.get());
+            self.rt.residual_in_datain = Some(h.residual_effective());
         }
 
         Ok(h.get_real_final_bit())
@@ -199,7 +203,7 @@ impl<'a> ReadCtx<'a> {
             ));
         }
 
-        let rsp: PDUWithData<ScsiCommandResponse> = match self.last_response.take() {
+        let rsp: PduResponse<ScsiCommandResponse> = match self.last_response.take() {
             Some(r) => r,
             None => self.conn.read_response(itt).await?,
         };
@@ -215,12 +219,14 @@ impl<'a> ReadCtx<'a> {
         self.exp_stat_sn
             .store(h.stat_sn.get().wrapping_add(1), Ordering::SeqCst);
 
-        let sense = if lr.data.is_empty() {
+        let data = lr.data()?;
+
+        let sense = if data.is_empty() {
             None
         } else {
-            Some(lr.data.clone())
+            Some(data.to_vec())
         };
-        Ok((status, h.residual_count.get(), sense))
+        Ok((status, h.residual_effective(), sense))
     }
 }
 
@@ -328,13 +334,18 @@ impl<'ctx> StateMachine<ReadCtx<'ctx>, ReadStepOut> for Finish {
                 )));
             }
 
-            let expected = ctx.read_len as usize;
-            if ctx.rt.acc.len() != expected || residual != 0 {
+            let requested = ctx.read_len as usize;
+            let expected_after_residual = requested.saturating_sub(residual as usize);
+            let got = ctx.rt.acc.len();
+
+            if got != expected_after_residual {
                 return Transition::Done(Err(anyhow!(
-                    "short/long read: expected {} bytes, got {}; residual={}",
-                    expected,
-                    ctx.rt.acc.len(),
-                    residual
+                    "read length mismatch: requested={}, residual={}, \
+                     expected_after_residual={}, got={}",
+                    requested,
+                    residual,
+                    expected_after_residual,
+                    got
                 )));
             }
 
@@ -349,7 +360,7 @@ pub struct ReadOutcome {
     pub data: Vec<u8>,
     /// Final SCSI Command Response (if target sent one).
     /// When status was carried by the last Data-In (S-bit set), this is None.
-    pub last_response: Option<PDUWithData<ScsiCommandResponse>>,
+    pub last_response: Option<PduResponse<ScsiCommandResponse>>,
 }
 
 impl<'ctx> StateMachineCtx<ReadCtx<'ctx>, ReadOutcome> for ReadCtx<'ctx> {

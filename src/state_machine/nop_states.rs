@@ -18,7 +18,7 @@ use crate::{
     client::client::ClientConnection,
     models::{
         common::HEADER_LEN,
-        data_fromat::PDUWithData,
+        data_fromat::{PduRequest, PduResponse},
         nop::{
             request::{NopOutRequest, NopOutRequestBuilder},
             response::NopInResponse,
@@ -39,7 +39,7 @@ pub struct NopCtx<'a> {
     pub ttt: u32,
     pub buf: [u8; HEADER_LEN],
 
-    last_response: Option<PDUWithData<NopInResponse>>,
+    last_response: Option<PduResponse<NopInResponse>>,
     state: Option<NopStates>,
 }
 
@@ -89,7 +89,7 @@ impl<'a> NopCtx<'a> {
         _itt: Arc<AtomicU32>,
         cmd_sn: Arc<AtomicU32>,
         exp_stat_sn: Arc<AtomicU32>,
-        response: PDUWithData<NopInResponse>,
+        response: PduResponse<NopInResponse>,
     ) -> Result<Self> {
         let header = response.header_view()?;
         Ok(Self {
@@ -119,8 +119,7 @@ impl<'a> NopCtx<'a> {
 
         header.header.to_bhs_bytes(self.buf.as_mut_slice())?;
 
-        let builder: PDUWithData<NopOutRequest> =
-            PDUWithData::from_header_slice(self.buf);
+        let builder = PduRequest::<NopOutRequest>::new_request(self.buf, &self.conn.cfg);
         self.conn.send_request(self.itt, builder).await?;
         Ok(())
     }
@@ -213,7 +212,7 @@ impl<'ctx> StateMachine<NopCtx<'ctx>, NopStepOut> for Reply {
             if let Err(e) = hdr.to_bhs_bytes(ctx.buf.as_mut_slice()) {
                 return Transition::Done(Err(e));
             }
-            let pdu: PDUWithData<NopOutRequest> = PDUWithData::from_header_slice(ctx.buf);
+            let pdu = PduRequest::<NopOutRequest>::new_request(ctx.buf, &ctx.conn.cfg);
 
             // Response — fire-and-forget
             if let Err(e) = ctx.conn.send_request(u32::MAX, pdu).await {
@@ -225,11 +224,11 @@ impl<'ctx> StateMachine<NopCtx<'ctx>, NopStepOut> for Reply {
     }
 }
 
-impl<'s> StateMachineCtx<NopCtx<'s>, PDUWithData<NopInResponse>> for NopCtx<'s> {
+impl<'s> StateMachineCtx<NopCtx<'s>, PduResponse<NopInResponse>> for NopCtx<'s> {
     async fn execute(
         &mut self,
         _cancel: &CancellationToken,
-    ) -> Result<PDUWithData<NopInResponse>> {
+    ) -> Result<PduResponse<NopInResponse>> {
         debug!("Loop Nop");
         loop {
             let state = self.state.take().context("state must be set NopCtx")?;

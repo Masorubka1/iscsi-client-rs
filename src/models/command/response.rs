@@ -60,6 +60,34 @@ impl ScsiCommandResponse {
         }
         Ok(hdr)
     }
+
+    #[inline]
+    pub fn residual_valid(&self) -> bool {
+        self.flags.u_big() || self.flags.o_big()
+    }
+
+    #[inline]
+    pub fn residual_effective(&self) -> u32 {
+        if self.residual_valid() {
+            self.residual_count.get()
+        } else {
+            0
+        }
+    }
+
+    #[inline]
+    pub fn bidi_read_residual_valid(&self) -> bool {
+        self.flags.u_small() || self.flags.o_small()
+    }
+
+    #[inline]
+    pub fn bidi_read_residual_effective(&self) -> u32 {
+        if self.bidi_read_residual_valid() {
+            self.bidirectional_read_residual_count.get()
+        } else {
+            0
+        }
+    }
 }
 
 impl SendingData for ScsiCommandResponse {

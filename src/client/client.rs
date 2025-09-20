@@ -4,12 +4,12 @@
 use std::{
     any::type_name,
     fmt::{self, Debug},
-    io::IoSlice,
     sync::{Arc, Weak},
     time::Duration,
 };
 
 use anyhow::{Result, anyhow, bail};
+use bytes::{Bytes, BytesMut};
 use dashmap::DashMap;
 use once_cell::sync::OnceCell;
 use tokio::{
@@ -34,7 +34,7 @@ use crate::{
     },
     models::{
         common::{BasicHeaderSegment, HEADER_LEN, SendingData},
-        data_fromat::{PDUWithData, ZeroCopyType},
+        data_fromat::{PduResponse, ZeroCopyType},
         nop::{request::NopOutRequest, response::NopInResponse},
         parse::Pdu,
     },
@@ -75,7 +75,7 @@ impl ClientConnection {
     pub async fn connect(cfg: Config, cancel: CancellationToken) -> Result<Arc<Self>> {
         let stream = TcpStream::connect(&cfg.login.security.target_address).await?;
         stream.set_linger(None)?;
-        stream.nodelay()?;
+        stream.set_nodelay(true)?;
 
         let (r, w) = stream.into_split();
 
@@ -174,7 +174,7 @@ impl ClientConnection {
     /// Helper to serialize and write a PDU to the socket.
     async fn write(
         &self,
-        mut req: impl ToBytes<Header = [u8; HEADER_LEN]> + fmt::Debug,
+        mut req: impl ToBytes<Header = [u8; HEADER_LEN], Body = Bytes> + fmt::Debug,
     ) -> Result<()> {
         if self.cancel.is_cancelled() {
             bail!("cancelled");
@@ -193,14 +193,23 @@ impl ClientConnection {
             out_data.len()
         );
 
-        let bufs = [IoSlice::new(&out_header), IoSlice::new(&out_data)];
         io_with_timeout(
-            "write vectored",
-            w.write_vectored(&bufs[..]),
+            "write header (write_all)",
+            w.write_all(&out_header),
             self.cfg.extra_data.connections.timeout_connection,
             &self.cancel,
         )
         .await?;
+
+        if !out_data.is_empty() {
+            io_with_timeout(
+                "write data (write_all)",
+                w.write_all(&out_data),
+                self.cfg.extra_data.connections.timeout_connection,
+                &self.cancel,
+            )
+            .await?;
+        }
 
         Ok(())
     }
@@ -208,7 +217,7 @@ impl ClientConnection {
     pub async fn send_request(
         &self,
         initiator_task_tag: u32,
-        req: impl ToBytes<Header = [u8; HEADER_LEN]> + Debug,
+        req: impl ToBytes<Header = [u8; HEADER_LEN], Body = Bytes> + Debug,
     ) -> Result<()> {
         if self.cancel.is_cancelled() {
             bail!("cancelled");
@@ -235,22 +244,23 @@ impl ClientConnection {
     pub async fn read_response_raw<T: BasicHeaderSegment + Debug>(
         &self,
         initiator_task_tag: u32,
-    ) -> Result<(PDUWithData<T>, Vec<u8>)> {
+    ) -> Result<(PduResponse<T>, Bytes)> {
         let mut rx = self
             .reciver
             .remove(&initiator_task_tag)
             .map(|(_, rx)| rx)
             .ok_or_else(|| anyhow!("no pending request with itt={initiator_task_tag}"))?;
 
-        let RawPdu {
-            mut last_hdr_with_updated_data,
-            data,
-        } = tokio::select! {
+        let RawPdu { header, payload } = tokio::select! {
             _ = self.cancel.cancelled() => return Err(anyhow!("cancelled")),
             msg = rx.recv() => msg.ok_or_else(|| anyhow!("conn closed before answer"))?,
         };
 
-        let pdu_header = Pdu::from_bhs_bytes(&mut last_hdr_with_updated_data)?;
+        let mut hdr_arr: [u8; HEADER_LEN] = header.as_ref().try_into().map_err(|_| {
+            anyhow!("failed to convert header Bytes to [u8; {}]", HEADER_LEN)
+        })?;
+
+        let pdu_header = Pdu::from_bhs_bytes(&mut hdr_arr)?;
         debug!(
             "{} is final bit: {}",
             type_name::<T>(),
@@ -260,9 +270,9 @@ impl ClientConnection {
             let _ = self.reciver.insert(initiator_task_tag, rx);
         }
 
-        let pdu = PDUWithData::<T>::from_header_slice(last_hdr_with_updated_data);
+        let pdu = PduResponse::<T>::from_header_slice(hdr_arr, &self.cfg);
 
-        Ok((pdu, data))
+        Ok((pdu, payload))
     }
 
     pub async fn read_response<
@@ -270,7 +280,7 @@ impl ClientConnection {
     >(
         &self,
         initiator_task_tag: u32,
-    ) -> Result<PDUWithData<T>> {
+    ) -> Result<PduResponse<T>> {
         let (mut pdu, data) = self.read_response_raw(initiator_task_tag).await?;
 
         let header: &T = pdu.header_view()?;
@@ -280,13 +290,15 @@ impl ClientConnection {
         let dd = self.cfg.login.negotiation.data_digest == Digest::CRC32C;
         let dd = header.get_data_diggest(dd);
 
-        pdu.parse_with_buff(data.as_slice(), hd != 0, dd != 0)?;
+        pdu.parse_with_buff(&data, hd != 0, dd != 0)?;
 
         Ok(pdu)
     }
 
     async fn read_loop(self: Arc<Self>) -> Result<()> {
-        let mut hdr = [0u8; HEADER_LEN];
+        let mut scratch = BytesMut::with_capacity(
+            self.cfg.login.negotiation.first_burst_length as usize,
+        );
 
         let hd = self.cfg.login.negotiation.header_digest == Digest::CRC32C;
         let dd = self.cfg.login.negotiation.data_digest == Digest::CRC32C;
@@ -296,18 +308,24 @@ impl ClientConnection {
                 bail!("cancelled");
             }
 
+            scratch.clear();
+
+            scratch.resize(HEADER_LEN, 0);
             {
                 let mut r = self.reader.lock().await;
                 io_with_timeout(
                     "read header",
-                    r.read_exact(&mut hdr),
+                    r.read_exact(&mut scratch[..HEADER_LEN]),
                     self.cfg.extra_data.connections.timeout_connection,
                     &self.cancel,
                 )
                 .await?;
             }
 
-            let pdu_hdr = Pdu::from_bhs_bytes(&mut hdr)?;
+            let pdu_hdr = {
+                let hdr_slice: &mut [u8] = &mut scratch[..HEADER_LEN];
+                Pdu::from_bhs_bytes(hdr_slice)?
+            };
             debug!("PRE BHS: {pdu_hdr:?}");
             let itt = pdu_hdr.get_initiator_task_tag();
             let fin_bit = pdu_hdr.get_final_bit();
@@ -319,40 +337,43 @@ impl ClientConnection {
             } else {
                 total += pdu_hdr.get_header_diggest(hd);
             }
+            let payload_len = total.saturating_sub(HEADER_LEN);
             debug!("total with crc32c {total}");
 
-            let payload = if total > HEADER_LEN {
-                let mut data = vec![0u8; total - HEADER_LEN];
+            if payload_len > 0 {
+                let old = scratch.len();
+                scratch.resize(old + payload_len, 0);
                 let mut r = self.reader.lock().await;
                 io_with_timeout(
                     "read payload",
-                    r.read_exact(&mut data),
+                    r.read_exact(&mut scratch[old..old + payload_len]),
                     self.cfg.extra_data.connections.timeout_connection,
                     &self.cancel,
                 )
                 .await?;
-                data
-            } else {
-                vec![]
-            };
+            }
+
+            let combined: Bytes = scratch.split_to(total).freeze();
+            let header = combined.slice(0..HEADER_LEN);
+            let payload = combined.slice(HEADER_LEN..total);
 
             if let Some((itt, tx)) = self.sending.remove(&itt) {
-                let _ = tx
-                    .send(RawPdu {
-                        last_hdr_with_updated_data: hdr,
-                        data: payload,
-                    })
-                    .await;
+                let _ = tx.send(RawPdu { header, payload }).await;
                 if !fin_bit {
                     self.sending.insert(itt, tx);
                 }
             } else {
-                if self.try_handle_unsolicited_nop_in(hdr, payload).await {
-                    continue;
+                if header.len() == HEADER_LEN {
+                    let mut hdr_arr = [0u8; HEADER_LEN];
+                    hdr_arr.copy_from_slice(&header);
+                    if self
+                        .try_handle_unsolicited_nop_in(hdr_arr, payload.clone())
+                        .await
+                    {
+                        continue;
+                    }
                 }
-                bail!(
-                    "Failed attempt to write to unexisted sender channel with itt {itt}"
-                );
+                bail!("no pending sender channel for itt={itt}");
             }
         }
     }
@@ -388,9 +409,9 @@ impl ClientConnection {
     async fn try_handle_unsolicited_nop_in(
         self: &Arc<Self>,
         hdr: [u8; HEADER_LEN],
-        payload: Vec<u8>,
+        payload: Bytes,
     ) -> bool {
-        let mut pdu = PDUWithData::<NopInResponse>::from_header_slice(hdr);
+        let mut pdu = PduResponse::<NopInResponse>::from_header_slice(hdr, &self.cfg);
 
         let (hd, dd, ttt) = {
             let header = match pdu.header_view() {
@@ -410,7 +431,7 @@ impl ClientConnection {
             (hd, dd, ttt)
         };
 
-        if let Err(e) = pdu.parse_with_buff(payload.as_slice(), hd != 0, dd != 0) {
+        if let Err(e) = pdu.parse_with_buff(&payload, hd != 0, dd != 0) {
             debug!("NOP-In parse failed (probably other opcode): {e}");
             return false;
         }

@@ -1,15 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
-use std::fs;
-
 use anyhow::{Context, Result};
-use hex::FromHex;
+use bytes::{Bytes, BytesMut};
 use iscsi_client_rs::{
     cfg::{cli::resolve_config_path, config::Config, enums::Digest},
     models::{
         common::{BasicHeaderSegment, Builder, HEADER_LEN},
-        data_fromat::PDUWithData,
+        data_fromat::{PDUWithData, PduRequest},
         nop::request::NopOutRequest,
         opcode::{BhsOpcode, Opcode},
         text::{
@@ -20,12 +18,7 @@ use iscsi_client_rs::{
 };
 use zerocopy::FromBytes as ZFromBytes;
 
-// Helper to load a hex fixture and decode it to a byte vector.
-fn load_fixture(path: &str) -> Result<Vec<u8>> {
-    let s = fs::read_to_string(path)?;
-    let cleaned = s.trim().replace(|c: char| c.is_whitespace(), "");
-    Ok(Vec::from_hex(&cleaned)?)
-}
+use crate::unit_tests::load_fixture;
 
 #[test]
 fn test_text_request() -> Result<()> {
@@ -37,8 +30,12 @@ fn test_text_request() -> Result<()> {
 
     let mut header_buf = [0u8; HEADER_LEN];
     header_buf.copy_from_slice(&bytes[..HEADER_LEN]);
-    let mut parsed_fixture = PDUWithData::<TextRequest>::from_header_slice(header_buf);
-    parsed_fixture.parse_with_buff(&bytes[HEADER_LEN..], false, false)?;
+    let mut parsed_fixture = PduRequest::<TextRequest>::new_request(header_buf, &cfg);
+    parsed_fixture.parse_with_buff_mut(
+        BytesMut::from(&bytes[HEADER_LEN..]),
+        false,
+        false,
+    )?;
 
     let itt = 1;
     let ttt = NopOutRequest::DEFAULT_TAG;
@@ -54,8 +51,8 @@ fn test_text_request() -> Result<()> {
 
     let mut hdr_buf = [0u8; HEADER_LEN];
     header_builder.header.to_bhs_bytes(&mut hdr_buf)?;
-    let mut builder = PDUWithData::<TextRequest>::from_header_slice(hdr_buf);
-    builder.append_data(parsed_fixture.data.clone());
+    let mut builder = PduRequest::<TextRequest>::new_request(hdr_buf, &cfg);
+    builder.append_data(parsed_fixture.data()?);
 
     let (hdr_bytes, body_bytes) = &builder.build(
         cfg.login.negotiation.max_recv_data_segment_length as usize,
@@ -95,15 +92,22 @@ fn test_text_request() -> Result<()> {
 
 #[test]
 fn test_text_response() -> Result<()> {
+    let cfg =
+        resolve_config_path("tests/config.yaml").and_then(Config::load_from_file)?;
+
     let bytes = load_fixture("tests/unit_tests/fixtures/text/text_response.hex")?;
     assert!(bytes.len() >= HEADER_LEN);
 
     let mut header_buf = [0u8; HEADER_LEN];
     header_buf.copy_from_slice(&bytes[..HEADER_LEN]);
-    let mut parsed = PDUWithData::<TextResponse>::from_header_slice(header_buf);
-    parsed.parse_with_buff(&bytes[HEADER_LEN..], false, false)?;
+    let mut parsed = PDUWithData::<TextResponse>::from_header_slice(header_buf, &cfg);
+    parsed.parse_with_buff(
+        &Bytes::copy_from_slice(&bytes[HEADER_LEN..]),
+        false,
+        false,
+    )?;
 
-    assert!(!parsed.data.is_empty());
+    assert!(!parsed.data()?.is_empty());
     assert!(parsed.header_digest.is_none());
     assert!(parsed.data_digest.is_none());
 
@@ -113,14 +117,15 @@ fn test_text_response() -> Result<()> {
     assert_eq!(op.opcode, Opcode::TextResp, "expected TextResp opcode");
 
     let data_size = hdr.get_data_length_bytes();
-    assert_eq!(data_size, parsed.data.len());
+    assert_eq!(data_size, parsed.data()?.len());
 
     assert_eq!(hdr.stat_sn.get(), 1939077135);
     assert_eq!(hdr.exp_cmd_sn.get(), 2);
 
     let expected =
         "TargetName=iqn.2025-07.com.example:target0\0TargetAddress=127.0.0.1:3260,1\0";
-    let actual = String::from_utf8(parsed.data).context("Failed to decode TEXT data")?;
+    let actual = String::from_utf8(parsed.data()?.to_vec())
+        .context("Failed to decode TEXT data")?;
     assert_eq!(expected.to_string(), actual);
 
     Ok(())

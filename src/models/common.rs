@@ -180,10 +180,11 @@ impl<T: BasicHeaderSegment> BasicHeaderSegment for &mut T {
 pub trait Builder: Sized {
     /// The concrete buffer type used to return the encoded header.
     type Header: AsRef<[u8]>;
+    type Body: AsRef<[u8]>;
 
     /// Append raw bytes to the **Data-Segment** and update the
     /// `DataSegmentLength` field inside the owned header.
-    fn append_data(&mut self, more: Vec<u8>);
+    fn append_data(&mut self, more: &[u8]);
 
     /// Finish the builder and produce one or more ready-to-send
     /// `(header_bytes, data_bytes)` frames.
@@ -195,5 +196,5 @@ pub trait Builder: Sized {
         max_recv_data_segment_length: usize,
         enable_header_digest: bool,
         enable_data_digest: bool,
-    ) -> Result<(Self::Header, Vec<u8>)>;
+    ) -> Result<(Self::Header, Self::Body)>;
 }

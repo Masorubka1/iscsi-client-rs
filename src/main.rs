@@ -23,7 +23,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::info;
 
 fn fill_pattern(buf: &mut [u8], blk_sz: usize, lba_start: u64) {
-    assert!(blk_sz > 0 && buf.len() % blk_sz == 0);
+    assert!(blk_sz > 0 && buf.len().is_multiple_of(blk_sz));
     for (i, chunk) in buf.chunks_exact(blk_sz).enumerate() {
         let v = (((lba_start as usize) + i) as u8) ^ 0xA5;
         unsafe { std::ptr::write_bytes(chunk.as_ptr() as *mut u8, v, blk_sz) }
@@ -49,9 +49,16 @@ fn choose_lba_safely(max_lba: u64, need_blocks: u64) -> Result<u32> {
     Ok(lba as u32)
 }
 
+/*#[cfg(feature = "mem-prof-dhat")]
+#[global_allocator]
+static DHAT_ALLOC: dhat::Alloc = dhat::Alloc;*/
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let _init_logger = init_logger("tests/config_logger.yaml")?;
+
+    /*#[cfg(feature = "mem-prof-dhat")]
+    let _profiler = dhat::Profiler::new_heap();*/
 
     // Load config
     let cfg: Arc<Config> = Arc::new(

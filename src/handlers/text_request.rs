@@ -9,7 +9,7 @@ use crate::{
     client::client::ClientConnection,
     models::{
         common::{BasicHeaderSegment, Builder, HEADER_LEN},
-        data_fromat::PDUWithData,
+        data_fromat::{PduRequest, PduResponse},
         text::{
             request::{TextRequest, TextRequestBuilder},
             response::TextResponse,
@@ -26,7 +26,7 @@ pub async fn send_text(
     target_task_tag: u32,
     cmd_sn: &AtomicU32,
     exp_stat_sn: &AtomicU32,
-) -> Result<PDUWithData<TextResponse>> {
+) -> Result<PduResponse<TextResponse>> {
     let sn = cmd_sn.load(Ordering::SeqCst);
     let esn = exp_stat_sn.load(Ordering::SeqCst);
     let itt = initiator_task_tag.fetch_add(1, Ordering::SeqCst);
@@ -41,9 +41,9 @@ pub async fn send_text(
     let mut buf = [0u8; HEADER_LEN];
     header.header.to_bhs_bytes(&mut buf)?;
 
-    let mut builder: PDUWithData<TextRequest> = PDUWithData::from_header_slice(buf);
+    let mut builder = PduRequest::<TextRequest>::new_request(buf, &conn.cfg);
 
-    builder.append_data(b"X-Ping=1\0".to_vec());
+    builder.append_data(b"X-Ping=1\0".as_slice());
 
     /*info!(
         "TextRequest hdr={:?} data={}",

@@ -7,7 +7,7 @@ use tracing::debug;
 use crate::{
     client::client::ClientConnection,
     models::{
-        common::HEADER_LEN, data_fromat::PDUWithData, login::response::LoginResponse,
+        common::HEADER_LEN, data_fromat::PduResponse, login::response::LoginResponse,
     },
     state_machine::{
         common::{StateMachine, StateMachineCtx, Transition},
@@ -29,7 +29,7 @@ pub struct LoginCtx<'a> {
     pub itt: u32,
     pub buf: [u8; HEADER_LEN],
 
-    pub last_response: Option<PDUWithData<LoginResponse>>,
+    pub last_response: Option<PduResponse<LoginResponse>>,
 
     state: Option<LoginStates>,
 }
@@ -67,7 +67,7 @@ impl<'a> LoginCtx<'a> {
         }
     }
 
-    pub fn validate_last_response_pdu(&self) -> Result<&PDUWithData<LoginResponse>> {
+    pub fn validate_last_response_pdu(&self) -> Result<&PduResponse<LoginResponse>> {
         match &self.last_response {
             Some(l) => Ok(l),
             None => Err(anyhow!("no last response in ctx")),
@@ -88,13 +88,13 @@ pub enum LoginStates {
     ChapOpToFull(ChapOpToFull),
 }
 
-impl<'ctx> StateMachineCtx<LoginCtx<'ctx>, PDUWithData<LoginResponse>>
+impl<'ctx> StateMachineCtx<LoginCtx<'ctx>, PduResponse<LoginResponse>>
     for LoginCtx<'ctx>
 {
     async fn execute(
         &mut self,
         _cancel: &CancellationToken,
-    ) -> Result<PDUWithData<LoginResponse>> {
+    ) -> Result<PduResponse<LoginResponse>> {
         debug!("Loop login");
         loop {
             let state = self.state.take().context("state must be set LoginCtx")?;
