@@ -165,7 +165,6 @@ impl<'a> WriteCtx<'a> {
 
             let header = pdu.header_view_mut()?;
 
-            header.set_data_length_bytes(take as u32);
             if last_chunk_in_window {
                 header.set_final_bit();
             } else {

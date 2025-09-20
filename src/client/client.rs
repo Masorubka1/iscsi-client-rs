@@ -175,7 +175,7 @@ impl ClientConnection {
     /// Helper to serialize and write a PDU to the socket.
     async fn write(
         &self,
-        mut req: impl ToBytes<Header = [u8; HEADER_LEN]> + fmt::Debug,
+        mut req: impl ToBytes<Header = [u8; HEADER_LEN], Body = Bytes> + fmt::Debug,
     ) -> Result<()> {
         if self.cancel.is_cancelled() {
             bail!("cancelled");
@@ -209,7 +209,7 @@ impl ClientConnection {
     pub async fn send_request(
         &self,
         initiator_task_tag: u32,
-        req: impl ToBytes<Header = [u8; HEADER_LEN]> + Debug,
+        req: impl ToBytes<Header = [u8; HEADER_LEN], Body = Bytes> + Debug,
     ) -> Result<()> {
         if self.cancel.is_cancelled() {
             bail!("cancelled");
