@@ -1,3 +1,6 @@
+//! This module defines the structures for iSCSI Logout Request PDUs.
+//! It includes the `LogoutRequest` header and a builder for constructing it.
+
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
@@ -41,6 +44,7 @@ pub struct LogoutRequest {
 }
 
 impl LogoutRequest {
+    /// Serializes the BHS into a byte buffer.
     pub fn to_bhs_bytes(&self, buf: &mut [u8]) -> Result<()> {
         buf.fill(0);
         if buf.len() != HEADER_LEN {
@@ -50,6 +54,7 @@ impl LogoutRequest {
         Ok(())
     }
 
+    /// Deserializes the BHS from a byte buffer.
     pub fn from_bhs_bytes(buf: &mut [u8]) -> Result<&mut Self> {
         let hdr = <Self as zerocopy::FromBytes>::mut_from_bytes(buf)
             .map_err(|e| anyhow::anyhow!("failed convert buffer LogoutRequest: {e}"))?;
@@ -73,6 +78,7 @@ pub struct LogoutRequestBuilder {
 }
 
 impl LogoutRequestBuilder {
+    /// Creates a new `LogoutRequestBuilder` with the given reason, ITT, and CID.
     pub fn new(reason: LogoutReason, itt: u32, cid: u16) -> Self {
         Self {
             header: LogoutRequest {
@@ -92,20 +98,19 @@ impl LogoutRequestBuilder {
         }
     }
 
-    /// Set the Connection ID (CID) — required when closing a specific
-    /// connection.
+    /// Sets the Connection ID (CID) for the logout request.
     pub fn connection_id(mut self, cid: u16) -> Self {
         self.header.cid.set(cid);
         self
     }
 
-    /// Set the command sequence number (CmdSN).
+    /// Sets the command sequence number (CmdSN) for this request.
     pub fn cmd_sn(mut self, cmd_sn: u32) -> Self {
         self.header.cmd_sn.set(cmd_sn);
         self
     }
 
-    /// Set the expected StatSN from the target.
+    /// Sets the expected status sequence number (ExpStatSN) from the target.
     pub fn exp_stat_sn(mut self, exp_stat_sn: u32) -> Self {
         self.header.exp_stat_sn.set(exp_stat_sn);
         self

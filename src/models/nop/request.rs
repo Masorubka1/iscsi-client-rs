@@ -1,3 +1,6 @@
+//! This module defines the structures for iSCSI NOP-Out PDUs.
+//! It includes the `NopOutRequest` header and a builder for constructing it.
+
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
@@ -16,7 +19,7 @@ use crate::{
     },
 };
 
-/// BHS for NopOutRequest PDU
+/// Represents the Basic Header Segment (BHS) for a NOP-Out PDU.
 #[repr(C)]
 #[derive(Debug, Default, PartialEq, ZFromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct NopOutRequest {
@@ -33,8 +36,10 @@ pub struct NopOutRequest {
 }
 
 impl NopOutRequest {
+    /// The default task tag value for NOP-Out requests.
     pub const DEFAULT_TAG: u32 = 0xffffffff_u32;
 
+    /// Serializes the BHS into a byte buffer.
     pub fn to_bhs_bytes(&self, buf: &mut [u8]) -> Result<()> {
         buf.fill(0);
         if buf.len() != HEADER_LEN {
@@ -44,6 +49,7 @@ impl NopOutRequest {
         Ok(())
     }
 
+    /// Deserializes the BHS from a byte buffer.
     pub fn from_bhs_bytes(buf: &mut [u8]) -> Result<&mut Self> {
         let hdr = <Self as zerocopy::FromBytes>::mut_from_bytes(buf)
             .map_err(|e| anyhow::anyhow!("failed convert buffer NopOutRequest: {e}"))?;
@@ -96,6 +102,7 @@ pub struct NopOutRequestBuilder {
 }
 
 impl NopOutRequestBuilder {
+    /// Creates a new `NopOutRequestBuilder` with default values.
     pub fn new() -> Self {
         NopOutRequestBuilder {
             header: NopOutRequest {
@@ -116,19 +123,19 @@ impl NopOutRequestBuilder {
         }
     }
 
-    /// Set Immediate bit (Immediate = bit6)
+    /// Sets the Immediate bit in the PDU header.
     pub fn immediate(mut self) -> Self {
         self.header.opcode.set_i();
         self
     }
 
-    /// Enable HeaderDigest in NOP-Out.
+    /// Enables header digest for the PDU.
     pub fn with_header_digest(mut self) -> Self {
         self.want_header_digest = true;
         self
     }
 
-    /// Enable DataDigest in NOP-Out.
+    /// Enables data digest for the PDU.
     pub fn with_data_digest(mut self) -> Self {
         self.want_data_digest = true;
         self
@@ -140,7 +147,7 @@ impl NopOutRequestBuilder {
         self
     }
 
-    /// Sets the target task tag, a unique identifier for this command.
+    /// Sets the target task tag, used to match a response to a NOP-In.
     pub fn target_task_tag(mut self, tag: u32) -> Self {
         self.header.target_task_tag.set(tag);
         self
@@ -158,7 +165,7 @@ impl NopOutRequestBuilder {
         self
     }
 
-    /// Set the 8-byte Logical Unit Number (LUN) in the BHS header.
+    /// Sets the Logical Unit Number (LUN) for the command.
     pub fn lun(mut self, lun: u64) -> Self {
         self.header.lun.set(lun);
         self

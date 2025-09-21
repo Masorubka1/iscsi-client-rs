@@ -34,6 +34,10 @@ use crate::{
     state_machine::common::{StateMachine, StateMachineCtx, Transition},
 };
 
+/// This structure represents the context for a SCSI Write operation.
+///
+/// It holds all the necessary information to manage the state of a write operation,
+/// including connection details, command parameters, and the data to be written.
 #[derive(Debug)]
 pub struct WriteCtx<'a> {
     _lt: PhantomData<&'a ()>,
@@ -310,13 +314,19 @@ impl<'a> WriteCtx<'a> {
     }
 }
 
+/// Represents the initial state of a write operation.
 #[derive(Debug)]
 pub struct Start;
+
+/// Represents the state of waiting for a Ready To Transfer (R2T) PDU from the target.
 #[derive(Debug)]
 pub struct WaitR2T;
+
+/// Represents the final state of a write operation, where the system is waiting for the final SCSI response.
 #[derive(Debug)]
 pub struct Finish;
 
+/// Defines the possible states for a SCSI Write operation state machine.
 #[derive(Debug)]
 pub enum WriteStates {
     Start(Start),
@@ -464,6 +474,9 @@ impl<'ctx> StateMachine<WriteCtx<'ctx>, WriteStep> for Finish {
     }
 }
 
+/// Represents the outcome of a completed SCSI Write operation.
+///
+/// This structure contains the final response from the target and statistics about the data transfer.
 #[derive(Debug)]
 pub struct WriteOutcome {
     /// Final SCSI Command Response (always present for WRITE).

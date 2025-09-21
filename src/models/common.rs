@@ -1,3 +1,7 @@
+//! This module defines common traits and constants for iSCSI Protocol Data Units (PDUs).
+//! It includes traits for handling data transmission, managing the Basic Header Segment (BHS),
+//! and building PDUs with data segments.
+
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
@@ -6,6 +10,7 @@ use enum_dispatch::enum_dispatch;
 
 use crate::models::opcode::BhsOpcode;
 
+/// The fixed length of the Basic Header Segment (BHS) in bytes.
 pub const HEADER_LEN: usize = 48;
 
 /// Common helper-trait for PDUs that may be fragmented into several
@@ -17,9 +22,12 @@ pub const HEADER_LEN: usize = 48;
 /// by the transport; the target relies only on the *Continue* and *Final*
 /// flags found in byte 1 of every Basic-Header-Segment.
 ///
+/// Trait for PDU types that support data transmission control flags
+///
 /// Implementing `SendingData` lets generic helpers (e.g. the
 /// `PDUWithData` builder or the `Connection` read-loop) toggle and query
 /// those flags **without** knowing the concrete PDU type.
+/// Provides methods to manage Final (F) and Continue (C) bits used in multi-PDU sequences.
 #[enum_dispatch]
 pub trait SendingData: Sized {
     /// Return the current state of the **Final (F)** bit.
@@ -35,14 +43,16 @@ pub trait SendingData: Sized {
     fn set_continue_bit(&mut self);
 }
 
-/// Common functionality for any iSCSI PDU “Basic Header Segment” (BHS).
+/// Common functionality for any iSCSI PDU Basic Header Segment (BHS)
 ///
-/// A BHS is always 48 bytes long; higher‐level PDUs then may
+/// A BHS is always 48 bytes long according to RFC 7143; higher‐level PDUs then may
 /// carry additional AHS sections, a variable-length DataSegment,
-/// and optional digests.  This trait encapsulates:
+/// and optional digests. This trait encapsulates:
 /// 1. extracting lengths out of the BHS,
 /// 2. appending to the DataSegment,
 /// 3. and finally building the full wire format.
+///
+/// All iSCSI PDU types must implement this trait to provide basic header operations.
 #[enum_dispatch]
 pub trait BasicHeaderSegment: Sized + SendingData {
     fn to_bhs_bytes(&self, buf: &mut [u8]) -> Result<()>;
@@ -177,6 +187,11 @@ impl<T: BasicHeaderSegment> BasicHeaderSegment for &mut T {
 /// [`Builder::build`]; the helper splits the payload into chunks that
 /// respect *MaxRecvDataSegmentLength* and automatically toggles the
 /// **F/C** bits on the header copies.
+/// Trait for building iSCSI PDUs with progressive data assembly.
+///
+/// Provides functionality to construct PDU frames by appending data segments
+/// and managing digest calculations. Implementations handle the wire format
+/// serialization with proper padding and digest generation.
 pub trait Builder: Sized {
     /// The concrete buffer type used to return the encoded header.
     type Header: AsRef<[u8]>;

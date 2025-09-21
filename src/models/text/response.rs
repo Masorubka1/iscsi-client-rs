@@ -16,7 +16,7 @@ use crate::{
     },
 };
 
-/// BHS for NopOutRequest PDU
+/// Represents the Basic Header Segment (BHS) for a Text Response PDU.
 #[repr(C)]
 #[derive(Debug, Default, PartialEq, ZFromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct TextResponse {

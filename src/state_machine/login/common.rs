@@ -18,6 +18,10 @@ use crate::{
     },
 };
 
+/// This structure represents the context for a Login command.
+///
+/// It holds all the necessary information to manage the state of a Login operation,
+/// including connection details, command parameters, and authentication information.
 #[derive(Debug)]
 pub struct LoginCtx<'a> {
     _lt: PhantomData<&'a ()>,
@@ -77,6 +81,7 @@ impl<'a> LoginCtx<'a> {
 
 pub type LoginStepOut = Transition<LoginStates, Result<()>>;
 
+/// Defines the possible states for a Login operation state machine.
 #[derive(Debug)]
 pub enum LoginStates {
     // Plain (1 Step)

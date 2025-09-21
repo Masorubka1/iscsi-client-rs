@@ -29,6 +29,10 @@ use crate::{
     state_machine::common::{StateMachine, StateMachineCtx, Transition},
 };
 
+/// This structure represents the context for a SCSI Test Unit Ready (TUR) command.
+///
+/// It holds all the necessary information to manage the state of a TUR operation,
+/// including connection details and command parameters.
 #[derive(Debug)]
 pub struct TurCtx<'a> {
     _lt: PhantomData<&'a ()>,
@@ -119,11 +123,15 @@ impl<'a> TurCtx<'a> {
     }
 }
 
+/// Represents the initial state of a TUR operation.
 #[derive(Debug)]
 pub struct Idle;
+
+/// Represents the state of waiting for a response to a TUR command.
 #[derive(Debug)]
 pub struct Wait;
 
+/// Defines the possible states for a SCSI Test Unit Ready (TUR) operation state machine.
 #[derive(Debug)]
 pub enum TurStates {
     Idle(Idle),

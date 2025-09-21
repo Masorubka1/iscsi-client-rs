@@ -1,3 +1,6 @@
+//! This module defines the structures for iSCSI SCSI Data-In PDUs.
+//! It includes the `ScsiDataIn` header and related methods for handling data transfer from target to initiator.
+
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
@@ -18,7 +21,7 @@ use crate::{
     },
 };
 
-/// BHS for SCSI Data-In (opcode 0x25)
+/// Represents the Basic Header Segment (BHS) for a SCSI Data-In PDU (opcode 0x25).
 #[repr(C)]
 #[derive(Debug, Default, PartialEq, ZFromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct ScsiDataIn {
@@ -41,7 +44,7 @@ pub struct ScsiDataIn {
 }
 
 impl ScsiDataIn {
-    /// Returns decoded SCSI status iff `S=1` (otherwise `None`).
+    /// Returns the decoded SCSI status if the Status (S) bit is set.
     #[inline]
     pub fn scsi_status(&self) -> Option<ScsiStatus> {
         if self.flags.s() {
@@ -51,11 +54,13 @@ impl ScsiDataIn {
         }
     }
 
+    /// Checks if the residual count is valid.
     #[inline]
     pub fn residual_valid(&self) -> bool {
         self.flags.u() || self.flags.o()
     }
 
+    /// Returns the effective residual count.
     #[inline]
     pub fn residual_effective(&self) -> u32 {
         if self.residual_valid() {
@@ -65,7 +70,7 @@ impl ScsiDataIn {
         }
     }
 
-    /// Sets/clears SCSI status and enforces `S ⇒ F`.
+    /// Sets the SCSI status and updates the S and F flags accordingly.
     #[inline]
     pub fn set_scsi_status(&mut self, st: Option<ScsiStatus>) {
         match st {
@@ -83,10 +88,7 @@ impl ScsiDataIn {
         }
     }
 
-    /// Serialize BHS into the provided 48-byte buffer.
-    ///
-    /// If `S=0`, zeroes out the Status/StatSN/ResidualCount bytes
-    /// as required by the spec.
+    /// Serializes the BHS into a byte buffer, zeroing out fields as required.
     #[inline]
     pub fn to_bhs_bytes(&self, buf: &mut [u8]) -> Result<()> {
         if buf.len() != HEADER_LEN {
@@ -101,7 +103,7 @@ impl ScsiDataIn {
         Ok(())
     }
 
-    /// Parse BHS in-place (backed by the caller's buffer).
+    /// Deserializes the BHS from a byte buffer.
     #[inline]
     pub fn from_bhs_bytes(buf: &mut [u8]) -> Result<&mut Self> {
         if buf.len() < HEADER_LEN {
@@ -124,11 +126,13 @@ impl ScsiDataIn {
         Ok(hdr)
     }
 
+    /// Returns the actual value of the Final (F) bit.
     #[inline]
     pub fn get_real_final_bit(&self) -> bool {
         self.flags.fin()
     }
 
+    /// Returns the value of the Status (S) bit.
     #[inline]
     pub fn get_status_bit(&self) -> bool {
         self.flags.s()

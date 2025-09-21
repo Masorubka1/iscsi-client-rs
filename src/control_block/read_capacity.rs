@@ -65,21 +65,31 @@ pub fn build_read_capacity16(
     cdb[15] = control;
 }
 
-/// Raw 8-byte parameter data of READ CAPACITY(10).
+/// Raw 8-byte parameter data returned by READ CAPACITY(10) command
+///
+/// Contains the basic capacity information for a SCSI block device.
+/// All fields are stored in big-endian format as per SCSI specification.
 #[repr(C)]
 #[derive(FromBytes, KnownLayout, Immutable, Debug)]
 pub struct Rc10Raw {
-    pub max_lba: U32<BigEndian>,   // bytes 0..4
-    pub block_len: U32<BigEndian>, // bytes 4..8
+    /// Maximum logical block address (bytes 0-3) - highest valid LBA on the device
+    pub max_lba: U32<BigEndian>,
+    /// Block length in bytes (bytes 4-7) - size of each logical block
+    pub block_len: U32<BigEndian>,
 }
 
-/// Raw head (first 12 bytes) of READ CAPACITY(16) parameter data.
-/// Spec may return 32 bytes;
+/// Raw header (first 12 bytes) of READ CAPACITY(16) parameter data
+///
+/// Contains extended capacity information for large SCSI block devices.
+/// The specification may return up to 32 bytes, but this structure covers
+/// the essential first 12 bytes. All fields are in big-endian format.
 #[repr(C)]
 #[derive(FromBytes, KnownLayout, Immutable, Debug)]
 pub struct Rc16Raw {
-    pub max_lba: U64<BigEndian>,   // bytes 0..8
-    pub block_len: U32<BigEndian>, // bytes 8..12
+    /// Maximum logical block address (bytes 0-7) - 64-bit LBA for large devices
+    pub max_lba: U64<BigEndian>,
+    /// Block length in bytes (bytes 8-11) - size of each logical block
+    pub block_len: U32<BigEndian>,
 }
 
 impl Rc10Raw {

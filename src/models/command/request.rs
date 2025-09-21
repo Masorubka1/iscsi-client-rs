@@ -1,3 +1,6 @@
+//! This module defines the structures for iSCSI SCSI Command Request PDUs.
+//! It includes the `ScsiCommandRequest` header and a builder for constructing it.
+
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
@@ -16,26 +19,43 @@ use crate::{
     },
 };
 
-/// BHS for ScsiCommandRequest PDU
+/// Basic Header Segment for iSCSI SCSI Command Request PDU
+///
+/// Represents the 48-byte header structure for SCSI Command PDU as defined in RFC 7143.
+/// Contains all the fields necessary to send a SCSI command over iSCSI including
+/// task tags, sequence numbers, LUN, and the embedded SCSI CDB.
 #[repr(C)]
 #[derive(Debug, Default, PartialEq, ZFromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct ScsiCommandRequest {
-    pub opcode: RawBhsOpcode,                          // 0
-    pub flags: RawScsiCmdReqFlags,                     // 1
-    reserved1: [u8; 2],                                // 2..4
-    pub total_ahs_length: u8,                          // 4
-    pub data_segment_length: [u8; 3],                  // 5..8
-    pub lun: U64<BigEndian>,                           // 8..16
-    pub initiator_task_tag: U32<BigEndian>,            // 16..20
-    pub expected_data_transfer_length: U32<BigEndian>, // 20..24
-    pub cmd_sn: U32<BigEndian>,                        // 24..28
-    pub exp_stat_sn: U32<BigEndian>,                   // 28..32
-    pub scsi_descriptor_block: [u8; 16],               // 32..48
+    /// PDU opcode (byte 0) - should be 0x01 for SCSI Command
+    pub opcode: RawBhsOpcode,
+    /// Command flags (byte 1) - Final, Read, Write bits and task attributes
+    pub flags: RawScsiCmdReqFlags,
+    /// Reserved bytes (2-3)
+    reserved1: [u8; 2],
+    /// Total Additional Header Segments length (byte 4)
+    pub total_ahs_length: u8,
+    /// Data Segment Length (bytes 5-7) - length of immediate data
+    pub data_segment_length: [u8; 3],
+    /// Logical Unit Number (bytes 8-15)
+    pub lun: U64<BigEndian>,
+    /// Initiator Task Tag (bytes 16-19) - unique command identifier
+    pub initiator_task_tag: U32<BigEndian>,
+    /// Expected Data Transfer Length (bytes 20-23) - total data expected
+    pub expected_data_transfer_length: U32<BigEndian>,
+    /// Command Sequence Number (bytes 24-27) - for ordering
+    pub cmd_sn: U32<BigEndian>,
+    /// Expected Status Sequence Number (bytes 28-31) - acknowledgment
+    pub exp_stat_sn: U32<BigEndian>,
+    /// SCSI Command Descriptor Block (bytes 32-47) - the actual SCSI command
+    pub scsi_descriptor_block: [u8; 16],
 }
 
 impl ScsiCommandRequest {
+    /// The default initiator task tag value.
     pub const DEFAULT_TAG: u32 = 0xffffffff_u32;
 
+    /// Serializes the BHS into a byte buffer.
     pub fn to_bhs_bytes(&self, buf: &mut [u8]) -> Result<()> {
         buf.fill(0);
         if buf.len() != HEADER_LEN {
@@ -45,6 +65,7 @@ impl ScsiCommandRequest {
         Ok(())
     }
 
+    /// Deserializes the BHS from a byte buffer.
     pub fn from_bhs_bytes(buf: &mut [u8]) -> Result<&mut Self> {
         let hdr = <Self as zerocopy::FromBytes>::mut_from_bytes(buf)
             .map_err(|e| anyhow!("failed convert buffer ScsiCommandRequest: {e}"))?;
@@ -58,35 +79,22 @@ impl ScsiCommandRequest {
     }
 }
 
-/// Builder for **SCSI Command** PDUs (opcode `0x01`).
+/// Builder for constructing iSCSI SCSI Command Request PDUs
 ///
-/// This helper constructs the Basic Header Segment (BHS) for a SCSI command
-/// sent over iSCSI. It lets you set the common fields (LUN, ITT, CmdSN,
-/// ExpStatSN, 16-byte CDB, task attributes, and READ/WRITE/Immediate flags)
-/// and, when needed, request header/data digests for serialization.
-///
-/// Notes & conventions:
-/// - The 16-byte **CDB** is copied verbatim into the header. For READ(10) or
-///   WRITE(10) you typically pad your 10-byte CDB to 16 bytes.
-/// - **expected_data_transfer_length** is the total payload you expect to move:
-///   * For **Data-Out** (WRITE) it should match the number of bytes you will
-///     actually send in subsequent Data-Out PDUs (unsolicited or per R2T).
-///   * For **Data-In** (READ) it announces how many bytes you expect to receive
-///     and is used for residual accounting by the target.
-/// - **Immediate (I)** sets bit 6 in the opcode byte. Whether the target
-///   processes immediate commands depends on negotiated parameters.
-/// - **TaskAttribute** encodes SIMPLE/ORDERED/HEAD_OF_QUEUE/ACA into the low
-///   bits of the flags field (per SPC/SAM).
-/// - Enabling **Header/Data Digest** here only toggles intent for the
-///   serialization layer; it does not modify BHS fields directly.
+/// Provides methods to build and serialize SCSI Command Request PDUs with proper
+/// digest handling and data segment management.
 #[derive(Debug, Default, PartialEq)]
 pub struct ScsiCommandRequestBuilder {
+    /// The SCSI command request header structure
     pub header: ScsiCommandRequest,
+    /// Whether to calculate and include header digest
     enable_header_digest: bool,
+    /// Whether to calculate and include data digest
     enable_data_digest: bool,
 }
 
 impl ScsiCommandRequestBuilder {
+    /// Creates a new `ScsiCommandRequestBuilder` with default values.
     pub fn new() -> Self {
         ScsiCommandRequestBuilder {
             header: ScsiCommandRequest {
@@ -102,37 +110,37 @@ impl ScsiCommandRequestBuilder {
         }
     }
 
-    /// Set Immediate bit (Immediate = bit6)
+    /// Sets the Immediate bit in the PDU header.
     pub fn immediate(mut self) -> Self {
         self.header.opcode.set_i();
         self
     }
 
-    /// Set Read bit
+    /// Sets the Read bit in the PDU header.
     pub fn read(mut self) -> Self {
         self.header.flags.set_read(true);
         self
     }
 
-    /// Set Read bit
+    /// Sets the Write bit in the PDU header.
     pub fn write(mut self) -> Self {
         self.header.flags.set_write(true);
         self
     }
 
-    /// Set TaskTag bits
+    /// Sets the task attribute for the SCSI command.
     pub fn task_attribute(mut self, task: TaskAttribute) -> Self {
         self.header.flags.set_task_attr(task);
         self
     }
 
-    /// Enable HeaderDigest in NOP-Out.
+    /// Enables header digest for the PDU.
     pub fn with_header_digest(mut self) -> Self {
         self.enable_header_digest = true;
         self
     }
 
-    /// Enable DataDigest in NOP-Out.
+    /// Enables data digest for the PDU.
     pub fn with_data_digest(mut self) -> Self {
         self.enable_data_digest = true;
         self
@@ -144,7 +152,7 @@ impl ScsiCommandRequestBuilder {
         self
     }
 
-    /// Sets the expected_data_length, a length off all parts of data.
+    /// Sets the expected data transfer length for the command.
     pub fn expected_data_transfer_length(mut self, expected_data_length: u32) -> Self {
         self.header
             .expected_data_transfer_length
@@ -164,13 +172,13 @@ impl ScsiCommandRequestBuilder {
         self
     }
 
-    /// Set the 8-byte Logical Unit Number (LUN) in the BHS header.
+    /// Sets the Logical Unit Number (LUN) for the command.
     pub fn lun(mut self, lun: u64) -> Self {
         self.header.lun.set(lun);
         self
     }
 
-    /// Set the 16-byte SCSI Command Descriptor Block (CDB) in the BHS header.
+    /// Sets the SCSI Command Descriptor Block (CDB).
     pub fn scsi_descriptor_block(mut self, scsi_descriptor_block: &[u8; 16]) -> Self {
         self.header
             .scsi_descriptor_block

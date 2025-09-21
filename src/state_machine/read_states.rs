@@ -34,12 +34,16 @@ use crate::{
     state_machine::common::{StateMachine, StateMachineCtx, Transition},
 };
 
+/// Represents the types of PDUs that can be received during a SCSI Read operation.
 #[derive(Debug)]
 pub enum ReadPdu {
     DataIn(PduResponse<ScsiDataIn>),
     CmdResp(PduResponse<ScsiCommandResponse>),
 }
 
+/// Holds the runtime state for a SCSI Read operation.
+///
+/// This includes the accumulated data, command sequence number, and status information.
 #[derive(Debug)]
 pub struct ReadRuntime {
     pub acc: Vec<u8>,
@@ -48,6 +52,10 @@ pub struct ReadRuntime {
     pub residual_in_datain: Option<u32>,
 }
 
+/// This structure represents the context for a SCSI Read operation.
+///
+/// It holds all the necessary information to manage the state of a read operation,
+/// including connection details, command parameters, and the received data.
 #[derive(Debug)]
 pub struct ReadCtx<'a> {
     _lt: PhantomData<&'a ()>,
@@ -230,13 +238,19 @@ impl<'a> ReadCtx<'a> {
     }
 }
 
+/// Represents the initial state of a read operation.
 #[derive(Debug)]
 pub struct Start;
+
+/// Represents the state of waiting for data from the target.
 #[derive(Debug)]
 pub struct ReadWait;
+
+/// Represents the final state of a read operation, where the system is processing the final response.
 #[derive(Debug)]
 pub struct Finish;
 
+/// Defines the possible states for a SCSI Read operation state machine.
 #[derive(Debug)]
 pub enum ReadStates {
     Start(Start),
@@ -354,6 +368,9 @@ impl<'ctx> StateMachine<ReadCtx<'ctx>, ReadStepOut> for Finish {
     }
 }
 
+/// Represents the outcome of a completed SCSI Read operation.
+///
+/// This structure contains the data received from the target and the final response.
 #[derive(Debug)]
 pub struct ReadOutcome {
     /// Concatenated payload from all Data-In PDUs (in order).

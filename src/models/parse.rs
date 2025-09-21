@@ -1,3 +1,7 @@
+//! This module provides utilities for parsing iSCSI Protocol Data Units (PDUs).
+//! It defines a generic `Pdu` enum that can represent any PDU type and provides
+//! a function to parse a PDU from its Basic Header Segment (BHS) bytes.
+
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
@@ -17,6 +21,8 @@ use crate::models::{
     text::{request::TextRequest, response::TextResponse},
 };
 
+/// An enum representing any iSCSI Protocol Data Unit (PDU).
+/// This enum dispatches to the `BasicHeaderSegment` and `SendingData` traits.
 #[enum_dispatch(BasicHeaderSegment, SendingData)]
 #[derive(Debug)]
 pub enum Pdu<'a> {
@@ -37,6 +43,7 @@ pub enum Pdu<'a> {
 }
 
 impl<'a> Pdu<'a> {
+    /// Parses a PDU from its Basic Header Segment (BHS) bytes.
     pub fn from_bhs_bytes(bytes: &'a mut [u8]) -> Result<Self> {
         let bhs = BhsOpcode::try_from(bytes[0])
             .map_err(|e| anyhow::anyhow!("invalid opcode: {}", e))?;

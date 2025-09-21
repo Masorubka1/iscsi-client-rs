@@ -1,3 +1,6 @@
+//! This module defines the structures for iSCSI Login Request PDUs.
+//! It includes the `LoginRequest` header and a builder for constructing it.
+
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
@@ -16,27 +19,46 @@ use crate::{
     },
 };
 
-/// BHS form LoginRequest PDU
+/// Basic Header Segment for iSCSI Login Request PDU
+///
+/// Represents the 48-byte header structure for Login Request PDU as defined in RFC 7143.
+/// Contains session establishment parameters including version negotiation, session IDs,
+/// and connection information used during the iSCSI login process.
 #[repr(C)]
 #[derive(Debug, Default, PartialEq, ZFromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct LoginRequest {
-    pub opcode: RawBhsOpcode,               // 0
-    pub flags: RawLoginFlags,               // 1
-    pub version_max: u8,                    // 2
-    pub version_min: u8,                    // 3
-    pub total_ahs_length: u8,               // 4
-    pub data_segment_length: [u8; 3],       // 5..8
-    pub isid: [u8; 6],                      // 8..14
-    pub tsih: U16<BigEndian>,               // 14..16
-    pub initiator_task_tag: U32<BigEndian>, // 16..20
-    pub cid: U16<BigEndian>,                // 20..22
-    reserved1: [u8; 2],                     // 22..24
-    pub cmd_sn: U32<BigEndian>,             // 24..28
-    pub exp_stat_sn: U32<BigEndian>,        // 28..32
-    reserved2: [u8; 16],                    // 32..48
+    /// PDU opcode (byte 0) - should be 0x43 for Login Request
+    pub opcode: RawBhsOpcode,
+    /// Login flags (byte 1) - Transit, Continue bits and stage information
+    pub flags: RawLoginFlags,
+    /// Maximum version supported by initiator (byte 2)
+    pub version_max: u8,
+    /// Minimum version supported by initiator (byte 3)
+    pub version_min: u8,
+    /// Total Additional Header Segments length (byte 4)
+    pub total_ahs_length: u8,
+    /// Data Segment Length (bytes 5-7) - length of login parameters
+    pub data_segment_length: [u8; 3],
+    /// Initiator Session ID (bytes 8-13) - unique session identifier
+    pub isid: [u8; 6],
+    /// Target Session Identifying Handle (bytes 14-15) - 0 for new sessions
+    pub tsih: U16<BigEndian>,
+    /// Initiator Task Tag (bytes 16-19) - unique request identifier
+    pub initiator_task_tag: U32<BigEndian>,
+    /// Connection ID (bytes 20-21) - connection identifier within session
+    pub cid: U16<BigEndian>,
+    /// Reserved bytes (22-23)
+    reserved1: [u8; 2],
+    /// Command Sequence Number (bytes 24-27) - for login phase ordering
+    pub cmd_sn: U32<BigEndian>,
+    /// Expected Status Sequence Number (bytes 28-31) - acknowledgment
+    pub exp_stat_sn: U32<BigEndian>,
+    /// Reserved bytes (32-47)
+    reserved2: [u8; 16],
 }
 
 impl LoginRequest {
+    /// Serializes the BHS into a byte buffer.
     pub fn to_bhs_bytes(&self, buf: &mut [u8]) -> Result<()> {
         buf.fill(0);
         if buf.len() != HEADER_LEN {
@@ -46,6 +68,7 @@ impl LoginRequest {
         Ok(())
     }
 
+    /// Deserializes the BHS from a byte buffer.
     pub fn from_bhs_bytes(buf: &mut [u8]) -> Result<&mut Self> {
         let hdr = <Self as zerocopy::FromBytes>::mut_from_bytes(buf)
             .map_err(|e| anyhow::anyhow!("failed convert buffer LoginRequest: {e}"))?;
@@ -90,6 +113,7 @@ pub struct LoginRequestBuilder {
 }
 
 impl LoginRequestBuilder {
+    /// Creates a new `LoginRequestBuilder` with the given ISID and TSIH.
     pub fn new(isid: [u8; 6], tsih: u16) -> Self {
         LoginRequestBuilder {
             header: LoginRequest {
@@ -106,25 +130,25 @@ impl LoginRequestBuilder {
         }
     }
 
-    /// Set Transit (T = bit7)
+    /// Sets the Transit (T) bit, indicating a stage transition request.
     pub fn transit(mut self) -> Self {
         self.header.flags.set_transit(true);
         self
     }
 
-    /// Set CSG (connection-stage: bits 3–4)
+    /// Sets the Current Stage (CSG) of the login phase.
     pub fn csg(mut self, stage: Stage) -> Self {
         self.header.flags.set_csg(stage);
         self
     }
 
-    /// Set NSG (next-stage: bits 0–1)
+    /// Sets the Next Stage (NSG) of the login phase.
     pub fn nsg(mut self, stage: Stage) -> Self {
         self.header.flags.set_nsg(stage);
         self
     }
 
-    /// Minimal and maximum version of protocol
+    /// Sets the minimum and maximum iSCSI versions supported by the initiator.
     pub fn versions(mut self, max: u8, min: u8) -> Self {
         self.header.version_max = max;
         self.header.version_min = min;
@@ -137,7 +161,7 @@ impl LoginRequestBuilder {
         self
     }
 
-    /// Sets the connection ID (CID) for multiplexing sessions.
+    /// Sets the connection ID (CID) for this login request.
     pub fn connection_id(mut self, cid: u16) -> Self {
         self.header.cid.set(cid);
         self
@@ -155,6 +179,7 @@ impl LoginRequestBuilder {
         self
     }
 
+    /// Sets the Initiator Session ID (ISID) for the login request.
     pub fn isid(mut self, isid: &[u8; 6]) -> Self {
         self.header.isid.clone_from_slice(isid);
         self

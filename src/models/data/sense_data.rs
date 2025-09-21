@@ -1,3 +1,6 @@
+//! This module defines the structures for SCSI Sense Data.
+//! It provides a parser for sense data and a function to convert ASC/ASCQ codes to strings.
+
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
@@ -7,25 +10,39 @@ use anyhow::{Context, Result, anyhow};
 
 use crate::models::data::Entry;
 
+/// The minimum length of a fixed-format sense data structure.
 pub const FIXED_MIN_LEN: usize = 18;
 
+/// Represents SCSI Sense Data, providing detailed error information.
 #[repr(C)]
 #[derive(Default, PartialEq)]
 pub struct SenseData {
+    /// Indicates if the information field is valid.
     pub valid: bool,
+    /// The response code, indicating the format of the sense data.
     pub response_code: u8,
+    /// The general category of the error.
     pub sense_key: u8,
+    /// Incorrect Length Indicator.
     pub ili: bool,
+    /// End-of-Medium indicator.
     pub eom: bool,
+    /// Filemark indicator.
     pub filemark: bool,
+    /// Command-specific information.
     pub information: u32,
+    /// The length of the additional sense data.
     pub additional_len: u8,
+    /// Command-specific information.
     pub cmd_specific: u32,
+    /// Additional Sense Code.
     pub asc: u8,
+    /// Additional Sense Code Qualifier.
     pub ascq: u8,
 }
 
 impl SenseData {
+    /// Parses a byte buffer into a `SenseData` structure.
     pub fn parse(buf: &[u8]) -> Result<Self> {
         if buf.len() < FIXED_MIN_LEN {
             return Err(anyhow!("sense buffer too small: {}", buf.len()));
@@ -140,8 +157,7 @@ impl fmt::Debug for SenseData {
     }
 }
 
-/// Human-readable description for ASC/ASCQ from the generated SPC table.
-/// Falls back to a generic message if the pair is not listed (vendor-specific).
+/// Converts an ASC/ASCQ code pair to a human-readable string.
 #[inline]
 pub fn asc_ascq_to_str(asc: u8, ascq: u8) -> &'static str {
     Entry::lookup(asc, ascq).unwrap_or("UNSPECIFIED / vendor specific")

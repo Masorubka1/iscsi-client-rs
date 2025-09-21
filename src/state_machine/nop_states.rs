@@ -27,6 +27,10 @@ use crate::{
     state_machine::common::{StateMachine, StateMachineCtx, Transition},
 };
 
+/// This structure represents the context for a NOP-Out/NOP-In exchange.
+///
+/// It holds all the necessary information to manage the state of a NOP-Out/NOP-In operation,
+/// including connection details and command parameters.
 #[derive(Debug)]
 pub struct NopCtx<'a> {
     _lt: PhantomData<&'a ()>,
@@ -135,13 +139,19 @@ impl<'a> NopCtx<'a> {
     }
 }
 
+/// Represents the initial state of a NOP-Out operation.
 #[derive(Debug)]
 pub struct Start;
+
+/// Represents the state of waiting for a NOP-In response.
 #[derive(Debug)]
 pub struct Wait;
+
+/// Represents the state of sending a NOP-Out in reply to a NOP-In.
 #[derive(Debug)]
 pub struct Reply;
 
+/// Defines the possible states for a NOP-Out/NOP-In operation state machine.
 #[derive(Debug)]
 pub enum NopStates {
     Start(Start),

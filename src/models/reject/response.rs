@@ -17,7 +17,7 @@ use crate::{
     },
 };
 
-/// BHS for a Reject PDU (always 48 bytes)
+/// Represents the Basic Header Segment (BHS) for a Reject PDU.
 #[repr(C)]
 #[derive(Debug, Default, PartialEq, ZFromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct RejectPdu {

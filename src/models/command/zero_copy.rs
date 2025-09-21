@@ -1,3 +1,6 @@
+//! This module provides zero-copy structures for iSCSI Command PDUs.
+//! These structures are used for efficient serialization and deserialization of PDU fields.
+
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
@@ -11,7 +14,7 @@ use crate::models::command::common::{
     TaskAttribute, UnknownResponseCode, UnknownScsiStatus,
 };
 
-/// 3-bit SCSI Task Attribute (lower bits of the request flags).
+/// Represents the 3-bit SCSI Task Attribute, which is part of the flags in a SCSI Command Request.
 #[repr(transparent)]
 #[derive(Default, Clone, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct RawTaskAttribute(u8);
@@ -19,17 +22,19 @@ pub struct RawTaskAttribute(u8);
 impl RawTaskAttribute {
     const MASK: u8 = 0b0000_0111;
 
+    /// Returns the raw 3-bit value of the task attribute.
     #[inline]
     pub const fn raw(&self) -> u8 {
         self.0 & Self::MASK
     }
 
+    /// Creates a new `RawTaskAttribute` from a 3-bit value.
     #[inline]
     pub const fn new(bits3: u8) -> Self {
         Self(bits3 & Self::MASK)
     }
 
-    /// Decode to high-level enum.
+    /// Decodes the raw value into a `TaskAttribute` enum.
     #[inline]
     pub fn decode(&self) -> TaskAttribute {
         match self.raw() {
@@ -44,7 +49,7 @@ impl RawTaskAttribute {
         }
     }
 
-    /// Encode from high-level enum.
+    /// Encodes a `TaskAttribute` enum into the raw value.
     #[inline]
     pub fn encode(&mut self, attr: TaskAttribute) {
         let v = match attr {
@@ -75,52 +80,64 @@ impl From<RawTaskAttribute> for TaskAttribute {
     }
 }
 
-/// Wire view for **SCSI Command Request** flags (byte 1 of the PDU).
+/// Represents the wire format for the flags in a SCSI Command Request PDU.
 #[repr(transparent)]
 #[derive(Default, Clone, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct RawScsiCmdReqFlags(u8);
 
 impl RawScsiCmdReqFlags {
+    /// Bitmask for the task attribute field.
     pub const ATTR: u8 = 0x07;
+    /// Bitmask for the Final flag.
     pub const FINAL: u8 = 0x80;
+    /// Bitmask for the Read flag.
     pub const READ: u8 = 0x40;
+    /// Bitmask for the Write flag.
     pub const WRITE: u8 = 0x20;
 
+    /// Returns the raw 8-bit value of the flags.
     #[inline]
     pub const fn raw(&self) -> u8 {
         self.0
     }
 
+    /// Creates a new `RawScsiCmdReqFlags` from a raw 8-bit value.
     #[inline]
     pub const fn new_raw(v: u8) -> Self {
         Self(v)
     }
 
+    /// Checks if the Final flag is set.
     #[inline]
     pub fn fin(&self) -> bool {
         self.0 & Self::FINAL != 0
     }
 
+    /// Checks if the Read flag is set.
     #[inline]
     pub fn read(&self) -> bool {
         self.0 & Self::READ != 0
     }
 
+    /// Checks if the Write flag is set.
     #[inline]
     pub fn write(&self) -> bool {
         self.0 & Self::WRITE != 0
     }
 
+    /// Sets or clears the Final flag.
     #[inline]
     pub fn set_fin(&mut self, on: bool) {
         self.set(Self::FINAL, on)
     }
 
+    /// Sets or clears the Read flag.
     #[inline]
     pub fn set_read(&mut self, on: bool) {
         self.set(Self::READ, on)
     }
 
+    /// Sets or clears the Write flag.
     #[inline]
     pub fn set_write(&mut self, on: bool) {
         self.set(Self::WRITE, on)
@@ -135,11 +152,13 @@ impl RawScsiCmdReqFlags {
         }
     }
 
+    /// Returns the `TaskAttribute` from the flags.
     #[inline]
     pub fn task_attr(&self) -> TaskAttribute {
         RawTaskAttribute::new(self.0 & Self::ATTR).decode()
     }
 
+    /// Sets the `TaskAttribute` in the flags.
     #[inline]
     pub fn set_task_attr(&mut self, attr: TaskAttribute) {
         let ra = RawTaskAttribute::from(attr);
@@ -164,78 +183,90 @@ impl TryFrom<RawScsiCmdReqFlags> for ScsiCommandRequestFlags {
     }
 }
 
-/// Wire view for **SCSI Command Response** flags (byte 1 of the PDU).
+/// Represents the wire format for the flags in a SCSI Command Response PDU.
 #[repr(transparent)]
 #[derive(Default, Clone, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct RawScsiCmdRespFlags(u8);
 
 impl RawScsiCmdRespFlags {
+    /// Bitmask for the Final flag.
     pub const FINAL: u8 = 0b1000_0000;
-    // bidir read residual underflow
+    /// Bitmask for the bidirectional read residual overflow flag.
     pub const O_BIG: u8 = 0b0000_0100;
+    /// Bitmask for the bidirectional read residual underflow flag.
     pub const O_SMALL: u8 = 0b0001_0000;
-    // residual overflow
+    /// Bitmask for the residual overflow flag.
     pub const U_BIG: u8 = 0b0000_0010;
-    // bidir read residual overflow
+    /// Bitmask for the residual underflow flag.
     pub const U_SMALL: u8 = 0b0000_1000;
 
-    // residual underflow
-
+    /// Returns the raw 8-bit value of the flags.
     #[inline]
     pub const fn raw(&self) -> u8 {
         self.0
     }
 
+    /// Creates a new `RawScsiCmdRespFlags` from a raw 8-bit value.
     #[inline]
     pub const fn new_raw(v: u8) -> Self {
         Self(v)
     }
 
+    /// Checks if the Final flag is set.
     #[inline]
     pub fn fin(&self) -> bool {
         self.0 & Self::FINAL != 0
     }
 
+    /// Checks if the bidirectional read residual overflow flag is set.
     #[inline]
     pub fn o_small(&self) -> bool {
         self.0 & Self::O_SMALL != 0
     }
 
+    /// Checks if the bidirectional read residual underflow flag is set.
     #[inline]
     pub fn u_small(&self) -> bool {
         self.0 & Self::U_SMALL != 0
     }
 
+    /// Checks if the residual overflow flag is set.
     #[inline]
     pub fn o_big(&self) -> bool {
         self.0 & Self::O_BIG != 0
     }
 
+    /// Checks if the residual underflow flag is set.
     #[inline]
     pub fn u_big(&self) -> bool {
         self.0 & Self::U_BIG != 0
     }
 
+    /// Sets or clears the Final flag.
     #[inline]
     pub fn set_fin(&mut self, on: bool) {
         self.set(Self::FINAL, on)
     }
 
+    /// Sets or clears the bidirectional read residual overflow flag.
     #[inline]
     pub fn set_o_small(&mut self, on: bool) {
         self.set_pair(Self::O_SMALL, Self::U_SMALL, on)
     }
 
+    /// Sets or clears the bidirectional read residual underflow flag.
     #[inline]
     pub fn set_u_small(&mut self, on: bool) {
         self.set_pair(Self::U_SMALL, Self::O_SMALL, on)
     }
 
+    /// Sets or clears the residual overflow flag.
     #[inline]
     pub fn set_o_big(&mut self, on: bool) {
         self.set_pair(Self::O_BIG, Self::U_BIG, on)
     }
 
+    /// Sets or clears the residual underflow flag.
     #[inline]
     pub fn set_u_big(&mut self, on: bool) {
         self.set_pair(Self::U_BIG, Self::O_BIG, on)
@@ -261,7 +292,7 @@ impl RawScsiCmdRespFlags {
         }
     }
 
-    /// RFC rule: not both U and O in the same pair.
+    /// Validates the flags according to the iSCSI specification.
     #[inline]
     pub fn validate(&self) -> Result<()> {
         if (self.o_big() && self.u_big()) || (self.o_small() && self.u_small()) {
@@ -298,22 +329,25 @@ impl TryFrom<RawScsiCmdRespFlags> for ScsiCommandResponseFlags {
     }
 }
 
-/// Wire view for the 1-byte **ResponseCode** field (SCSI Response PDU).
+/// Represents the wire format for the 1-byte ResponseCode field in a SCSI Response PDU.
 #[repr(transparent)]
 #[derive(Default, Clone, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct RawResponseCode(u8);
 
 impl RawResponseCode {
+    /// Returns the raw 8-bit value of the response code.
     #[inline]
     pub const fn raw(&self) -> u8 {
         self.0
     }
 
+    /// Creates a new `RawResponseCode` from a raw 8-bit value.
     #[inline]
     pub const fn new_raw(v: u8) -> Self {
         Self(v)
     }
 
+    /// Decodes the raw value into a `ResponseCode` enum.
     #[inline]
     pub fn decode(&self) -> Result<ResponseCode, UnknownResponseCode> {
         match self.0 {
@@ -324,6 +358,7 @@ impl RawResponseCode {
         }
     }
 
+    /// Encodes a `ResponseCode` enum into the raw value.
     #[inline]
     pub fn encode(&mut self, rc: ResponseCode) {
         self.0 = match rc {
@@ -352,22 +387,25 @@ impl From<ResponseCode> for RawResponseCode {
     }
 }
 
-/// Wire view for the 1-byte **SCSI Status** field (SCSI Response PDU).
+/// Represents the wire format for the 1-byte SCSI Status field in a SCSI Response PDU.
 #[repr(transparent)]
 #[derive(Default, Clone, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct RawScsiStatus(u8);
 
 impl RawScsiStatus {
+    /// Returns the raw 8-bit value of the SCSI status.
     #[inline]
     pub const fn raw(&self) -> u8 {
         self.0
     }
 
+    /// Creates a new `RawScsiStatus` from a raw 8-bit value.
     #[inline]
     pub const fn new_raw(v: u8) -> Self {
         Self(v)
     }
 
+    /// Decodes the raw value into a `ScsiStatus` enum.
     #[inline]
     pub fn decode(&self) -> Result<ScsiStatus, UnknownScsiStatus> {
         Ok(match self.0 {
@@ -382,6 +420,7 @@ impl RawScsiStatus {
         })
     }
 
+    /// Encodes a `ScsiStatus` enum into the raw value.
     #[inline]
     pub fn encode(&mut self, st: ScsiStatus) {
         self.0 = match st {

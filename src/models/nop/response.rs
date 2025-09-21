@@ -1,3 +1,6 @@
+//! This module defines the structures for iSCSI NOP-In PDUs.
+//! It includes the `NopInResponse` header and related methods for handling ping responses.
+
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
@@ -16,7 +19,7 @@ use crate::{
     },
 };
 
-/// BHS for NopOutRequest PDU
+/// Represents the Basic Header Segment (BHS) for a NOP-In PDU.
 #[repr(C)]
 #[derive(Debug, Default, PartialEq, ZFromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct NopInResponse {
@@ -34,7 +37,7 @@ pub struct NopInResponse {
 }
 
 impl NopInResponse {
-    /// Serialize BHS in 48 bytes
+    /// Serializes the BHS into a byte buffer.
     pub fn to_bhs_bytes(&self, buf: &mut [u8]) -> Result<()> {
         if buf.len() != HEADER_LEN {
             bail!("buffer length must be {HEADER_LEN}, got {}", buf.len());
@@ -43,6 +46,7 @@ impl NopInResponse {
         Ok(())
     }
 
+    /// Deserializes the BHS from a byte buffer.
     pub fn from_bhs_bytes(buf: &mut [u8]) -> Result<&mut Self> {
         let hdr = <Self as zerocopy::FromBytes>::mut_from_bytes(buf)
             .map_err(|e| anyhow!("failed convert buffer NopInResponse: {e}"))?;

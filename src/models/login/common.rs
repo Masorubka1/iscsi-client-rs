@@ -1,3 +1,6 @@
+//! This module defines common structures and enums for iSCSI Login PDUs.
+//! It includes flags and stage definitions for the login process.
+
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
@@ -58,16 +61,21 @@ impl fmt::Debug for LoginFlags {
     }
 }
 
+/// Represents the stages of the iSCSI login phase.
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 #[repr(u8)]
 pub enum Stage {
+    /// Security negotiation stage.
     #[default]
     Security = 0,
+    /// Operational negotiation stage.
     Operational = 1,
+    /// Full feature phase.
     FullFeature = 3,
 }
 
 impl Stage {
+    /// Creates a `Stage` from a 2-bit value.
     pub fn from_bits(bits: u8) -> Option<Self> {
         match bits & 0b11 {
             0 => Some(Stage::Security),
@@ -93,34 +101,37 @@ impl Stage {
 pub struct RawLoginFlags(u8);
 
 impl RawLoginFlags {
+    /// Returns the raw 8-bit value of the flags.
     #[inline]
     pub const fn raw(self) -> u8 {
         self.0
     }
 
+    /// Creates a new `RawLoginFlags` from a raw 8-bit value.
     #[inline]
     pub const fn from_raw(v: u8) -> Self {
         Self(v)
     }
 
-    /// Lossy conversion into your `LoginFlags` bitflags (unknown bits are
-    /// kept).
+    /// Converts the raw flags to a `LoginFlags` bitflags struct.
     #[inline]
     pub fn flags(self) -> Result<LoginFlags> {
         LoginFlags::try_from(self.0)
     }
 
-    /// Overwrite all bits from a `LoginFlags` value.
+    /// Sets the raw flags from a `LoginFlags` bitflags struct.
     #[inline]
     pub fn set_flags(&mut self, f: LoginFlags) {
         self.0 = f.bits();
     }
 
+    /// Checks if the Transit (T) bit is set.
     #[inline]
     pub fn transit(self) -> bool {
         (self.0 & LoginFlags::TRANSIT.bits()) != 0
     }
 
+    /// Sets or clears the Transit (T) bit.
     #[inline]
     pub fn set_transit(&mut self, on: bool) {
         if on {
@@ -130,11 +141,13 @@ impl RawLoginFlags {
         }
     }
 
+    /// Checks if the Continue (C) bit is set.
     #[inline]
     pub fn cont(self) -> bool {
         (self.0 & LoginFlags::CONTINUE.bits()) != 0
     }
 
+    /// Sets or clears the Continue (C) bit.
     #[inline]
     pub fn set_cont(&mut self, on: bool) {
         if on {
@@ -146,28 +159,26 @@ impl RawLoginFlags {
 
     // --- CSG / NSG (Stage) ---
 
-    /// Get Current Stage (bits 3..2). Returns `None` if the encoded value is
-    /// reserved (2).
+    /// Gets the Current Stage (CSG) from the flags.
     #[inline]
     pub fn csg(self) -> Option<Stage> {
         Stage::from_bits((self.0 & LoginFlags::CSG_MASK.bits()) >> 2)
     }
 
-    /// Set Current Stage (bits 3..2).
+    /// Sets the Current Stage (CSG) in the flags.
     #[inline]
     pub fn set_csg(&mut self, s: Stage) {
         self.0 = (self.0 & !LoginFlags::CSG_MASK.bits())
             | (((s as u8) & LoginFlags::NSG_MASK.bits()) << 2);
     }
 
-    /// Get Next Stage (bits 1..0). Returns `None` if the encoded value is
-    /// reserved (2).
+    /// Gets the Next Stage (NSG) from the flags.
     #[inline]
     pub fn nsg(self) -> Option<Stage> {
         Stage::from_bits(self.0 & LoginFlags::NSG_MASK.bits())
     }
 
-    /// Set Next Stage (bits 1..0).
+    /// Sets the Next Stage (NSG) in the flags.
     #[inline]
     pub fn set_nsg(&mut self, s: Stage) {
         self.0 = (self.0 & !LoginFlags::NSG_MASK.bits())

@@ -16,7 +16,7 @@ use crate::{
     },
 };
 
-/// BHS for **Ready To Transfer (R2T)** – RFC 7143 §10.7.
+/// Represents the Basic Header Segment (BHS) for a Ready To Transfer (R2T) PDU.
 #[repr(C)]
 #[derive(Debug, Default, PartialEq, ZFromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct ReadyToTransfer {

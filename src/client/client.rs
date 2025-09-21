@@ -41,31 +41,45 @@ use crate::{
     state_machine::nop_states::NopCtx,
 };
 
+/// A weak reference to a session in the pool, used for unsolicited NOP-In auto-replies.
+///
+/// Contains a weak reference to the session pool and identifies a specific
+/// session and connection within that pool.
 #[derive(Debug, Clone)]
 struct SessionRef {
+    /// Weak reference to the session pool to avoid circular references
     pool: Weak<Pool>,
+    /// Target Session Identifying Handle
     tsih: u16,
+    /// Connection ID within the session
     cid: u16,
 }
 
-/// A simple iSCSI connection wrapper over a TCP stream.
+/// Represents a single iSCSI connection over a TCP stream.
 ///
-/// Manages sending requests (PDUs) and receiving responses by
-/// framing based on header information.
+/// This struct manages sending requests (PDUs) and receiving responses, and is responsible for
+/// framing PDUs based on the information in their headers. It handles the low-level TCP
+/// communication with proper framing according to the iSCSI protocol.
 #[derive(Debug)]
 pub struct ClientConnection {
+    /// TCP read half protected by mutex for concurrent access
     pub reader: Mutex<OwnedReadHalf>,
+    /// TCP write half protected by mutex for concurrent access
     pub writer: Mutex<OwnedWriteHalf>,
+    /// Configuration parameters for this connection
     pub cfg: Config,
+    /// Map of ITT to sender channels for outgoing PDUs
     sending: DashMap<u32, mpsc::Sender<RawPdu>>,
+    /// Map of ITT to receiver channels for incoming PDUs
     reciver: DashMap<u32, mpsc::Receiver<RawPdu>>,
 
+    /// Reference to the session this connection belongs to
     session_ref: OnceCell<SessionRef>,
 
-    /// Global “kill now” token: if cancelled, both read and write paths abort
+    /// Global "kill now" token: if cancelled, both read and write paths abort
     /// immediately.
     cancel: CancellationToken,
-    /// “Soft stop” gate for writes: when cancelled, new writes are rejected,
+    /// "Soft stop" gate for writes: when cancelled, new writes are rejected,
     /// but the read loop keeps draining in-flight responses.
     pub(crate) stop_writes: CancellationToken,
 }

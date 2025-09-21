@@ -1,3 +1,6 @@
+//! This module defines the generic PDU container and related traits.
+//! It provides a generic structure for iSCSI PDUs, handling data, headers, and digests.
+
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
@@ -20,6 +23,7 @@ use crate::{
     },
 };
 
+/// A marker trait for types that can be used with zerocopy and are suitable for iSCSI PDUs.
 pub trait ZeroCopyType: KnownLayout + Immutable + IntoBytes + ZFromBytes {}
 
 #[inline]
@@ -58,17 +62,27 @@ fn compute_data_digest(data: &[u8]) -> u32 {
     crc32c_with_padding(&[data], pad_len(data.len()))
 }
 
+/// A type alias for a PDU request, which uses a mutable `BytesMut` body.
 pub type PduRequest<T> = PDUWithData<T, BytesMut>;
+/// A type alias for a PDU response, which uses an immutable `Bytes` body.
 pub type PduResponse<T> = PDUWithData<T, Bytes>;
 
+/// A generic container for an iSCSI Protocol Data Unit (PDU).
+///
+/// This struct holds the PDU's header, payload (data), and digest information.
+/// It is generic over the body type, allowing it to be used for both requests (with a mutable body)
+/// and responses (with an immutable body).
 #[derive(PartialEq)]
 pub struct PDUWithData<T, Body = Bytes> {
+    /// The raw buffer for the Basic Header Segment (BHS).
     pub header_buf: [u8; HEADER_LEN],
     payload: Body,
 
     enable_header_digest: bool,
     enable_data_digest: bool,
+    /// The optional header digest value.
     pub header_digest: Option<U32<BigEndian>>,
+    /// The optional data digest value.
     pub data_digest: Option<U32<BigEndian>>,
     hd_reserved: bool,
     dd_appended: bool,
@@ -77,7 +91,8 @@ pub struct PDUWithData<T, Body = Bytes> {
 }
 
 impl<T> Builder for PDUWithData<T, BytesMut>
-where T: BasicHeaderSegment + SendingData + FromBytes + ZeroCopyType
+where
+    T: BasicHeaderSegment + SendingData + FromBytes + ZeroCopyType,
 {
     type Body = Bytes;
     type Header = [u8; HEADER_LEN];
@@ -204,6 +219,7 @@ where T: BasicHeaderSegment + SendingData + FromBytes + ZeroCopyType
 }
 
 impl<T> PDUWithData<T, Bytes> {
+    /// Creates a new `PDUWithData` instance from a header slice and configuration.
     pub fn from_header_slice(header_buf: [u8; HEADER_LEN], cfg: &Config) -> Self {
         Self {
             header_buf,
@@ -220,6 +236,7 @@ impl<T> PDUWithData<T, Bytes> {
 }
 
 impl<T> PDUWithData<T, BytesMut> {
+    /// Creates a new `PDUWithData` request instance with a mutable body.
     pub fn new_request(header_buf: [u8; HEADER_LEN], cfg: &Config) -> Self {
         Self {
             header_buf,
@@ -234,6 +251,7 @@ impl<T> PDUWithData<T, BytesMut> {
         }
     }
 
+    /// Parses the PDU payload from a mutable buffer, verifying digests.
     pub fn parse_with_buff_mut(
         &mut self,
         mut buf: BytesMut,
@@ -303,6 +321,7 @@ impl<T> PDUWithData<T, BytesMut> {
         Ok(())
     }
 
+    /// Parses the PDU payload from a reference to a mutable buffer.
     pub fn parse_with_buff_ref(
         &mut self,
         buf: &BytesMut,
@@ -321,28 +340,40 @@ where
     T: BasicHeaderSegment,
     B: Deref<Target = [u8]>,
 {
+    /// Returns an immutable view of the PDU's header.
     #[inline]
     pub fn header_view(&self) -> Result<&T>
-    where T: FromBytes + ZeroCopyType {
+    where
+        T: FromBytes + ZeroCopyType,
+    {
         T::ref_from_bytes(self.header_buf.as_slice())
             .map_err(|e| anyhow!("{}", e.to_string()))
     }
 
+    /// Returns a mutable view of the PDU's header.
     #[inline]
     pub fn header_view_mut(&mut self) -> Result<&mut T>
-    where T: FromBytes + ZeroCopyType {
+    where
+        T: FromBytes + ZeroCopyType,
+    {
         T::mut_from_bytes(self.header_buf.as_mut_slice())
             .map_err(|e| anyhow!("{}", e.to_string()))
     }
 
+    /// Returns a slice of the Additional Header Segment (AHS).
     pub fn additional_header(&self) -> Result<&[u8]>
-    where T: FromBytes + ZeroCopyType {
+    where
+        T: FromBytes + ZeroCopyType,
+    {
         let ahs_size = self.header_view()?.get_ahs_length_bytes();
         Ok(&self.payload[0..ahs_size])
     }
 
+    /// Returns a slice of the PDU's data segment.
     pub fn data(&self) -> Result<&[u8]>
-    where T: FromBytes + ZeroCopyType {
+    where
+        T: FromBytes + ZeroCopyType,
+    {
         let header = self.header_view()?;
         let ahs_size = header.get_ahs_length_bytes();
         let hd = header.get_header_diggest(self.enable_header_digest);
@@ -351,8 +382,11 @@ where
         Ok(&self.payload[total..total + data_sz])
     }
 
+    /// Rebinds the PDU to a different header type.
     pub fn rebind_pdu<U>(self) -> anyhow::Result<PDUWithData<U, B>>
-    where U: BasicHeaderSegment {
+    where
+        U: BasicHeaderSegment,
+    {
         Ok(PDUWithData::<U, B> {
             header_buf: self.header_buf,
             payload: self.payload,
@@ -368,10 +402,10 @@ where
 }
 
 impl<T> PDUWithData<T, Bytes>
-where T: BasicHeaderSegment + FromBytes + ZeroCopyType
+where
+    T: BasicHeaderSegment + FromBytes + ZeroCopyType,
 {
-    /// Parse PDU: BHS(=48) + AHS + pad(AHS) + [HeaderDigest?] + Data +
-    /// pad(Data) + [DataDigest?]
+    /// Parses the PDU payload from an immutable buffer, verifying digests.
     pub fn parse_with_buff(
         &mut self,
         buf: &Bytes,
@@ -433,6 +467,8 @@ where T: BasicHeaderSegment + FromBytes + ZeroCopyType
     }
 }
 
+/// A helper struct for providing a debug representation of a byte slice in hexadecimal format.
+/// A helper struct for providing a debug representation of a byte slice in hexadecimal format.
 struct HexPreview<'a>(&'a [u8]);
 
 impl<'a> fmt::Debug for HexPreview<'a> {

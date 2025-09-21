@@ -1,3 +1,6 @@
+//! This module defines the structures for iSCSI Logout Response PDUs.
+//! It includes the `LogoutResponse` header and related methods for handling the logout process.
+
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
@@ -17,7 +20,7 @@ use crate::{
     },
 };
 
-/// BHS structure for **Logout Response** (opcode `LogoutResp` = 0x26)
+/// Represents the Basic Header Segment (BHS) for a Logout Response PDU.
 #[repr(C)]
 #[derive(Debug, Default, PartialEq, ZFromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct LogoutResponse {
@@ -40,6 +43,7 @@ pub struct LogoutResponse {
 }
 
 impl LogoutResponse {
+    /// Serializes the BHS into a byte buffer.
     pub fn to_bhs_bytes(&self, buf: &mut [u8]) -> Result<()> {
         if buf.len() != HEADER_LEN {
             bail!("buffer length must be {HEADER_LEN}, got {}", buf.len());
@@ -48,6 +52,7 @@ impl LogoutResponse {
         Ok(())
     }
 
+    /// Deserializes the BHS from a byte buffer.
     pub fn from_bhs_bytes(buf: &mut [u8]) -> Result<&mut Self> {
         let hdr = <Self as zerocopy::FromBytes>::mut_from_bytes(buf)
             .map_err(|e| anyhow::anyhow!("failed convert buffer LogoutResponse: {e}"))?;
@@ -60,13 +65,13 @@ impl LogoutResponse {
         Ok(hdr)
     }
 
-    /// Helper: check if Final (F) bit is set in `flags`.
+    /// Checks if the Final (F) bit is set.
     #[inline]
     pub fn is_final(&self) -> bool {
         (self.flags & 0b1000_0000) != 0
     }
 
-    /// Helper: set Final (F) bit in `flags`.
+    /// Sets the Final (F) bit.
     #[inline]
     pub fn set_final(&mut self) {
         self.flags |= 0b1000_0000;

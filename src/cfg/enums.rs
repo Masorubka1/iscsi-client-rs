@@ -5,6 +5,10 @@ use core::fmt;
 
 use serde::{Deserialize, Serialize};
 
+/// Boolean enumeration with string serialization support
+///
+/// Represents yes/no values with support for various string representations
+/// including "Yes"/"No", "true"/"false", and "1"/"0".
 #[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum YesNo {
     #[serde(
@@ -45,6 +49,11 @@ impl YesNo {
     }
 }
 
+/// iSCSI session type enumeration
+///
+/// Defines the type of iSCSI session to establish.
+/// Discovery sessions are used to discover available targets,
+/// while Normal sessions are used for actual data access.
 #[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SessionType {
     #[serde(rename = "Discovery", alias = "discovery", alias = "DISCOVERY")]
@@ -61,6 +70,10 @@ impl fmt::Display for SessionType {
     }
 }
 
+/// Digest algorithm enumeration for iSCSI PDU integrity checking
+///
+/// Specifies which digest algorithm to use for header and data integrity.
+/// None means no digest is used, CRC32C provides checksum-based integrity checking.
 #[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Digest {
     #[serde(rename = "None", alias = "none", alias = "NONE")]

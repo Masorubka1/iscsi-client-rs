@@ -17,16 +17,28 @@ use anyhow::{Result, bail};
 pub const INQUIRY_OPCODE: u8 = 0x12;
 
 /// Common VPD page codes (subset).
+/// VPD (Vital Product Data) page codes for SCSI INQUIRY command
+///
+/// These page codes are used to request specific types of device information
+/// beyond the standard INQUIRY data. Each page provides different details
+/// about the SCSI device capabilities and characteristics.
 #[repr(u8)]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum VpdPage {
+    /// List of supported VPD pages (0x00)
     SupportedPages = 0x00,
+    /// Unit serial number page (0x80)
     UnitSerial = 0x80,
+    /// Device identification page (0x83) - provides unique device identifiers
     DeviceId = 0x83,
+    /// Extended inquiry data page (0x86)
     ExtendedInquiry = 0x86,
-    BlockLimits = 0xB0,                // SBC
-    BlockDeviceCharacteristics = 0xB1, // SBC
-    LbProvisioning = 0xB2,             // SBC
+    /// Block limits page (0xB0) - SBC command set specific
+    BlockLimits = 0xB0,
+    /// Block device characteristics page (0xB1) - SBC command set specific
+    BlockDeviceCharacteristics = 0xB1,
+    /// Logical block provisioning page (0xB2) - SBC command set specific
+    LbProvisioning = 0xB2,
 }
 
 impl From<VpdPage> for u8 {
@@ -113,22 +125,31 @@ pub fn fill_inquiry_vpd_simple(
     fill_inquiry_vpd(cdb, page_code, allocation_len, 0x00)
 }
 
-/// Parsers for INQUIRY responses:
-/// - Standard INQUIRY (EVPD=0)
-/// - VPD 0x00 (Supported VPD Pages)
-/// - VPD 0x80 (Unit Serial Number)
-/// - VPD 0x83 (Device Identification — simplified descriptors)
+/// Standard INQUIRY response data structure
+///
+/// Represents the parsed response from a standard SCSI INQUIRY command (EVPD=0).
+/// Contains basic device information including device type, vendor identification,
+/// and other fundamental characteristics as defined by the SCSI standard.
 #[derive(Debug, Clone)]
 pub struct InquiryStandard {
-    pub peripheral_qualifier: u8, // bits 7..5 of byte0
-    pub device_type: u8,          // bits 4..0 of byte0
-    pub rmb: bool,                // byte1 bit7
-    pub version: u8,              // byte2
-    pub response_data_format: u8, // byte3 low nibble
-    pub additional_length: u8,    // byte4
-    pub vendor_id: String,        // bytes 8..16
-    pub product_id: String,       // bytes 16..32
-    pub product_rev: String,      // bytes 32..36
+    /// Peripheral qualifier (bits 7-5 of byte 0) - indicates device connection status
+    pub peripheral_qualifier: u8,
+    /// Device type (bits 4-0 of byte 0) - indicates the type of SCSI device
+    pub device_type: u8,
+    /// Removable Media Bit (byte 1 bit 7) - true if device has removable media
+    pub rmb: bool,
+    /// SCSI version (byte 2) - indicates supported SCSI standard version
+    pub version: u8,
+    /// Response data format (low nibble of byte 3) - format of the inquiry data
+    pub response_data_format: u8,
+    /// Additional length (byte 4) - number of additional bytes of inquiry data
+    pub additional_length: u8,
+    /// Vendor identification string (bytes 8-15) - 8 ASCII characters
+    pub vendor_id: String,
+    /// Product identification string (bytes 16-31) - 16 ASCII characters
+    pub product_id: String,
+    /// Product revision level (bytes 32-35) - 4 ASCII characters
+    pub product_rev: String,
 }
 
 impl InquiryStandard {
@@ -228,12 +249,23 @@ pub fn parse_vpd_unit_serial(buf: &[u8]) -> Result<String> {
 /// - association (byte1 bits6..4)
 /// - id_type (byte1 low 4 bits)
 /// - identifier (as String: ASCII/UTF-8 decoded; otherwise hex)
+///
+/// Device identification descriptor from VPD page 0x83
+///
+/// Represents a single device identification descriptor that provides
+/// unique identification information for a SCSI device. Multiple descriptors
+/// may be present in the Device Identification VPD page.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeviceIdDescriptor {
+    /// Code set (bits 3-0 of byte 0) - encoding format of the identifier
     pub code_set: u8,
+    /// Protocol Identifier Valid (PIV) bit - indicates if protocol identifier is valid
     pub piv: bool,
+    /// Association (bits 5-4 of byte 1) - what the identifier is associated with
     pub association: u8,
+    /// Identifier type (bits 3-0 of byte 1) - type of identifier
     pub id_type: u8,
+    /// The actual identifier string - format depends on code_set and id_type
     pub identifier: String,
 }
 

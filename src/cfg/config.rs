@@ -8,12 +8,20 @@ use serde::{Deserialize, Serialize};
 
 use crate::cfg::enums::{Digest, SessionType, YesNo};
 
+/// Main configuration structure for the iSCSI client
+///
+/// Contains all configuration parameters divided into login-related
+/// and extra data configuration sections.
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct Config {
     pub login: LoginConfig,
     pub extra_data: ExtraDataConfig,
 }
 
+/// Configuration for iSCSI login phase parameters
+///
+/// Groups together security settings, negotiation parameters,
+/// and authentication configuration used during login.
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct LoginConfig {
     pub security: SecurityConfig,
@@ -21,6 +29,10 @@ pub struct LoginConfig {
     pub auth: AuthConfig,
 }
 
+/// Authentication method configuration
+///
+/// Specifies which authentication method to use during iSCSI login.
+/// Supports either no authentication or CHAP authentication.
 #[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(tag = "AuthMethod")]
 pub enum AuthConfig {
@@ -30,12 +42,20 @@ pub enum AuthConfig {
     Chap(ChapConfig),
 }
 
+/// CHAP authentication configuration
+///
+/// Contains the username and secret (password) required for
+/// CHAP (Challenge Handshake Authentication Protocol) authentication.
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct ChapConfig {
     pub username: String,
     pub secret: String,
 }
 
+/// Security-related configuration parameters
+///
+/// Contains session type, initiator/target names, addresses,
+/// and other security-related settings for iSCSI connection.
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct SecurityConfig {
     #[serde(rename = "SessionType")]
@@ -52,6 +72,10 @@ pub struct SecurityConfig {
     pub target_address: String,
 }
 
+/// Protocol negotiation parameters
+///
+/// Contains parameters that are negotiated during the iSCSI login phase,
+/// including protocol version, digest settings, burst lengths, and ordering requirements.
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct NegotiationConfig {
     #[serde(rename = "VersionMax")]
@@ -79,6 +103,10 @@ pub struct NegotiationConfig {
     pub error_recovery_level: u8,
 }
 
+/// Extended configuration parameters
+///
+/// Contains additional configuration settings including markers,
+/// Ready-to-Transfer (R2T) settings, connection limits, and custom parameters.
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct ExtraDataConfig {
     pub markers: MarkerConfig,
@@ -88,6 +116,10 @@ pub struct ExtraDataConfig {
     pub custom: HashMap<String, String>,
 }
 
+/// Marker configuration for iSCSI PDU segmentation
+///
+/// Controls the use of input/output frame markers for PDU boundaries.
+/// Markers are used to help detect PDU boundaries in streaming protocols.
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct MarkerConfig {
     #[serde(rename = "IFMarker")]
@@ -96,6 +128,10 @@ pub struct MarkerConfig {
     pub of_marker: YesNo,
 }
 
+/// Ready-to-Transfer (R2T) configuration
+///
+/// Controls data flow management including whether initial R2T is required,
+/// immediate data allowance, maximum outstanding R2T requests, and timeout values.
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct R2TConfig {
     #[serde(rename = "InitialR2T")]
@@ -111,6 +147,10 @@ pub struct R2TConfig {
     pub default_time2retain: Duration,
 }
 
+/// Connection limits and timeout configuration
+///
+/// Defines maximum number of connections and sessions allowed,
+/// as well as connection timeout values.
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct ConnectionConfig {
     #[serde(rename = "MaxConnections")]
@@ -130,7 +170,10 @@ impl Config {
     }
 }
 
-/// Trait to turn login and extra_data into key=value\x00 sequences
+/// Trait for converting configuration objects to iSCSI login key-value pairs
+///
+/// Converts configuration structures into the key=value format required
+/// for iSCSI login negotiation, with null-terminated strings.
 pub trait ToLoginKeys {
     fn to_login_keys(&self) -> Vec<String>;
 }

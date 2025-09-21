@@ -1,3 +1,6 @@
+//! This module defines the status codes for iSCSI Login Response PDUs.
+//! It includes status classes and details for handling login outcomes.
+
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
@@ -44,17 +47,24 @@ impl From<StatusClass> for u8 {
     }
 }
 
+/// Represents the detailed status of a login response.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum StatusDetail {
+    /// The command completed successfully.
     Success(SuccessDetail),
+    /// The initiator is being redirected to another target.
     Redirection(RedirectionDetail),
+    /// An error occurred on the initiator side.
     InitiatorErr(InitiatorErrorDetail),
+    /// An error occurred on the target side.
     TargetErr(TargetErrorDetail),
 }
 
+/// The detail for a successful login.
 #[repr(u8)]
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum SuccessDetail {
+    /// The command completed normally.
     CmdCompletedNormally = 0x00,
 }
 
@@ -69,9 +79,11 @@ impl TryFrom<u8> for SuccessDetail {
     }
 }
 
+/// The detail for a login redirection.
 #[repr(u8)]
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum RedirectionDetail {
+    /// The target has been redirected.
     TargetRedirected = 0x01,
 }
 
@@ -248,28 +260,31 @@ impl From<StatusDetail> for u8 {
 pub struct RawStatusClass(u8);
 
 impl RawStatusClass {
+    /// Returns the raw 8-bit value of the status class.
     #[inline]
     pub const fn raw(self) -> u8 {
         self.0
     }
 
+    /// Creates a new `RawStatusClass` from a raw 8-bit value.
     #[inline]
     pub const fn from_raw(v: u8) -> Self {
         Self(v)
     }
 
-    /// Infallible decode: unknown values map to `StatusClass::Unknown(v)`.
+    /// Decodes the raw value into a `StatusClass` enum.
     #[inline]
     pub fn decode(self) -> StatusClass {
         StatusClass::from(self.0)
     }
 
-    /// Encode from the rich enum into the wire byte.
+    /// Encodes a `StatusClass` enum into the raw value.
     #[inline]
     pub fn encode(&mut self, c: StatusClass) {
         self.0 = u8::from(c);
     }
 
+    /// Checks if the status class is a known value.
     #[inline]
     pub const fn is_known(self) -> bool {
         matches!(self.0, 0..=3)
@@ -306,17 +321,19 @@ impl fmt::Debug for RawStatusClass {
 pub struct RawStatusDetail(u8);
 
 impl RawStatusDetail {
+    /// Returns the raw 8-bit value of the status detail.
     #[inline]
     pub const fn raw(self) -> u8 {
         self.0
     }
 
+    /// Creates a new `RawStatusDetail` from a raw 8-bit value.
     #[inline]
     pub const fn from_raw(v: u8) -> Self {
         Self(v)
     }
 
-    /// Decode using the provided `StatusClass`.
+    /// Decodes the raw value into a `StatusDetail` enum, given the status class.
     #[inline]
     pub fn decode_with_class(self, class: StatusClass) -> Result<StatusDetail> {
         match class {
@@ -338,7 +355,7 @@ impl RawStatusDetail {
         }
     }
 
-    /// Encode from the typed `StatusDetail` into the wire byte.
+    /// Encodes a `StatusDetail` enum into the raw value.
     #[inline]
     pub fn encode(&mut self, d: StatusDetail) {
         self.0 = u8::from(d);
@@ -351,11 +368,13 @@ impl fmt::Debug for RawStatusDetail {
     }
 }
 
-/// Small helper to handle the (Class, Detail) pair together.
+/// A helper struct for handling the `StatusClass` and `StatusDetail` pair together.
 #[derive(Copy, Clone, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
 #[repr(C)]
 pub struct RawStatusPair {
+    /// The status class.
     pub class: RawStatusClass,
+    /// The status detail.
     pub detail: RawStatusDetail,
 }
 
@@ -366,6 +385,7 @@ impl Default for RawStatusPair {
 }
 
 impl RawStatusPair {
+    /// Creates a new `RawStatusPair` with default values.
     #[inline]
     pub fn new() -> Self {
         Self {
@@ -374,7 +394,7 @@ impl RawStatusPair {
         }
     }
 
-    /// Decode both class and detail together.
+    /// Decodes the raw pair into `StatusClass` and `StatusDetail` enums.
     #[inline]
     pub fn decode(self) -> Result<(StatusClass, StatusDetail)> {
         let class = self.class.decode();
@@ -382,7 +402,7 @@ impl RawStatusPair {
         Ok((class, detail))
     }
 
-    /// Encode from typed values.
+    /// Encodes `StatusClass` and `StatusDetail` enums into the raw pair.
     #[inline]
     pub fn encode(&mut self, class: StatusClass, detail: StatusDetail) -> Result<()> {
         // sanity check: detail must match class (optional, but helps catch bugs)

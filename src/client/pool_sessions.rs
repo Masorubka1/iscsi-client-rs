@@ -22,35 +22,58 @@ use crate::{
     utils::generate_isid,
 };
 
-/// Per-connection state
+/// Per-connection state within an iSCSI session
+///
+/// Represents a single TCP connection within an iSCSI session. A session may have
+/// multiple connections (Multi-Connection per Session - MC/S) for increased throughput.
 #[derive(Debug)]
 pub struct Connection {
+    /// Connection ID - unique identifier for this connection within the session
     pub cid: u16,
+    /// Reference to the underlying client connection handling TCP communication
     pub conn: Arc<ClientConnection>,
     /// Next Expected StatSN (ACK). Bumped when we accept a reply from target.
+    /// Used to track the sequence of status responses from the target.
     pub exp_stat_sn: Arc<AtomicU32>,
 }
 
-/// Per-session state (ISID+TSIH). A session may have multiple TCP connections
-/// (MC/S).
+/// Per-session state identified by ISID+TSIH combination
+///
+/// Represents an iSCSI session which is a logical connection between an initiator
+/// and target. A session may have multiple TCP connections (Multi-Connection per Session - MC/S)
+/// for increased performance and redundancy.
 #[derive(Debug)]
 pub struct Session {
+    /// Target Session Identifying Handle - assigned by target during login
     pub tsih: u16,
+    /// Initiator Session ID - 6 bytes identifying the session from initiator side
     pub isid: [u8; 6],
+    /// Name of the target this session is connected to
     pub target_name: Arc<str>,
+    /// Map of connection ID to connection objects within this session
     pub conns: DashMap<u16, Arc<Connection>>,
 
     /// CmdSN generator for numbered commands (incremented on every
-    /// non-immediate command).
+    /// non-immediate command). Ensures proper command ordering.
     cmd_sn: Arc<AtomicU32>,
-    /// ITT generator (unique within a session).
+    /// ITT (Initiator Task Tag) generator - unique within a session.
+    /// Used to match requests with responses.
     itt_gen: Arc<AtomicU32>,
 }
 
+/// Pool of iSCSI sessions and connections
+///
+/// Manages multiple iSCSI sessions and their associated connections. Provides
+/// centralized management, resource limits, and graceful shutdown capabilities.
+/// Acts as the main orchestrator for all iSCSI communication.
 pub struct Pool {
+    /// Map of TSIH to session objects - all active sessions
     pub sessions: DashMap<u16, Arc<Session>>,
+    /// Maximum number of sessions allowed in this pool
     max_sessions: u32,
+    /// Maximum number of connections per session
     max_connections: u16,
+    /// Weak self-reference to avoid circular dependencies
     self_weak: OnceCell<Weak<Pool>>,
 
     /// Root cancellation token for the entire pool.

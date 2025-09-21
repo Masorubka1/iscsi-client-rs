@@ -17,6 +17,7 @@ use crate::{
     },
 };
 
+/// Represents the initial state for a plain (unauthenticated) login.
 #[derive(Debug)]
 pub struct PlainStart;
 
