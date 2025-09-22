@@ -73,7 +73,8 @@ impl fmt::Display for SessionType {
 /// Digest algorithm enumeration for iSCSI PDU integrity checking
 ///
 /// Specifies which digest algorithm to use for header and data integrity.
-/// None means no digest is used, CRC32C provides checksum-based integrity checking.
+/// None means no digest is used, CRC32C provides checksum-based integrity
+/// checking.
 #[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Digest {
     #[serde(rename = "None", alias = "none", alias = "NONE")]

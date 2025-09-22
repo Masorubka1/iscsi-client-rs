@@ -78,7 +78,8 @@ pub struct LogoutRequestBuilder {
 }
 
 impl LogoutRequestBuilder {
-    /// Creates a new `LogoutRequestBuilder` with the given reason, ITT, and CID.
+    /// Creates a new `LogoutRequestBuilder` with the given reason, ITT, and
+    /// CID.
     pub fn new(reason: LogoutReason, itt: u32, cid: u16) -> Self {
         Self {
             header: LogoutRequest {

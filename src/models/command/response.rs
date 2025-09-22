@@ -22,15 +22,17 @@ use crate::{
 
 /// Basic Header Segment for iSCSI SCSI Command Response PDU
 ///
-/// Represents the 48-byte header structure for SCSI Command Response PDU as defined in RFC 7143.
-/// Contains response status, sequence numbers, residual counts, and other information
-/// returned by the target after executing a SCSI command.
+/// Represents the 48-byte header structure for SCSI Command Response PDU as
+/// defined in RFC 7143. Contains response status, sequence numbers, residual
+/// counts, and other information returned by the target after executing a SCSI
+/// command.
 #[repr(C)]
 #[derive(Debug, PartialEq, ZFromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct ScsiCommandResponse {
     /// PDU opcode (byte 0) - should be 0x21 for SCSI Response
     pub opcode: RawBhsOpcode,
-    /// Response flags (byte 1) - Final bit and residual overflow/underflow indicators
+    /// Response flags (byte 1) - Final bit and residual overflow/underflow
+    /// indicators
     pub flags: RawScsiCmdRespFlags,
     /// Response code (byte 2) - indicates if command completed successfully
     pub response: RawResponseCode,
@@ -38,7 +40,8 @@ pub struct ScsiCommandResponse {
     pub status: RawScsiStatus,
     /// Total Additional Header Segments length (byte 4)
     pub total_ahs_length: u8,
-    /// Data Segment Length (bytes 5-7) - length of sense data or other response data
+    /// Data Segment Length (bytes 5-7) - length of sense data or other response
+    /// data
     pub data_segment_length: [u8; 3],
     /// Reserved bytes (8-15)
     reserved: [u8; 8],
@@ -54,9 +57,11 @@ pub struct ScsiCommandResponse {
     pub max_cmd_sn: U32<BigEndian>,
     /// Expected Data Sequence Number (bytes 36-39) - for data recovery
     pub exp_data_sn: U32<BigEndian>,
-    /// Bidirectional Read Residual Count (bytes 40-43) - unused read data length
+    /// Bidirectional Read Residual Count (bytes 40-43) - unused read data
+    /// length
     pub bidirectional_read_residual_count: U32<BigEndian>,
-    /// Residual Count (bytes 44-47) - difference between expected and actual data transfer
+    /// Residual Count (bytes 44-47) - difference between expected and actual
+    /// data transfer
     pub residual_count: U32<BigEndian>,
 }
 

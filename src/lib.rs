@@ -12,7 +12,8 @@ pub mod control_block;
 pub mod handlers;
 /// Defines the data structures for iSCSI PDUs and SCSI commands.
 pub mod models;
-/// Contains state machines for handling iSCSI operations like Login, Logout, Read, and Write.
+/// Contains state machines for handling iSCSI operations like Login, Logout,
+/// Read, and Write.
 pub mod state_machine;
 /// Provides utility functions used throughout the crate.
 pub mod utils;

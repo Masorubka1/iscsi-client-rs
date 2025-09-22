@@ -1,5 +1,6 @@
 //! This module defines the structures for iSCSI NOP-In PDUs.
-//! It includes the `NopInResponse` header and related methods for handling ping responses.
+//! It includes the `NopInResponse` header and related methods for handling ping
+//! responses.
 
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev

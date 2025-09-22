@@ -1,5 +1,6 @@
-//! This module defines common structures and flags for iSCSI Data-In and Data-Out PDUs.
-//! It includes flag definitions and zero-copy wrappers for efficient PDU handling.
+//! This module defines common structures and flags for iSCSI Data-In and
+//! Data-Out PDUs. It includes flag definitions and zero-copy wrappers for
+//! efficient PDU handling.
 
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev

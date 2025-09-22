@@ -24,8 +24,9 @@ use crate::{
 
 /// Per-connection state within an iSCSI session
 ///
-/// Represents a single TCP connection within an iSCSI session. A session may have
-/// multiple connections (Multi-Connection per Session - MC/S) for increased throughput.
+/// Represents a single TCP connection within an iSCSI session. A session may
+/// have multiple connections (Multi-Connection per Session - MC/S) for
+/// increased throughput.
 #[derive(Debug)]
 pub struct Connection {
     /// Connection ID - unique identifier for this connection within the session
@@ -39,14 +40,16 @@ pub struct Connection {
 
 /// Per-session state identified by ISID+TSIH combination
 ///
-/// Represents an iSCSI session which is a logical connection between an initiator
-/// and target. A session may have multiple TCP connections (Multi-Connection per Session - MC/S)
-/// for increased performance and redundancy.
+/// Represents an iSCSI session which is a logical connection between an
+/// initiator and target. A session may have multiple TCP connections
+/// (Multi-Connection per Session - MC/S) for increased performance and
+/// redundancy.
 #[derive(Debug)]
 pub struct Session {
     /// Target Session Identifying Handle - assigned by target during login
     pub tsih: u16,
-    /// Initiator Session ID - 6 bytes identifying the session from initiator side
+    /// Initiator Session ID - 6 bytes identifying the session from initiator
+    /// side
     pub isid: [u8; 6],
     /// Name of the target this session is connected to
     pub target_name: Arc<str>,

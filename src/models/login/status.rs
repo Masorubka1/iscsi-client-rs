@@ -333,7 +333,8 @@ impl RawStatusDetail {
         Self(v)
     }
 
-    /// Decodes the raw value into a `StatusDetail` enum, given the status class.
+    /// Decodes the raw value into a `StatusDetail` enum, given the status
+    /// class.
     #[inline]
     pub fn decode_with_class(self, class: StatusClass) -> Result<StatusDetail> {
         match class {
@@ -368,7 +369,8 @@ impl fmt::Debug for RawStatusDetail {
     }
 }
 
-/// A helper struct for handling the `StatusClass` and `StatusDetail` pair together.
+/// A helper struct for handling the `StatusClass` and `StatusDetail` pair
+/// together.
 #[derive(Copy, Clone, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
 #[repr(C)]
 pub struct RawStatusPair {

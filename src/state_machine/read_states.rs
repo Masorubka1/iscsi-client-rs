@@ -1,3 +1,7 @@
+//! This module defines the state machine for the iSCSI SCSI Read command.
+//! It includes the states, context, and transitions for handling the read
+//! operation.
+
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
@@ -34,47 +38,60 @@ use crate::{
     state_machine::common::{StateMachine, StateMachineCtx, Transition},
 };
 
-/// Represents the types of PDUs that can be received during a SCSI Read operation.
+/// Represents the types of PDUs that can be received during a SCSI Read
+/// operation.
 #[derive(Debug)]
 pub enum ReadPdu {
+    /// A SCSI Data-In PDU.
     DataIn(PduResponse<ScsiDataIn>),
+    /// A SCSI Command Response PDU.
     CmdResp(PduResponse<ScsiCommandResponse>),
 }
 
 /// Holds the runtime state for a SCSI Read operation.
-///
-/// This includes the accumulated data, command sequence number, and status information.
 #[derive(Debug)]
 pub struct ReadRuntime {
+    /// The accumulated data from Data-In PDUs.
     pub acc: Vec<u8>,
+    /// The command sequence number of the current command.
     pub cur_cmd_sn: Option<u32>,
+    /// The SCSI status received in a Data-In PDU.
     pub status_in_datain: Option<ScsiStatus>,
+    /// The residual count received in a Data-In PDU.
     pub residual_in_datain: Option<u32>,
 }
 
 /// This structure represents the context for a SCSI Read operation.
-///
-/// It holds all the necessary information to manage the state of a read operation,
-/// including connection details, command parameters, and the received data.
 #[derive(Debug)]
 pub struct ReadCtx<'a> {
     _lt: PhantomData<&'a ()>,
 
+    /// The client connection.
     pub conn: Arc<ClientConnection>,
+    /// The Logical Unit Number.
     pub lun: u64,
+    /// The Initiator Task Tag.
     pub itt: u32,
+    /// The Command Sequence Number.
     pub cmd_sn: Arc<AtomicU32>,
+    /// The Expected Status Sequence Number.
     pub exp_stat_sn: Arc<AtomicU32>,
+    /// The number of bytes to read.
     pub read_len: u32,
+    /// The SCSI Command Descriptor Block.
     pub cdb: [u8; 16],
+    /// A buffer for the BHS.
     pub buf: [u8; HEADER_LEN],
 
+    /// The last received command response.
     pub last_response: Option<PduResponse<ScsiCommandResponse>>,
+    /// The runtime state of the read operation.
     pub rt: ReadRuntime,
     state: Option<ReadStates>,
 }
 
 impl<'a> ReadCtx<'a> {
+    /// Creates a new `ReadCtx` for a SCSI Read operation.
     pub fn new(
         conn: Arc<ClientConnection>,
         lun: u64,
@@ -105,6 +122,7 @@ impl<'a> ReadCtx<'a> {
         }
     }
 
+    /// Receives any PDU related to the read operation.
     pub async fn recv_any(&self, itt: u32) -> anyhow::Result<ReadPdu> {
         let (p_any, data): (PduResponse<Pdu>, Bytes) =
             self.conn.read_response_raw(itt).await?;
@@ -165,10 +183,12 @@ impl<'a> ReadCtx<'a> {
         Ok(esn)
     }
 
+    /// Receives a Data-In PDU.
     pub async fn recv_datain(&self, itt: u32) -> Result<PduResponse<ScsiDataIn>> {
         self.conn.read_response(itt).await
     }
 
+    /// Appends the data from a Data-In PDU to the accumulator.
     pub fn apply_datain_append(&mut self, pdu: &PduResponse<ScsiDataIn>) -> Result<bool> {
         let h = pdu.header_view()?;
 
@@ -199,6 +219,8 @@ impl<'a> ReadCtx<'a> {
         Ok(h.get_real_final_bit())
     }
 
+    /// Finalizes the status of the read operation after all data has been
+    /// received.
     pub async fn finalize_status_after_datain(
         &mut self,
         itt: u32,
@@ -246,15 +268,18 @@ pub struct Start;
 #[derive(Debug)]
 pub struct ReadWait;
 
-/// Represents the final state of a read operation, where the system is processing the final response.
+/// Represents the final state of a read operation.
 #[derive(Debug)]
 pub struct Finish;
 
 /// Defines the possible states for a SCSI Read operation state machine.
 #[derive(Debug)]
 pub enum ReadStates {
+    /// The initial state.
     Start(Start),
+    /// Waiting for data.
     Wait(ReadWait),
+    /// The final state.
     Finish(Finish),
 }
 
@@ -369,14 +394,11 @@ impl<'ctx> StateMachine<ReadCtx<'ctx>, ReadStepOut> for Finish {
 }
 
 /// Represents the outcome of a completed SCSI Read operation.
-///
-/// This structure contains the data received from the target and the final response.
 #[derive(Debug)]
 pub struct ReadOutcome {
-    /// Concatenated payload from all Data-In PDUs (in order).
+    /// The data received from the target.
     pub data: Vec<u8>,
-    /// Final SCSI Command Response (if target sent one).
-    /// When status was carried by the last Data-In (S-bit set), this is None.
+    /// The final SCSI Command Response, if one was sent.
     pub last_response: Option<PduResponse<ScsiCommandResponse>>,
 }
 

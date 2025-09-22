@@ -60,8 +60,9 @@ impl fmt::Debug for ScsiCommandRequestFlags {
 
 /// SCSI Task Attributes for command ordering and queuing
 ///
-/// Defines how SCSI commands should be queued and executed relative to other commands.
-/// These attributes control the ordering behavior of commands in the target's command queue.
+/// Defines how SCSI commands should be queued and executed relative to other
+/// commands. These attributes control the ordering behavior of commands in the
+/// target's command queue.
 #[derive(Clone, Copy, PartialEq)]
 pub enum TaskAttribute {
     /// Untagged command (0) - legacy simple queuing
@@ -223,8 +224,8 @@ pub enum ScsiStatus {
 
 /// Error type for invalid SCSI status codes
 ///
-/// Returned when attempting to parse an invalid or unrecognized SCSI status code
-/// from an iSCSI SCSI Command Response PDU.
+/// Returned when attempting to parse an invalid or unrecognized SCSI status
+/// code from an iSCSI SCSI Command Response PDU.
 #[derive(Debug, Error)]
 #[error("invalid SCSI status: 0x{0:02x}")]
 pub struct UnknownScsiStatus(pub u8);

@@ -43,7 +43,8 @@ struct LoggerConfig {
 #[serde(rename_all = "lowercase")]
 /// Output destination for log messages
 ///
-/// Specifies where log messages should be written - to stdout, stderr, or a file.
+/// Specifies where log messages should be written - to stdout, stderr, or a
+/// file.
 enum Output {
     Stdout,
     Stderr,
@@ -54,7 +55,8 @@ enum Output {
 #[serde(rename_all = "lowercase")]
 /// Log file rotation frequency
 ///
-/// Defines how often log files should be rotated to prevent them from growing too large.
+/// Defines how often log files should be rotated to prevent them from growing
+/// too large.
 enum RotationFreq {
     Minutely,
     Hourly,
@@ -98,8 +100,7 @@ struct SpanFields(pub serde_json::Map<String, serde_json::Value>);
 struct CaptureSpanFieldsLayer;
 
 impl<S> Layer<S> for CaptureSpanFieldsLayer
-where
-    S: Subscriber + for<'a> LookupSpan<'a>,
+where S: Subscriber + for<'a> LookupSpan<'a>
 {
     fn on_new_span(
         &self,

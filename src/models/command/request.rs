@@ -1,5 +1,6 @@
 //! This module defines the structures for iSCSI SCSI Command Request PDUs.
-//! It includes the `ScsiCommandRequest` header and a builder for constructing it.
+//! It includes the `ScsiCommandRequest` header and a builder for constructing
+//! it.
 
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
@@ -21,9 +22,9 @@ use crate::{
 
 /// Basic Header Segment for iSCSI SCSI Command Request PDU
 ///
-/// Represents the 48-byte header structure for SCSI Command PDU as defined in RFC 7143.
-/// Contains all the fields necessary to send a SCSI command over iSCSI including
-/// task tags, sequence numbers, LUN, and the embedded SCSI CDB.
+/// Represents the 48-byte header structure for SCSI Command PDU as defined in
+/// RFC 7143. Contains all the fields necessary to send a SCSI command over
+/// iSCSI including task tags, sequence numbers, LUN, and the embedded SCSI CDB.
 #[repr(C)]
 #[derive(Debug, Default, PartialEq, ZFromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct ScsiCommandRequest {
@@ -81,8 +82,8 @@ impl ScsiCommandRequest {
 
 /// Builder for constructing iSCSI SCSI Command Request PDUs
 ///
-/// Provides methods to build and serialize SCSI Command Request PDUs with proper
-/// digest handling and data segment management.
+/// Provides methods to build and serialize SCSI Command Request PDUs with
+/// proper digest handling and data segment management.
 #[derive(Debug, Default, PartialEq)]
 pub struct ScsiCommandRequestBuilder {
     /// The SCSI command request header structure

@@ -75,7 +75,8 @@ pub struct SecurityConfig {
 /// Protocol negotiation parameters
 ///
 /// Contains parameters that are negotiated during the iSCSI login phase,
-/// including protocol version, digest settings, burst lengths, and ordering requirements.
+/// including protocol version, digest settings, burst lengths, and ordering
+/// requirements.
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct NegotiationConfig {
     #[serde(rename = "VersionMax")]
@@ -131,7 +132,8 @@ pub struct MarkerConfig {
 /// Ready-to-Transfer (R2T) configuration
 ///
 /// Controls data flow management including whether initial R2T is required,
-/// immediate data allowance, maximum outstanding R2T requests, and timeout values.
+/// immediate data allowance, maximum outstanding R2T requests, and timeout
+/// values.
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct R2TConfig {
     #[serde(rename = "InitialR2T")]

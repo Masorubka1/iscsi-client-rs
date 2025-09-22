@@ -127,12 +127,14 @@ pub fn fill_inquiry_vpd_simple(
 
 /// Standard INQUIRY response data structure
 ///
-/// Represents the parsed response from a standard SCSI INQUIRY command (EVPD=0).
-/// Contains basic device information including device type, vendor identification,
-/// and other fundamental characteristics as defined by the SCSI standard.
+/// Represents the parsed response from a standard SCSI INQUIRY command
+/// (EVPD=0). Contains basic device information including device type, vendor
+/// identification, and other fundamental characteristics as defined by the SCSI
+/// standard.
 #[derive(Debug, Clone)]
 pub struct InquiryStandard {
-    /// Peripheral qualifier (bits 7-5 of byte 0) - indicates device connection status
+    /// Peripheral qualifier (bits 7-5 of byte 0) - indicates device connection
+    /// status
     pub peripheral_qualifier: u8,
     /// Device type (bits 4-0 of byte 0) - indicates the type of SCSI device
     pub device_type: u8,
@@ -259,9 +261,11 @@ pub fn parse_vpd_unit_serial(buf: &[u8]) -> Result<String> {
 pub struct DeviceIdDescriptor {
     /// Code set (bits 3-0 of byte 0) - encoding format of the identifier
     pub code_set: u8,
-    /// Protocol Identifier Valid (PIV) bit - indicates if protocol identifier is valid
+    /// Protocol Identifier Valid (PIV) bit - indicates if protocol identifier
+    /// is valid
     pub piv: bool,
-    /// Association (bits 5-4 of byte 1) - what the identifier is associated with
+    /// Association (bits 5-4 of byte 1) - what the identifier is associated
+    /// with
     pub association: u8,
     /// Identifier type (bits 3-0 of byte 1) - type of identifier
     pub id_type: u8,

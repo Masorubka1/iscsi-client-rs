@@ -1,5 +1,6 @@
 //! This module defines the structures for iSCSI Data-In and Data-Out PDUs.
-//! It includes submodules for common definitions, requests, responses, and sense data.
+//! It includes submodules for common definitions, requests, responses, and
+//! sense data.
 
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev

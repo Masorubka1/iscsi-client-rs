@@ -1,5 +1,6 @@
 //! This module defines the structures for iSCSI Logout Response PDUs.
-//! It includes the `LogoutResponse` header and related methods for handling the logout process.
+//! It includes the `LogoutResponse` header and related methods for handling the
+//! logout process.
 
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev

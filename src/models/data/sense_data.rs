@@ -1,5 +1,6 @@
 //! This module defines the structures for SCSI Sense Data.
-//! It provides a parser for sense data and a function to convert ASC/ASCQ codes to strings.
+//! It provides a parser for sense data and a function to convert ASC/ASCQ codes
+//! to strings.
 
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev

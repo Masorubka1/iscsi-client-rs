@@ -17,7 +17,8 @@ pub const MODE_SENSE_10: u8 = 0x5A;
 pub enum PageControl {
     /// Return current parameter values (0b00)
     Current = 0b00,
-    /// Return changeable parameter values - indicates which parameters can be modified (0b01)
+    /// Return changeable parameter values - indicates which parameters can be
+    /// modified (0b01)
     Changeable = 0b01,
     /// Return default parameter values - factory defaults (0b10)
     Default = 0b10,

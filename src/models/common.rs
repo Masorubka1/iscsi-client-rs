@@ -1,6 +1,6 @@
-//! This module defines common traits and constants for iSCSI Protocol Data Units (PDUs).
-//! It includes traits for handling data transmission, managing the Basic Header Segment (BHS),
-//! and building PDUs with data segments.
+//! This module defines common traits and constants for iSCSI Protocol Data
+//! Units (PDUs). It includes traits for handling data transmission, managing
+//! the Basic Header Segment (BHS), and building PDUs with data segments.
 
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
@@ -27,7 +27,8 @@ pub const HEADER_LEN: usize = 48;
 /// Implementing `SendingData` lets generic helpers (e.g. the
 /// `PDUWithData` builder or the `Connection` read-loop) toggle and query
 /// those flags **without** knowing the concrete PDU type.
-/// Provides methods to manage Final (F) and Continue (C) bits used in multi-PDU sequences.
+/// Provides methods to manage Final (F) and Continue (C) bits used in multi-PDU
+/// sequences.
 #[enum_dispatch]
 pub trait SendingData: Sized {
     /// Return the current state of the **Final (F)** bit.
@@ -45,14 +46,15 @@ pub trait SendingData: Sized {
 
 /// Common functionality for any iSCSI PDU Basic Header Segment (BHS)
 ///
-/// A BHS is always 48 bytes long according to RFC 7143; higher‐level PDUs then may
-/// carry additional AHS sections, a variable-length DataSegment,
+/// A BHS is always 48 bytes long according to RFC 7143; higher‐level PDUs then
+/// may carry additional AHS sections, a variable-length DataSegment,
 /// and optional digests. This trait encapsulates:
 /// 1. extracting lengths out of the BHS,
 /// 2. appending to the DataSegment,
 /// 3. and finally building the full wire format.
 ///
-/// All iSCSI PDU types must implement this trait to provide basic header operations.
+/// All iSCSI PDU types must implement this trait to provide basic header
+/// operations.
 #[enum_dispatch]
 pub trait BasicHeaderSegment: Sized + SendingData {
     fn to_bhs_bytes(&self, buf: &mut [u8]) -> Result<()>;

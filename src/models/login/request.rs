@@ -21,9 +21,10 @@ use crate::{
 
 /// Basic Header Segment for iSCSI Login Request PDU
 ///
-/// Represents the 48-byte header structure for Login Request PDU as defined in RFC 7143.
-/// Contains session establishment parameters including version negotiation, session IDs,
-/// and connection information used during the iSCSI login process.
+/// Represents the 48-byte header structure for Login Request PDU as defined in
+/// RFC 7143. Contains session establishment parameters including version
+/// negotiation, session IDs, and connection information used during the iSCSI
+/// login process.
 #[repr(C)]
 #[derive(Debug, Default, PartialEq, ZFromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct LoginRequest {

@@ -1,3 +1,7 @@
+//! This module defines the structures for iSCSI Reject PDUs.
+//! It includes the `RejectPdu` header and related methods for handling rejected
+//! PDUs.
+
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
@@ -38,6 +42,7 @@ pub struct RejectPdu {
 }
 
 impl RejectPdu {
+    /// Serializes the BHS into a byte buffer.
     pub fn to_bhs_bytes(&self, buf: &mut [u8]) -> Result<()> {
         if buf.len() != HEADER_LEN {
             bail!("buffer length must be {HEADER_LEN}, got {}", buf.len());
@@ -46,6 +51,7 @@ impl RejectPdu {
         Ok(())
     }
 
+    /// Deserializes the BHS from a byte buffer.
     pub fn from_bhs_bytes(buf: &mut [u8]) -> Result<&mut Self> {
         let hdr = <Self as zerocopy::FromBytes>::mut_from_bytes(buf)
             .map_err(|e| anyhow::anyhow!("failed convert buffer RejectPdu: {e}"))?;

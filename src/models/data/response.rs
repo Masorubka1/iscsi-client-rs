@@ -1,5 +1,6 @@
 //! This module defines the structures for iSCSI SCSI Data-In PDUs.
-//! It includes the `ScsiDataIn` header and related methods for handling data transfer from target to initiator.
+//! It includes the `ScsiDataIn` header and related methods for handling data
+//! transfer from target to initiator.
 
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
@@ -21,7 +22,8 @@ use crate::{
     },
 };
 
-/// Represents the Basic Header Segment (BHS) for a SCSI Data-In PDU (opcode 0x25).
+/// Represents the Basic Header Segment (BHS) for a SCSI Data-In PDU (opcode
+/// 0x25).
 #[repr(C)]
 #[derive(Debug, Default, PartialEq, ZFromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct ScsiDataIn {

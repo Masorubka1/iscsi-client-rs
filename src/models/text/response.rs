@@ -1,3 +1,7 @@
+//! This module defines the structures for iSCSI Text Response PDUs.
+//! It includes the `TextResponse` header and related methods for handling
+//! text-based responses.
+
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
@@ -35,6 +39,7 @@ pub struct TextResponse {
 }
 
 impl TextResponse {
+    /// Serializes the BHS into a byte buffer.
     pub fn to_bhs_bytes(&self, buf: &mut [u8]) -> Result<()> {
         if buf.len() != HEADER_LEN {
             bail!("buffer length must be {HEADER_LEN}, got {}", buf.len());
@@ -43,6 +48,7 @@ impl TextResponse {
         Ok(())
     }
 
+    /// Deserializes the BHS from a byte buffer.
     pub fn from_bhs_bytes(buf: &mut [u8]) -> Result<&mut Self> {
         let hdr = <Self as zerocopy::FromBytes>::mut_from_bytes(buf)
             .map_err(|e| anyhow::anyhow!("failed convert buffer TextResponse: {e}"))?;

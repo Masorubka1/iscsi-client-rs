@@ -1,3 +1,6 @@
+//! This module defines the state machine for the iSCSI plain login process.
+//! It includes the state and transitions for handling an unauthenticated login.
+
 use std::pin::Pin;
 
 use crate::{

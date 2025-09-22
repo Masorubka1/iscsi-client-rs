@@ -72,7 +72,8 @@ pub fn build_read_capacity16(
 #[repr(C)]
 #[derive(FromBytes, KnownLayout, Immutable, Debug)]
 pub struct Rc10Raw {
-    /// Maximum logical block address (bytes 0-3) - highest valid LBA on the device
+    /// Maximum logical block address (bytes 0-3) - highest valid LBA on the
+    /// device
     pub max_lba: U32<BigEndian>,
     /// Block length in bytes (bytes 4-7) - size of each logical block
     pub block_len: U32<BigEndian>,

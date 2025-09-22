@@ -1,3 +1,7 @@
+//! This module defines the state machine for the iSCSI Logout process.
+//! It includes the states, context, and transitions for logging out of a
+//! session.
+
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
@@ -30,8 +34,8 @@ use crate::{
 
 /// This structure represents the context for a Logout command.
 ///
-/// It holds all the necessary information to manage the state of a Logout operation,
-/// including connection details and command parameters.
+/// It holds all the necessary information to manage the state of a Logout
+/// operation, including connection details and command parameters.
 #[derive(Debug)]
 pub struct LogoutCtx<'a> {
     _lt: PhantomData<&'a ()>,
@@ -49,6 +53,7 @@ pub struct LogoutCtx<'a> {
 }
 
 impl<'a> LogoutCtx<'a> {
+    /// Creates a new `LogoutCtx` with the given connection and parameters.
     pub fn new(
         conn: Arc<ClientConnection>,
         itt: Arc<AtomicU32>,

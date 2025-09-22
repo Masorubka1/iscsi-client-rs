@@ -1,5 +1,6 @@
 //! This module provides zero-copy structures for iSCSI Command PDUs.
-//! These structures are used for efficient serialization and deserialization of PDU fields.
+//! These structures are used for efficient serialization and deserialization of
+//! PDU fields.
 
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
@@ -14,7 +15,8 @@ use crate::models::command::common::{
     TaskAttribute, UnknownResponseCode, UnknownScsiStatus,
 };
 
-/// Represents the 3-bit SCSI Task Attribute, which is part of the flags in a SCSI Command Request.
+/// Represents the 3-bit SCSI Task Attribute, which is part of the flags in a
+/// SCSI Command Request.
 #[repr(transparent)]
 #[derive(Default, Clone, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct RawTaskAttribute(u8);
@@ -329,7 +331,8 @@ impl TryFrom<RawScsiCmdRespFlags> for ScsiCommandResponseFlags {
     }
 }
 
-/// Represents the wire format for the 1-byte ResponseCode field in a SCSI Response PDU.
+/// Represents the wire format for the 1-byte ResponseCode field in a SCSI
+/// Response PDU.
 #[repr(transparent)]
 #[derive(Default, Clone, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct RawResponseCode(u8);
@@ -387,7 +390,8 @@ impl From<ResponseCode> for RawResponseCode {
     }
 }
 
-/// Represents the wire format for the 1-byte SCSI Status field in a SCSI Response PDU.
+/// Represents the wire format for the 1-byte SCSI Status field in a SCSI
+/// Response PDU.
 #[repr(transparent)]
 #[derive(Default, Clone, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct RawScsiStatus(u8);

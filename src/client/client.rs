@@ -41,7 +41,8 @@ use crate::{
     state_machine::nop_states::NopCtx,
 };
 
-/// A weak reference to a session in the pool, used for unsolicited NOP-In auto-replies.
+/// A weak reference to a session in the pool, used for unsolicited NOP-In
+/// auto-replies.
 ///
 /// Contains a weak reference to the session pool and identifies a specific
 /// session and connection within that pool.
@@ -57,9 +58,10 @@ struct SessionRef {
 
 /// Represents a single iSCSI connection over a TCP stream.
 ///
-/// This struct manages sending requests (PDUs) and receiving responses, and is responsible for
-/// framing PDUs based on the information in their headers. It handles the low-level TCP
-/// communication with proper framing according to the iSCSI protocol.
+/// This struct manages sending requests (PDUs) and receiving responses, and is
+/// responsible for framing PDUs based on the information in their headers. It
+/// handles the low-level TCP communication with proper framing according to the
+/// iSCSI protocol.
 #[derive(Debug)]
 pub struct ClientConnection {
     /// TCP read half protected by mutex for concurrent access

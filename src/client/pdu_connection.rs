@@ -8,10 +8,12 @@ use crate::models::{
     opcode::BhsOpcode,
 };
 
-/// A trait for serializing a Protocol Data Unit (PDU) into a byte representation for transmission.
+/// A trait for serializing a Protocol Data Unit (PDU) into a byte
+/// representation for transmission.
 ///
-/// This trait provides functionality to convert PDU structures into their binary format
-/// suitable for sending over the network according to iSCSI protocol specifications.
+/// This trait provides functionality to convert PDU structures into their
+/// binary format suitable for sending over the network according to iSCSI
+/// protocol specifications.
 pub trait ToBytes: Sized {
     // The fixed length of the PDU header in bytes.
     // rust now don`t support compile time array length
@@ -32,8 +34,9 @@ pub trait ToBytes: Sized {
 
 /// A trait for deserializing a Protocol Data Unit (PDU) from a raw byte stream.
 ///
-/// This trait provides functionality to parse incoming binary data into structured PDU objects.
-/// It requires the implementing type to also implement BasicHeaderSegment for header access.
+/// This trait provides functionality to parse incoming binary data into
+/// structured PDU objects. It requires the implementing type to also implement
+/// BasicHeaderSegment for header access.
 pub trait FromBytes: Sized + BasicHeaderSegment {
     /// Parse the full PDU from a contiguous byte buffer.
     ///
@@ -47,8 +50,7 @@ pub trait FromBytes: Sized + BasicHeaderSegment {
 }
 
 impl<B> ToBytes for B
-where
-    B: Builder,
+where B: Builder
 {
     type Body = B::Body;
     type Header = B::Header;
