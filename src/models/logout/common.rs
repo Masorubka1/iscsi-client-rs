@@ -1,3 +1,6 @@
+//! This module defines common structures and enums for iSCSI Logout PDUs.
+//! It includes reason and response codes for the logout process.
+
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
@@ -6,20 +9,21 @@ use std::fmt;
 use anyhow::{Result, bail};
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
-/// iSCSI Logout Reason Code (Byte 1)
+/// iSCSI Logout Reason Code.
 #[derive(Debug, Default, PartialEq, Clone)]
 #[repr(u8)]
 pub enum LogoutReason {
-    /// Close the entire session (all connections)
+    /// Close the entire session.
     #[default]
     CloseSession = 0x00,
-    /// Close a specific connection identified by CID
+    /// Close a specific connection.
     CloseConnection = 0x01,
-    /// Remove a connection for recovery purposes
+    /// Remove a connection for recovery.
     RemoveConnectionForRecovery = 0x02,
 }
 
 impl LogoutReason {
+    /// Returns the reason code as a `u8`.
     #[inline]
     pub fn as_u8(&self) -> u8 {
         match self {
@@ -73,23 +77,25 @@ impl Default for RawLogoutReason {
 }
 
 impl RawLogoutReason {
+    /// Returns the raw 8-bit value of the reason code.
     #[inline]
     pub const fn raw(self) -> u8 {
         self.0
     }
 
+    /// Creates a new `RawLogoutReason` from a raw 8-bit value.
     #[inline]
     pub const fn from_raw(v: u8) -> Self {
         Self(v)
     }
 
-    /// Decode wire byte into the rich enum (`TryFrom<u8>` semantics).
+    /// Decodes the raw value into a `LogoutReason` enum.
     #[inline]
     pub fn decode(self) -> Result<LogoutReason> {
         LogoutReason::try_from(self.0)
     }
 
-    /// Encode from the rich enum into the wire byte (in-place).
+    /// Encodes a `LogoutReason` enum into the raw value.
     #[inline]
     pub fn encode(&mut self, r: LogoutReason) {
         self.0 = r.as_u8();
@@ -121,22 +127,23 @@ impl From<&LogoutReason> for RawLogoutReason {
     }
 }
 
-/// iSCSI Logout Response Code (RFC 3720 §10.15.1)
+/// iSCSI Logout Response Code.
 #[derive(Debug, Default, PartialEq, Eq)]
 #[repr(u8)]
 pub enum LogoutResponseCode {
-    /// 0 - connection or session closed successfully
+    /// Connection or session closed successfully.
     #[default]
     Success = 0x00,
-    /// 1 - CID not found
+    /// The CID was not found.
     CidNotFound = 0x01,
-    /// 2 - connection recovery is not supported
+    /// Connection recovery is not supported.
     RecoveryNotSupported = 0x02,
-    /// 3 - cleanup failed for various reasons
+    /// Cleanup failed for various reasons.
     CleanupFailed = 0x03,
 }
 
 impl LogoutResponseCode {
+    /// Returns the response code as a `u8`.
     #[inline]
     pub fn as_u8(&self) -> u8 {
         match self {
@@ -191,23 +198,25 @@ impl Default for RawLogoutResponseCode {
 }
 
 impl RawLogoutResponseCode {
+    /// Returns the raw 8-bit value of the response code.
     #[inline]
     pub const fn raw(self) -> u8 {
         self.0
     }
 
+    /// Creates a new `RawLogoutResponseCode` from a raw 8-bit value.
     #[inline]
     pub const fn from_raw(v: u8) -> Self {
         Self(v)
     }
 
-    /// Decode into the rich enum (`TryFrom<u8>` semantics).
+    /// Decodes the raw value into a `LogoutResponseCode` enum.
     #[inline]
     pub fn decode(self) -> Result<LogoutResponseCode> {
         LogoutResponseCode::try_from(self.0)
     }
 
-    /// Encode from the rich enum into the wire byte (in-place).
+    /// Encodes a `LogoutResponseCode` enum into the raw value.
     #[inline]
     pub fn encode(&mut self, r: LogoutResponseCode) {
         self.0 = r.as_u8();

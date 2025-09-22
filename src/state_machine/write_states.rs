@@ -1,3 +1,7 @@
+//! This module defines the state machine for the iSCSI SCSI Write command.
+//! It includes the states, context, and transitions for handling the write
+//! operation.
+
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
@@ -34,29 +38,42 @@ use crate::{
     state_machine::common::{StateMachine, StateMachineCtx, Transition},
 };
 
+/// This structure represents the context for a SCSI Write operation.
 #[derive(Debug)]
 pub struct WriteCtx<'a> {
     _lt: PhantomData<&'a ()>,
 
+    /// The client connection.
     pub conn: Arc<ClientConnection>,
+    /// The Logical Unit Number.
     pub lun: u64,
+    /// The Initiator Task Tag.
     pub itt: u32,
+    /// The Command Sequence Number.
     pub cmd_sn: Arc<AtomicU32>,
+    /// The Expected Status Sequence Number.
     pub exp_stat_sn: Arc<AtomicU32>,
 
+    /// The SCSI Command Descriptor Block.
     pub cdb: [u8; 16],
+    /// The data to be written.
     pub payload: Vec<u8>,
+    /// A buffer for the BHS.
     pub buf: [u8; HEADER_LEN],
 
+    /// The number of bytes that have been sent.
     pub sent_bytes: usize,
+    /// The total number of bytes to be sent.
     pub total_bytes: usize,
 
+    /// The last received command response.
     pub last_response: Option<PduResponse<ScsiCommandResponse>>,
     state: Option<WriteStates>,
 }
 
 #[allow(clippy::too_many_arguments)]
 impl<'a> WriteCtx<'a> {
+    /// Creates a new `WriteCtx` for a SCSI Write operation.
     pub fn new(
         conn: Arc<ClientConnection>,
         lun: u64,
@@ -83,7 +100,7 @@ impl<'a> WriteCtx<'a> {
         }
     }
 
-    /// Send the SCSI Command (WRITE) with **no** data in the command PDU.
+    /// Sends the SCSI Write command.
     async fn send_write_command(&mut self) -> Result<()> {
         let cmd_sn = self.cmd_sn.fetch_add(1, Ordering::SeqCst);
         let esn = self.exp_stat_sn.load(Ordering::SeqCst);
@@ -107,6 +124,7 @@ impl<'a> WriteCtx<'a> {
         Ok(())
     }
 
+    /// Receives a Ready To Transfer (R2T) PDU.
     async fn recv_r2t(&self, itt: u32) -> Result<PduResponse<ReadyToTransfer>> {
         let r2t: PduResponse<ReadyToTransfer> = self.conn.read_response(itt).await?;
         let header = r2t.header_view()?;
@@ -115,8 +133,7 @@ impl<'a> WriteCtx<'a> {
         Ok(r2t)
     }
 
-    /// Send exactly the requested R2T window.
-    /// Returns (bytes_sent, next_data_sn).
+    /// Sends a window of data to the target.
     async fn send_data(
         &mut self,
         itt: u32,
@@ -182,7 +199,7 @@ impl<'a> WriteCtx<'a> {
         Ok(sent)
     }
 
-    /// Wait for the SCSI Response and validate success.
+    /// Waits for the final SCSI response and validates it.
     async fn wait_scsi_response(&mut self, itt: u32) -> Result<()> {
         let rsp: PduResponse<ScsiCommandResponse> = self.conn.read_response(itt).await?;
         let header = rsp.header_view()?;
@@ -202,31 +219,37 @@ impl<'a> WriteCtx<'a> {
         Ok(())
     }
 
+    /// Returns whether the peer expects an initial R2T.
     #[inline]
     fn peer_initial_r2t(&self) -> bool {
         self.conn.cfg.extra_data.r2t.initial_r2t == YesNo::Yes
     }
 
+    /// Returns whether the peer accepts immediate data.
     #[inline]
     fn peer_immediate_data(&self) -> bool {
         self.conn.cfg.extra_data.r2t.immediate_data == YesNo::Yes
     }
 
+    /// Returns the peer's first burst length.
     #[inline]
     fn peer_first_burst(&self) -> usize {
         self.conn.cfg.login.negotiation.first_burst_length as usize
     }
 
+    /// Returns the peer's maximum burst length.
     #[inline]
     fn peer_max_burst(&self) -> usize {
         self.conn.cfg.login.negotiation.max_burst_length as usize
     }
 
+    /// Returns the peer's maximum receive data segment length.
     #[inline]
     fn peer_mrdsl(&self) -> usize {
         self.conn.cfg.login.negotiation.max_recv_data_segment_length as usize
     }
 
+    /// Sends the SCSI Write command with immediate data.
     async fn send_write_cmd_with_immediate(&mut self, imm_len: usize) -> Result<()> {
         let cmd_sn = self.cmd_sn.fetch_add(1, Ordering::SeqCst);
         let esn = self.exp_stat_sn.load(Ordering::SeqCst);
@@ -255,6 +278,7 @@ impl<'a> WriteCtx<'a> {
         Ok(())
     }
 
+    /// Sends an unsolicited window of data.
     async fn send_unsolicited_window(
         &mut self,
         offset: usize,
@@ -310,17 +334,26 @@ impl<'a> WriteCtx<'a> {
     }
 }
 
+/// Represents the initial state of a write operation.
 #[derive(Debug)]
 pub struct Start;
+
+/// Represents the state of waiting for a Ready To Transfer (R2T) PDU.
 #[derive(Debug)]
 pub struct WaitR2T;
+
+/// Represents the final state of a write operation.
 #[derive(Debug)]
 pub struct Finish;
 
+/// Defines the possible states for a SCSI Write operation state machine.
 #[derive(Debug)]
 pub enum WriteStates {
+    /// The initial state.
     Start(Start),
+    /// Waiting for an R2T PDU.
     WaitR2T(WaitR2T),
+    /// The final state.
     Finish(Finish),
 }
 
@@ -464,13 +497,14 @@ impl<'ctx> StateMachine<WriteCtx<'ctx>, WriteStep> for Finish {
     }
 }
 
+/// Represents the outcome of a completed SCSI Write operation.
 #[derive(Debug)]
 pub struct WriteOutcome {
-    /// Final SCSI Command Response (always present for WRITE).
+    /// The final SCSI Command Response.
     pub last_response: PduResponse<ScsiCommandResponse>,
-    /// Bytes actually sent (sum over all Data-Out PDUs).
+    /// The number of bytes that were sent.
     pub sent_bytes: usize,
-    /// Total intended bytes (payload length).
+    /// The total number of bytes that were intended to be sent.
     pub total_bytes: usize,
 }
 

@@ -1,3 +1,6 @@
+//! This module defines the structures for iSCSI Text Request PDUs.
+//! It includes the `TextRequest` header and a builder for constructing it.
+
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
@@ -16,7 +19,7 @@ use crate::{
     },
 };
 
-/// BHS for NopOutRequest PDU
+/// Represents the Basic Header Segment (BHS) for a Text Request PDU.
 #[repr(C)]
 #[derive(Default, Debug, PartialEq, ZFromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct TextRequest {
@@ -36,8 +39,10 @@ pub struct TextRequest {
 }
 
 impl TextRequest {
+    /// The default task tag value for Text requests.
     pub const DEFAULT_TAG: u32 = 0xFFFF_FFFF;
 
+    /// Serializes the BHS into a byte buffer.
     pub fn to_bhs_bytes(&self, buf: &mut [u8]) -> Result<()> {
         buf.fill(0);
         if buf.len() != HEADER_LEN {
@@ -47,6 +52,7 @@ impl TextRequest {
         Ok(())
     }
 
+    /// Deserializes the BHS from a byte buffer.
     pub fn from_bhs_bytes(buf: &mut [u8]) -> Result<&mut Self> {
         let hdr = <Self as zerocopy::FromBytes>::mut_from_bytes(buf)
             .map_err(|e| anyhow::anyhow!("failed convert buffer TextRequest: {e}"))?;
@@ -92,6 +98,7 @@ pub struct TextRequestBuilder {
 }
 
 impl TextRequestBuilder {
+    /// Creates a new `TextRequestBuilder` with default values.
     pub fn new() -> Self {
         TextRequestBuilder {
             header: TextRequest {
@@ -107,19 +114,19 @@ impl TextRequestBuilder {
         }
     }
 
-    /// Set Immediate bit (Immediate = bit6)
+    /// Sets the Immediate bit in the PDU header.
     pub fn immediate(mut self) -> Self {
         self.header.opcode.set_i();
         self
     }
 
-    /// Enable HeaderDigest in NOP-Out.
+    /// Enables header digest for the PDU.
     pub fn with_header_digest(mut self) -> Self {
         self.enable_header_digest = true;
         self
     }
 
-    /// Enable DataDigest in NOP-Out.
+    /// Enables data digest for the PDU.
     pub fn with_data_digest(mut self) -> Self {
         self.enable_data_digest = true;
         self
@@ -131,7 +138,8 @@ impl TextRequestBuilder {
         self
     }
 
-    /// Sets the target task tag, a unique identifier for this command.
+    /// Sets the target task tag, used to identify a command to which this is a
+    /// response.
     pub fn target_task_tag(mut self, tag: u32) -> Self {
         self.header.target_task_tag.set(tag);
         self
@@ -149,7 +157,7 @@ impl TextRequestBuilder {
         self
     }
 
-    /// Set the 8-byte Logical Unit Number (LUN) in the BHS header.
+    /// Sets the Logical Unit Number (LUN) for the command.
     pub fn lun(mut self, lun: u64) -> Self {
         self.header.lun.set(lun);
         self

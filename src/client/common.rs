@@ -29,10 +29,23 @@ where
     }
 }
 
+/// Represents a raw, unparsed iSCSI PDU (Protocol Data Unit).
+///
+/// This structure contains the raw bytes of an iSCSI PDU split into header and
+/// payload sections. The PDU format follows the iSCSI RFC specification with a
+/// fixed-size Basic Header Segment (BHS) and a variable-length payload that may
+/// contain Additional Header Segments, data, and digests.
 #[derive(Debug, Clone)]
 pub struct RawPdu {
-    /// Exactly 48 bytes (BHS)
+    /// Basic Header Segment - exactly 48 bytes according to iSCSI specification
+    ///
+    /// Contains the fundamental PDU information including opcode, flags,
+    /// lengths, sequence numbers, and other protocol-specific fields.
     pub header: Bytes,
-    /// BODY (AHS + pad + [HD?] + DATA + pad + [DD?])
+    /// Variable-length payload section
+    ///
+    /// May contain Additional Header Segments (AHS), padding, Header Digest
+    /// (HD), data payload, padding, and Data Digest (DD) depending on PDU
+    /// type and configuration.
     pub payload: Bytes,
 }

@@ -1,3 +1,7 @@
+//! This module defines the state machine for the iSCSI Test Unit Ready (TUR)
+//! command. It includes the states, context, and transitions for handling the
+//! TUR operation.
+
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
@@ -29,23 +33,34 @@ use crate::{
     state_machine::common::{StateMachine, StateMachineCtx, Transition},
 };
 
+/// This structure represents the context for a SCSI Test Unit Ready (TUR)
+/// command.
 #[derive(Debug)]
 pub struct TurCtx<'a> {
     _lt: PhantomData<&'a ()>,
 
+    /// The client connection.
     pub conn: Arc<ClientConnection>,
+    /// The Initiator Task Tag.
     pub itt: u32,
+    /// The Command Sequence Number.
     pub cmd_sn: Arc<AtomicU32>,
+    /// The Expected Status Sequence Number.
     pub exp_stat_sn: Arc<AtomicU32>,
+    /// The Logical Unit Number.
     pub lun: u64,
+    /// A buffer for the BHS.
     pub buf: [u8; HEADER_LEN],
+    /// The SCSI Command Descriptor Block.
     pub cbd: [u8; 16],
 
+    /// The last received command response.
     pub last_response: Option<PduResponse<ScsiCommandResponse>>,
     state: Option<TurStates>,
 }
 
 impl<'a> TurCtx<'a> {
+    /// Creates a new `TurCtx` for a TUR operation.
     pub fn new(
         conn: Arc<ClientConnection>,
         itt: Arc<AtomicU32>,
@@ -119,11 +134,16 @@ impl<'a> TurCtx<'a> {
     }
 }
 
+/// Represents the initial state of a TUR operation.
 #[derive(Debug)]
 pub struct Idle;
+
+/// Represents the state of waiting for a response to a TUR command.
 #[derive(Debug)]
 pub struct Wait;
 
+/// Defines the possible states for a SCSI Test Unit Ready (TUR) operation state
+/// machine.
 #[derive(Debug)]
 pub enum TurStates {
     Idle(Idle),

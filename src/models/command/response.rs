@@ -1,3 +1,6 @@
+//! This module defines the structures for iSCSI SCSI Command Response PDUs.
+//! It includes the `ScsiCommandResponse` header and related methods.
+
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
@@ -17,28 +20,53 @@ use crate::{
     },
 };
 
-/// BHS for ScsiCommandResponse PDU
+/// Basic Header Segment for iSCSI SCSI Command Response PDU
+///
+/// Represents the 48-byte header structure for SCSI Command Response PDU as
+/// defined in RFC 7143. Contains response status, sequence numbers, residual
+/// counts, and other information returned by the target after executing a SCSI
+/// command.
 #[repr(C)]
 #[derive(Debug, PartialEq, ZFromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct ScsiCommandResponse {
-    pub opcode: RawBhsOpcode,                              // 0
-    pub flags: RawScsiCmdRespFlags,                        // 1
-    pub response: RawResponseCode,                         // 2
-    pub status: RawScsiStatus,                             // 3
-    pub total_ahs_length: u8,                              // 4
-    pub data_segment_length: [u8; 3],                      // 5..8
-    reserved: [u8; 8],                                     // 8..16
-    pub initiator_task_tag: U32<BigEndian>,                // 16..20
-    pub snack_tag: U32<BigEndian>,                         // 20..24
-    pub stat_sn: U32<BigEndian>,                           // 24..28
-    pub exp_cmd_sn: U32<BigEndian>,                        // 28..32
-    pub max_cmd_sn: U32<BigEndian>,                        // 32..36
-    pub exp_data_sn: U32<BigEndian>,                       // 36..40
-    pub bidirectional_read_residual_count: U32<BigEndian>, // 40..44
-    pub residual_count: U32<BigEndian>,                    // 44..48
+    /// PDU opcode (byte 0) - should be 0x21 for SCSI Response
+    pub opcode: RawBhsOpcode,
+    /// Response flags (byte 1) - Final bit and residual overflow/underflow
+    /// indicators
+    pub flags: RawScsiCmdRespFlags,
+    /// Response code (byte 2) - indicates if command completed successfully
+    pub response: RawResponseCode,
+    /// SCSI status (byte 3) - SCSI command execution status
+    pub status: RawScsiStatus,
+    /// Total Additional Header Segments length (byte 4)
+    pub total_ahs_length: u8,
+    /// Data Segment Length (bytes 5-7) - length of sense data or other response
+    /// data
+    pub data_segment_length: [u8; 3],
+    /// Reserved bytes (8-15)
+    reserved: [u8; 8],
+    /// Initiator Task Tag (bytes 16-19) - matches the original command ITT
+    pub initiator_task_tag: U32<BigEndian>,
+    /// SNACK Tag (bytes 20-23) - used for data recovery
+    pub snack_tag: U32<BigEndian>,
+    /// Status Sequence Number (bytes 24-27) - sequence number for this response
+    pub stat_sn: U32<BigEndian>,
+    /// Expected Command Sequence Number (bytes 28-31) - next expected command
+    pub exp_cmd_sn: U32<BigEndian>,
+    /// Maximum Command Sequence Number (bytes 32-35) - command window limit
+    pub max_cmd_sn: U32<BigEndian>,
+    /// Expected Data Sequence Number (bytes 36-39) - for data recovery
+    pub exp_data_sn: U32<BigEndian>,
+    /// Bidirectional Read Residual Count (bytes 40-43) - unused read data
+    /// length
+    pub bidirectional_read_residual_count: U32<BigEndian>,
+    /// Residual Count (bytes 44-47) - difference between expected and actual
+    /// data transfer
+    pub residual_count: U32<BigEndian>,
 }
 
 impl ScsiCommandResponse {
+    /// Serializes the BHS into a byte buffer.
     pub fn to_bhs_bytes(&self, buf: &mut [u8]) -> Result<()> {
         buf.fill(0);
         if buf.len() != HEADER_LEN {
@@ -48,6 +76,7 @@ impl ScsiCommandResponse {
         Ok(())
     }
 
+    /// Deserializes the BHS from a byte buffer.
     pub fn from_bhs_bytes(buf: &mut [u8]) -> Result<&mut Self> {
         let hdr = <Self as zerocopy::FromBytes>::mut_from_bytes(buf).map_err(|e| {
             anyhow::anyhow!("failed convert buffer ScsiCommandResponse: {e}")
@@ -61,11 +90,13 @@ impl ScsiCommandResponse {
         Ok(hdr)
     }
 
+    /// Checks if the residual count is valid.
     #[inline]
     pub fn residual_valid(&self) -> bool {
         self.flags.u_big() || self.flags.o_big()
     }
 
+    /// Returns the effective residual count.
     #[inline]
     pub fn residual_effective(&self) -> u32 {
         if self.residual_valid() {
@@ -75,11 +106,13 @@ impl ScsiCommandResponse {
         }
     }
 
+    /// Checks if the bidirectional read residual count is valid.
     #[inline]
     pub fn bidi_read_residual_valid(&self) -> bool {
         self.flags.u_small() || self.flags.o_small()
     }
 
+    /// Returns the effective bidirectional read residual count.
     #[inline]
     pub fn bidi_read_residual_effective(&self) -> u32 {
         if self.bidi_read_residual_valid() {

@@ -1,3 +1,7 @@
+//! This module defines the state machine for the iSCSI NOP-Out/NOP-In exchange.
+//! It includes the states, context, and transitions for handling ping-like
+//! messages.
+
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
@@ -27,6 +31,11 @@ use crate::{
     state_machine::common::{StateMachine, StateMachineCtx, Transition},
 };
 
+/// This structure represents the context for a NOP-Out/NOP-In exchange.
+///
+/// It holds all the necessary information to manage the state of a
+/// NOP-Out/NOP-In operation, including connection details and command
+/// parameters.
 #[derive(Debug)]
 pub struct NopCtx<'a> {
     _lt: PhantomData<&'a ()>,
@@ -44,6 +53,7 @@ pub struct NopCtx<'a> {
 }
 
 impl<'a> NopCtx<'a> {
+    /// Creates a new `NopCtx` for initiating a NOP-Out exchange.
     pub fn new(
         conn: Arc<ClientConnection>,
         lun: u64,
@@ -66,10 +76,12 @@ impl<'a> NopCtx<'a> {
         }
     }
 
+    /// Resets the state of the context to the initial state.
     pub fn set_default_state(&mut self) {
         self.state = Some(NopStates::Start(Start));
     }
 
+    /// Validates the header of the last received NOP-In response.
     pub fn validate_last_response_header(&mut self) -> Result<&NopInResponse> {
         match &self.last_response {
             Some(l) => match l.header_view() {
@@ -84,6 +96,7 @@ impl<'a> NopCtx<'a> {
         }
     }
 
+    /// Creates a new `NopCtx` for replying to a NOP-In.
     pub fn for_reply(
         conn: Arc<ClientConnection>,
         _itt: Arc<AtomicU32>,
@@ -135,13 +148,19 @@ impl<'a> NopCtx<'a> {
     }
 }
 
+/// Represents the initial state of a NOP-Out operation.
 #[derive(Debug)]
 pub struct Start;
+
+/// Represents the state of waiting for a NOP-In response.
 #[derive(Debug)]
 pub struct Wait;
+
+/// Represents the state of sending a NOP-Out in reply to a NOP-In.
 #[derive(Debug)]
 pub struct Reply;
 
+/// Defines the possible states for a NOP-Out/NOP-In operation state machine.
 #[derive(Debug)]
 pub enum NopStates {
     Start(Start),

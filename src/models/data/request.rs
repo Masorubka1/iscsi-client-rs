@@ -1,3 +1,6 @@
+//! This module defines the structures for iSCSI SCSI Data-Out PDUs.
+//! It includes the `ScsiDataOut` header and a builder for constructing it.
+
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
@@ -36,6 +39,7 @@ pub struct ScsiDataOut {
 }
 
 impl ScsiDataOut {
+    /// Serializes the BHS into a byte buffer.
     pub fn to_bhs_bytes(&self, buf: &mut [u8]) -> Result<()> {
         buf.fill(0);
         if buf.len() != HEADER_LEN {
@@ -45,6 +49,7 @@ impl ScsiDataOut {
         Ok(())
     }
 
+    /// Deserializes the BHS from a byte buffer.
     pub fn from_bhs_bytes(buf: &mut [u8]) -> Result<&mut Self> {
         let hdr = Self::mut_from_bytes(buf)
             .map_err(|e| anyhow::anyhow!("failed convert buffer ScsiDataOut: {e}"))?;
@@ -155,9 +160,10 @@ pub struct ScsiDataOutBuilder {
 }
 
 impl ScsiDataOutBuilder {
-    /// Default Target Transfer Tag for unsolicited/initial-burst Data-Out.
+    /// The default Target Transfer Tag for unsolicited Data-Out PDUs.
     pub const DEFAULT_TTT: u32 = 0xFFFF_FFFF;
 
+    /// Creates a new `ScsiDataOutBuilder` with default values.
     pub fn new() -> Self {
         Self {
             header: ScsiDataOut {
@@ -173,51 +179,49 @@ impl ScsiDataOutBuilder {
         }
     }
 
-    /// Set the 8-byte LUN to which data is written.
+    /// Sets the Logical Unit Number (LUN) for the data transfer.
     pub fn lun(mut self, lun: u64) -> Self {
         self.header.lun.set(lun);
         self
     }
 
-    /// Set Initiator Task Tag (ITT) identifying this stream.
+    /// Sets the Initiator Task Tag (ITT) for the command.
     pub fn initiator_task_tag(mut self, itt: u32) -> Self {
         self.header.initiator_task_tag.set(itt);
         self
     }
 
-    /// Set Target Transfer Tag (TTT). Use `DEFAULT_TTT` for unsolicited
-    /// bursts, or the TTT provided in an R2T for solicited transfers.
+    /// Sets the Target Transfer Tag (TTT) for the data transfer.
     pub fn target_transfer_tag(mut self, ttt: u32) -> Self {
         self.header.target_transfer_tag.set(ttt);
         self
     }
 
-    /// Set the expected StatusSN (ExpStatSN).
+    /// Sets the expected status sequence number (ExpStatSN).
     pub fn exp_stat_sn(mut self, sn: u32) -> Self {
         self.header.exp_stat_sn.set(sn);
         self
     }
 
-    /// Set the **DataSN** for this Data-Out PDU.
+    /// Sets the Data Sequence Number (DataSN) for this PDU.
     pub fn data_sn(mut self, data_sn: u32) -> Self {
         self.header.data_sn.set(data_sn);
         self
     }
 
-    /// Set the **BufferOffset** (in **bytes**) of the first byte carried by
-    /// this Data-Out PDU within the overall WRITE command payload.
+    /// Sets the buffer offset for this PDU.
     pub fn buffer_offset(mut self, buffer_offset: u32) -> Self {
         self.header.buffer_offset.set(buffer_offset);
         self
     }
 
-    /// Request emission of a HeaderDigest (e.g., CRC32C) after the header.
+    /// Enables header digest for the PDU.
     pub fn with_header_digest(mut self) -> Self {
         self.enable_header_digest = true;
         self
     }
 
-    /// Request emission of a DataDigest after each Data Segment.
+    /// Enables data digest for the PDU.
     pub fn with_data_digest(mut self) -> Self {
         self.enable_data_digest = true;
         self

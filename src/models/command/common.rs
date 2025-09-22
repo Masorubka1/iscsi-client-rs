@@ -1,3 +1,6 @@
+//! This module defines common structures and enums for iSCSI Command PDUs.
+//! It includes flags, task attributes, response codes, and SCSI status codes.
+
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
@@ -55,15 +58,25 @@ impl fmt::Debug for ScsiCommandRequestFlags {
     }
 }
 
-/// SCSI Task Attributes, including reserved values
+/// SCSI Task Attributes for command ordering and queuing
+///
+/// Defines how SCSI commands should be queued and executed relative to other
+/// commands. These attributes control the ordering behavior of commands in the
+/// target's command queue.
 #[derive(Clone, Copy, PartialEq)]
 pub enum TaskAttribute {
-    Untagged,     // 0
-    Simple,       // 1
-    Ordered,      // 2
-    HeadOfQueue,  // 3
-    ACA,          // 4
-    Reserved(u8), // 5..=7
+    /// Untagged command (0) - legacy simple queuing
+    Untagged,
+    /// Simple task attribute (1) - commands may be reordered for optimization
+    Simple,
+    /// Ordered task attribute (2) - commands must execute in order
+    Ordered,
+    /// Head of queue task attribute (3) - command should execute immediately
+    HeadOfQueue,
+    /// Auto Contingent Allegiance (4) - special error recovery attribute
+    ACA,
+    /// Reserved attribute values (5-7) - future use
+    Reserved(u8),
 }
 
 impl From<u8> for TaskAttribute {
@@ -155,6 +168,10 @@ pub enum ResponseCode {
     Reserved(u8),
 }
 
+/// Error type for invalid iSCSI response codes
+///
+/// Returned when attempting to parse an invalid or unrecognized response code
+/// from an iSCSI SCSI Command Response PDU.
 #[derive(Debug, Error)]
 #[error("invalid response code: 0x{0:02x}")]
 pub struct UnknownResponseCode(pub u8);
@@ -178,24 +195,37 @@ impl TryFrom<u8> for ResponseCode {
     }
 }
 
-/// The 1-byte “Status” field in a SCSI Response PDU (RFC 7143 § 11.4.2)
+/// SCSI status codes returned in iSCSI SCSI Command Response PDU
 ///
+/// The 1-byte "Status" field as defined in RFC 7143 § 11.4.2.
 /// Only valid when ResponseCode == CommandCompleted.
+/// These status codes indicate the result of SCSI command execution.
 #[repr(u8)]
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum ScsiStatus {
+    /// Command completed successfully (0x00)
     #[default]
     Good = 0x00,
+    /// Check condition - sense data available (0x02)
     CheckCondition = 0x02,
+    /// Target busy - retry later (0x08)
     Busy = 0x08,
+    /// Reservation conflict (0x18)
     ReservationConflict = 0x18,
+    /// Task set full - target queue full (0x28)
     TaskSetFull = 0x28,
+    /// Auto Contingent Allegiance active (0x30)
     AcaActive = 0x30,
+    /// Task aborted (0x40)
     TaskAborted = 0x40,
     /// Any other status codes defined in SAM-x or reserved
     Other(u8),
 }
 
+/// Error type for invalid SCSI status codes
+///
+/// Returned when attempting to parse an invalid or unrecognized SCSI status
+/// code from an iSCSI SCSI Command Response PDU.
 #[derive(Debug, Error)]
 #[error("invalid SCSI status: 0x{0:02x}")]
 pub struct UnknownScsiStatus(pub u8);

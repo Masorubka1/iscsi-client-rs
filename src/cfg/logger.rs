@@ -32,12 +32,19 @@ use tracing_subscriber::{
 };
 
 #[derive(Debug, Deserialize, Clone)]
+/// Configuration wrapper for logger settings
+///
+/// Contains the main logger configuration structure.
 struct LoggerConfig {
     logger: LogConfig,
 }
 
 #[derive(Debug, Deserialize, Clone)]
 #[serde(rename_all = "lowercase")]
+/// Output destination for log messages
+///
+/// Specifies where log messages should be written - to stdout, stderr, or a
+/// file.
 enum Output {
     Stdout,
     Stderr,
@@ -46,6 +53,10 @@ enum Output {
 
 #[derive(Debug, Deserialize, Clone)]
 #[serde(rename_all = "lowercase")]
+/// Log file rotation frequency
+///
+/// Defines how often log files should be rotated to prevent them from growing
+/// too large.
 enum RotationFreq {
     Minutely,
     Hourly,
@@ -54,6 +65,9 @@ enum RotationFreq {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+/// Configuration for file-based logging
+///
+/// Specifies the file path and rotation frequency for file-based log output.
 struct LogFileConfig {
     path: String,
     #[serde(default)]
@@ -61,6 +75,10 @@ struct LogFileConfig {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+/// Main logging configuration structure
+///
+/// Contains all configuration parameters for the logging system including
+/// log level, output destination, formatting options, and file configuration.
 struct LogConfig {
     level: String,
     output: Output,
@@ -70,9 +88,15 @@ struct LogConfig {
     file: Option<LogFileConfig>,
 }
 
+/// Container for span field data
+///
+/// Holds structured data fields associated with tracing spans as a JSON map.
 #[derive(Default, Debug)]
 struct SpanFields(pub serde_json::Map<String, serde_json::Value>);
 
+/// Tracing layer for capturing span field data
+///
+/// A tracing-subscriber layer that captures and stores field data from spans.
 struct CaptureSpanFieldsLayer;
 
 impl<S> Layer<S> for CaptureSpanFieldsLayer
@@ -153,6 +177,9 @@ where S: Subscriber + for<'a> LookupSpan<'a>
     }
 }
 
+/// JSON formatter for log messages
+///
+/// Formats log messages as JSON with configurable fields and structure.
 struct JsonFormatter {
     config: Arc<LogConfig>,
 }
@@ -164,6 +191,10 @@ impl JsonFormatter {
 }
 
 #[derive(Serialize)]
+/// Structured log entry for JSON serialization
+///
+/// Represents a single log entry with timestamp, level, source location,
+/// and structured field data for JSON output format.
 struct LogEntry {
     timestamp: String,
     level: String,
@@ -242,6 +273,10 @@ where
 }
 
 #[derive(Default)]
+/// Visitor for collecting structured log fields
+///
+/// Implements the tracing field visitor pattern to collect log fields
+/// into a JSON map structure for structured logging output.
 struct JsonVisitor {
     fields: serde_json::Map<String, serde_json::Value>,
 }
@@ -339,6 +374,10 @@ fn make_writer(cfg: &LogConfig) -> anyhow::Result<(BoxMakeWriter, WorkerGuard)> 
     })
 }
 
+/// Trait for objects that can be logged to files
+///
+/// Provides functionality for saving content to log files with customizable
+/// naming and asynchronous file operations.
 pub trait LoggableToFile {
     fn get_name() -> &'static str {
         "unknown"

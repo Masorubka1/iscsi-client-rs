@@ -1,3 +1,7 @@
+//! This module defines the structures for iSCSI Ready To Transfer (R2T) PDUs.
+//! It includes the `ReadyToTransfer` header and related methods for handling
+//! data transfer.
+
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
@@ -16,7 +20,7 @@ use crate::{
     },
 };
 
-/// BHS for **Ready To Transfer (R2T)** – RFC 7143 §10.7.
+/// Represents the Basic Header Segment (BHS) for a Ready To Transfer (R2T) PDU.
 #[repr(C)]
 #[derive(Debug, Default, PartialEq, ZFromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct ReadyToTransfer {
@@ -36,6 +40,7 @@ pub struct ReadyToTransfer {
 }
 
 impl ReadyToTransfer {
+    /// Serializes the BHS into a byte buffer.
     pub fn to_bhs_bytes(&self, buf: &mut [u8]) -> Result<()> {
         if buf.len() != HEADER_LEN {
             bail!("buffer length must be {HEADER_LEN}, got {}", buf.len());
@@ -44,6 +49,7 @@ impl ReadyToTransfer {
         Ok(())
     }
 
+    /// Deserializes the BHS from a byte buffer.
     pub fn from_bhs_bytes(buf: &mut [u8]) -> Result<&mut Self> {
         let hdr = <Self as zerocopy::FromBytes>::mut_from_bytes(buf)
             .map_err(|e| anyhow::anyhow!("failed convert buffer ReadyToTransfer: {e}"))?;

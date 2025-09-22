@@ -1,3 +1,7 @@
+//! This module defines the structures for iSCSI Login Response PDUs.
+//! It includes the `LoginResponse` header and related methods for handling the
+//! login process.
+
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
@@ -19,7 +23,7 @@ use crate::{
     },
 };
 
-/// Header LoginResponse PDU
+/// Represents the Basic Header Segment (BHS) for a Login Response PDU.
 #[repr(C)]
 #[derive(Debug, Default, PartialEq, ZFromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct LoginResponse {
@@ -42,7 +46,7 @@ pub struct LoginResponse {
 }
 
 impl LoginResponse {
-    /// Copy the 48-byte BHS into `buf`.
+    /// Serializes the BHS into a byte buffer.
     #[inline]
     pub fn to_bhs_bytes(&self, buf: &mut [u8]) -> Result<()> {
         if buf.len() != HEADER_LEN {
@@ -52,6 +56,7 @@ impl LoginResponse {
         Ok(())
     }
 
+    /// Deserializes the BHS from a byte buffer.
     pub fn from_bhs_bytes(buf: &mut [u8]) -> Result<&mut Self> {
         let hdr = <Self as zerocopy::FromBytes>::mut_from_bytes(buf)
             .map_err(|e| anyhow::anyhow!("failed convert buffer LoginResponse: {e}"))?;

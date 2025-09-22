@@ -1,3 +1,6 @@
+//! This module defines the reason codes for iSCSI Reject PDUs.
+//! It includes the `RejectReason` enum and a zero-copy wrapper for it.
+
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
@@ -41,7 +44,7 @@ pub enum RejectReason {
 }
 
 impl RejectReason {
-    /// Decode from a raw byte (covers all values via `Other(..)`).
+    /// Creates a `RejectReason` from a raw 8-bit value.
     #[inline]
     pub fn from_u8(b: u8) -> Self {
         match b {
@@ -61,7 +64,7 @@ impl RejectReason {
         }
     }
 
-    /// Encode to its wire byte.
+    /// Returns the reason code as a `u8`.
     #[inline]
     pub fn as_u8(&self) -> u8 {
         match *self {
@@ -95,28 +98,31 @@ impl From<RejectReason> for u8 {
     }
 }
 
+/// A zero-copy wrapper for the iSCSI Reject Reason code.
 #[repr(transparent)]
 #[derive(Debug, Default, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct RawRejectReason(u8);
 
 impl RawRejectReason {
+    /// Returns the raw 8-bit value of the reason code.
     #[inline]
     pub const fn raw(&self) -> u8 {
         self.0
     }
 
+    /// Creates a new `RawRejectReason` from a raw 8-bit value.
     #[inline]
     pub const fn from_raw(v: u8) -> Self {
         Self(v)
     }
 
-    /// Infallible decode to the rich enum.
+    /// Decodes the raw value into a `RejectReason` enum.
     #[inline]
     pub fn decode(self) -> RejectReason {
         RejectReason::from_u8(self.0)
     }
 
-    /// Encode from the rich enum into the wire byte (in-place).
+    /// Encodes a `RejectReason` enum into the raw value.
     #[inline]
     pub fn encode(&mut self, r: RejectReason) {
         self.0 = r.as_u8();

@@ -8,12 +8,21 @@ pub const MODE_SENSE_6: u8 = 0x1A;
 pub const MODE_SENSE_10: u8 = 0x5A;
 
 /// Page Control (PC) for MODE SENSE byte 2 (bits 7..6).
+///
+/// Specifies which set of mode parameters to return in the MODE SENSE response.
+/// This determines whether to return current settings, changeable parameters,
+/// default values, or saved parameters.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[repr(u8)]
 pub enum PageControl {
+    /// Return current parameter values (0b00)
     Current = 0b00,
+    /// Return changeable parameter values - indicates which parameters can be
+    /// modified (0b01)
     Changeable = 0b01,
+    /// Return default parameter values - factory defaults (0b10)
     Default = 0b10,
+    /// Return saved parameter values - previously saved via MODE SELECT (0b11)
     Saved = 0b11,
 }
 

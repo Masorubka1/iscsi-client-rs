@@ -1,3 +1,7 @@
+//! This module defines the state machine for the iSCSI CHAP authentication
+//! process. It includes the states and transitions for handling the CHAP
+//! exchange.
+
 use std::pin::Pin;
 
 use anyhow::{Context, Result, anyhow};
@@ -74,6 +78,8 @@ fn parse_chap_challenge(txt_bytes: &[u8]) -> Result<(u8, Vec<u8>)> {
     Ok((id, chal))
 }
 
+/// Represents the initial state for a CHAP (Challenge-Handshake Authentication
+/// Protocol) login.
 #[derive(Debug)]
 pub struct ChapSecurity;
 
@@ -116,6 +122,8 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for ChapSecurity {
     }
 }
 
+/// Represents the state where the initiator sends the CHAP algorithm (CHAP_A)
+/// to the target.
 #[derive(Debug)]
 pub struct ChapA;
 
@@ -169,6 +177,8 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for ChapA {
     }
 }
 
+/// Represents the state where the initiator sends the CHAP response (CHAP_R) to
+/// the target.
 #[derive(Debug)]
 pub struct ChapAnswer;
 
@@ -248,6 +258,8 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for ChapAnswer {
     }
 }
 
+/// Represents the state of transitioning from the operational phase to the full
+/// feature phase after a successful CHAP authentication.
 #[derive(Debug)]
 pub struct ChapOpToFull;
 

@@ -7,7 +7,6 @@ mod integration_tests {
     pub mod common;
 
     pub mod check_tur;
-    pub mod inquiry;
     pub mod login_chap_ok;
     pub mod login_plain_ok;
     pub mod logout_ok;
@@ -15,6 +14,9 @@ mod integration_tests {
     pub mod nop_reply;
     pub mod read_sense;
     pub mod report_luns;
+
+    //inquiry
+    pub mod inquiry;
 
     //rw
     pub mod get_capacity_read_write;

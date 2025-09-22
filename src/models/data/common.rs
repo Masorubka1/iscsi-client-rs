@@ -1,3 +1,7 @@
+//! This module defines common structures and flags for iSCSI Data-In and
+//! Data-Out PDUs. It includes flag definitions and zero-copy wrappers for
+//! efficient PDU handling.
+
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
@@ -8,7 +12,12 @@ use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 bitflags::bitflags! {
     #[derive(Default, Debug, PartialEq)]
+    /// Flags for iSCSI SCSI Data-Out PDU
+    ///
+    /// Contains control flags for Data-Out PDUs that carry SCSI write data
+    /// from initiator to target.
     pub struct DataOutFlags: u8 {
+        /// Final bit (F) - indicates this is the last Data-Out PDU for the command
         const FINAL = 0b1000_0000;
     }
 }
@@ -30,27 +39,28 @@ impl TryFrom<u8> for DataOutFlags {
 pub struct RawDataOutFlags(u8);
 
 impl RawDataOutFlags {
+    /// Bitmask for the Final flag.
     pub const FINAL: u8 = 0b1000_0000;
 
-    /// Get raw flags byte as-is.
+    /// Returns the raw 8-bit value of the flags.
     #[inline]
     pub const fn raw(&self) -> u8 {
         self.0
     }
 
-    /// Construct from a raw byte (no validation).
+    /// Creates a new `RawDataOutFlags` from a raw 8-bit value.
     #[inline]
     pub const fn new_raw(v: u8) -> Self {
         Self(v)
     }
 
-    /// Check Final (F) bit.
+    /// Checks if the Final (F) bit is set.
     #[inline]
     pub fn fin(&self) -> bool {
         self.0 & Self::FINAL != 0
     }
 
-    /// Set/clear Final (F) bit.
+    /// Sets or clears the Final (F) bit.
     #[inline]
     pub fn set_fin(&mut self, on: bool) {
         if on {
@@ -82,13 +92,22 @@ impl TryFrom<RawDataOutFlags> for DataOutFlags {
 
 bitflags::bitflags! {
     #[derive(Default, Debug, PartialEq)]
+    /// Flags for iSCSI SCSI Data-In PDU
+    ///
+    /// Contains control flags for Data-In PDUs that carry SCSI read data
+    /// from target to initiator, including status and residual information.
     pub struct DataInFlags: u8 {
-        const FINAL = 1 << 7; // Final
-        const A = 1 << 6; // Acknowledge (DataACK SNACK, ERL>0)
+        /// Final bit (F) - indicates this is the last Data-In PDU for the command
+        const FINAL = 1 << 7;
+        /// Acknowledge bit (A) - requests DataACK SNACK for error recovery (ERL>0)
+        const A = 1 << 6;
         // bits 5..3 reserved (0)
-        const O = 1 << 2; // Residual Overflow (валиден только при S=1)
-        const U = 1 << 1; // Residual Underflow (валиден только при S=1)
-        const S = 1 << 0; // Status present (если 1, то F тоже обязан быть 1)
+        /// Residual Overflow bit (O) - valid only when S=1
+        const O = 1 << 2;
+        /// Residual Underflow bit (U) - valid only when S=1
+        const U = 1 << 1;
+        /// Status present bit (S) - when set, F must also be set
+        const S = 1 << 0;
     }
 }
 
@@ -107,79 +126,94 @@ impl TryFrom<u8> for DataInFlags {
     }
 }
 
-/// Wire view for **Data-IN flags** (byte 1 of the PDU).
+/// Wire format representation of Data-In PDU flags
+///
+/// Zero-copy wrapper around the flags byte in Data-In PDU header.
+/// Provides direct access to the raw byte value for serialization.
 #[repr(transparent)]
 #[derive(Default, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct RawDataInFlags(u8);
 
 impl RawDataInFlags {
+    /// Bitmask for the Acknowledge (A) flag.
     pub const A: u8 = 1 << 6;
+    /// Bitmask for the Final (F) flag.
     pub const FINAL: u8 = 1 << 7;
-    // reserved: bits 5..3
+    /// Bitmask for the Residual Overflow (O) flag.
     pub const O: u8 = 1 << 2;
     const RESERVED_MASK: u8 = 0b0011_1000;
+    /// Bitmask for the Status Present (S) flag.
     pub const S: u8 = 1 << 0;
+    /// Bitmask for the Residual Underflow (U) flag.
     pub const U: u8 = 1 << 1;
 
-    /// Get raw flags byte.
+    /// Returns the raw 8-bit value of the flags.
     #[inline]
     pub const fn raw(&self) -> u8 {
         self.0
     }
 
-    /// Construct from raw (no validation).
+    /// Creates a new `RawDataInFlags` from a raw 8-bit value.
     #[inline]
     pub const fn new_raw(v: u8) -> Self {
         Self(v)
     }
 
-    // Getters
+    /// Checks if the Final (F) bit is set.
     #[inline]
     pub fn fin(&self) -> bool {
         self.0 & Self::FINAL != 0
     }
 
+    /// Checks if the Acknowledge (A) bit is set.
     #[inline]
     pub fn ack(&self) -> bool {
         self.0 & Self::A != 0
     }
 
+    /// Checks if the Residual Overflow (O) bit is set.
     #[inline]
     pub fn o(&self) -> bool {
         self.0 & Self::O != 0
     }
 
+    /// Checks if the Residual Underflow (U) bit is set.
     #[inline]
     pub fn u(&self) -> bool {
         self.0 & Self::U != 0
     }
 
+    /// Checks if the Status Present (S) bit is set.
     #[inline]
     pub fn s(&self) -> bool {
         self.0 & Self::S != 0
     }
 
-    // Setters
+    /// Sets or clears the Final (F) bit.
     #[inline]
     pub fn set_fin(&mut self, on: bool) {
         Self::set_bit(&mut self.0, Self::FINAL, on)
     }
 
+    /// Sets or clears the Acknowledge (A) bit.
     #[inline]
     pub fn set_ack(&mut self, on: bool) {
         Self::set_bit(&mut self.0, Self::A, on)
     }
 
+    /// Sets or clears the Residual Overflow (O) bit.
     #[inline]
     pub fn set_o(&mut self, on: bool) {
         Self::set_pair(&mut self.0, Self::O, Self::U, on)
     }
 
+    /// Sets or clears the Residual Underflow (U) bit.
     #[inline]
     pub fn set_u(&mut self, on: bool) {
         Self::set_pair(&mut self.0, Self::U, Self::O, on)
     }
 
+    /// Sets or clears the Status Present (S) bit.
     #[inline]
     pub fn set_s(&mut self, on: bool) {
         Self::set_bit(&mut self.0, Self::S, on);
@@ -208,10 +242,7 @@ impl RawDataInFlags {
         }
     }
 
-    /// Validate protocol constraints:
-    /// - reserved bits (5..3) must be zero
-    /// - not both U and O
-    /// - S => F
+    /// Validates the protocol constraints of the flags.
     #[inline]
     pub fn validate(&self) -> Result<()> {
         if self.0 & Self::RESERVED_MASK != 0 {
