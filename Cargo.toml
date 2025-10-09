@@ -41,7 +41,7 @@ md-5 = "0.10.0"
 serde_yaml = "0.9.34"
 crc = "3.3.0"
 rand = "0.9.2"
-serde_json = "1.0.141"
+serde_json = "1.0.145"
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = [
     "chrono",
