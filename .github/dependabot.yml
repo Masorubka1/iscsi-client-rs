@@ -1,0 +1,16 @@
+version: 2
+updates:
+  # Rust (Cargo) — для всего workspace в корне
+  - package-ecosystem: "cargo"
+    directory: "/" # если workspace в корне, этого достаточно
+    schedule:
+      interval: "weekly" # daily/weekly/monthly
+    labels: ["deps", "rust"]
+    open-pull-requests-limit: 10
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels: ["deps", "ci"]

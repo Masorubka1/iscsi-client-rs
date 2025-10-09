@@ -1,0 +1,38 @@
+name: Dependabot automerge
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: write # required to enable auto-merge
+  pull-requests: write
+
+jobs:
+  automerge:
+    # Run only on PRs created by dependabot
+    if: github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Fetch Dependabot metadata
+        id: meta
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # (optional) Tag PRs for visibility
+      - name: Label deps PR
+        uses: actions-ecosystem/action-add-labels@v1
+        with:
+          labels: deps
+
+      # Enable auto-merge for patch/minor updates and all security updates
+      - name: Enable auto-merge
+        if: |
+          contains(fromJson('["version-update:semver-patch","version-update:semver-minor"]'), steps.meta.outputs.update-type)
+          || steps.meta.outputs.dependency-type == 'direct:security'
+        uses: peter-evans/enable-pull-request-automerge@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          merge-method: squash
