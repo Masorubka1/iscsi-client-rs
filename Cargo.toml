@@ -32,7 +32,7 @@ harness = true
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1.0.228", features = ["derive", "serde_derive"] }
 crc32c = "0.6.8"
-anyhow = "1.0.98"
+anyhow = "1.0.100"
 thiserror = "2.0.17"
 hex-literal = "1.0.0"
 hex = "0.4.3"

@@ -346,16 +346,14 @@ where
     #[inline]
     pub fn header_view(&self) -> Result<&T>
     where T: FromBytes + ZeroCopyType {
-        T::ref_from_bytes(self.header_buf.as_slice())
-            .map_err(|e| anyhow!("{}", e.to_string()))
+        T::ref_from_bytes(self.header_buf.as_slice()).map_err(|e| anyhow!("{}", e))
     }
 
     /// Returns a mutable view of the PDU's header.
     #[inline]
     pub fn header_view_mut(&mut self) -> Result<&mut T>
     where T: FromBytes + ZeroCopyType {
-        T::mut_from_bytes(self.header_buf.as_mut_slice())
-            .map_err(|e| anyhow!("{}", e.to_string()))
+        T::mut_from_bytes(self.header_buf.as_mut_slice()).map_err(|e| anyhow!("{}", e))
     }
 
     /// Returns a slice of the Additional Header Segment (AHS).
