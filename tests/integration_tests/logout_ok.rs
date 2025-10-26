@@ -28,8 +28,8 @@ async fn logout_close_session() -> Result<()> {
 
     // ---- Login via Pool ----
     let isid = test_isid();
-    let cid: u16 = 1;
-    let target_name: Arc<str> = Arc::from(cfg.login.security.target_name.clone());
+    let cid: u16 = 0;
+    let target_name: Arc<str> = Arc::from(cfg.login.identity.target_name.clone());
 
     let tsih = pool
         .login_and_insert(target_name, isid, cid, conn.clone())

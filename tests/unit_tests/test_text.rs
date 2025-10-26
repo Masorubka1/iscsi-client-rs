@@ -4,7 +4,7 @@
 use anyhow::{Context, Result};
 use bytes::{Bytes, BytesMut};
 use iscsi_client_rs::{
-    cfg::{cli::resolve_config_path, config::Config, enums::Digest},
+    cfg::{cli::resolve_config_path, config::Config},
     models::{
         common::{BasicHeaderSegment, Builder, HEADER_LEN},
         data_fromat::{PDUWithData, PduRequest},
@@ -31,11 +31,7 @@ fn test_text_request() -> Result<()> {
     let mut header_buf = [0u8; HEADER_LEN];
     header_buf.copy_from_slice(&bytes[..HEADER_LEN]);
     let mut parsed_fixture = PduRequest::<TextRequest>::new_request(header_buf, &cfg);
-    parsed_fixture.parse_with_buff_mut(
-        BytesMut::from(&bytes[HEADER_LEN..]),
-        false,
-        false,
-    )?;
+    parsed_fixture.parse_with_buff_mut(BytesMut::from(&bytes[HEADER_LEN..]))?;
 
     let itt = 1;
     let ttt = NopOutRequest::DEFAULT_TAG;
@@ -54,11 +50,8 @@ fn test_text_request() -> Result<()> {
     let mut builder = PduRequest::<TextRequest>::new_request(hdr_buf, &cfg);
     builder.append_data(parsed_fixture.data()?);
 
-    let (hdr_bytes, body_bytes) = &builder.build(
-        cfg.login.negotiation.max_recv_data_segment_length as usize,
-        cfg.login.negotiation.header_digest == Digest::CRC32C,
-        cfg.login.negotiation.data_digest == Digest::CRC32C,
-    )?;
+    let (hdr_bytes, body_bytes) =
+        &builder.build(cfg.login.flow.max_recv_data_segment_length as usize)?;
 
     assert_eq!(
         &hdr_bytes[..],
@@ -101,11 +94,7 @@ fn test_text_response() -> Result<()> {
     let mut header_buf = [0u8; HEADER_LEN];
     header_buf.copy_from_slice(&bytes[..HEADER_LEN]);
     let mut parsed = PDUWithData::<TextResponse>::from_header_slice(header_buf, &cfg);
-    parsed.parse_with_buff(
-        &Bytes::copy_from_slice(&bytes[HEADER_LEN..]),
-        false,
-        false,
-    )?;
+    parsed.parse_with_buff(&Bytes::copy_from_slice(&bytes[HEADER_LEN..]))?;
 
     assert!(!parsed.data()?.is_empty());
     assert!(parsed.header_digest.is_none());

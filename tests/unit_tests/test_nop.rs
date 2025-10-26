@@ -3,7 +3,7 @@
 
 use anyhow::Result;
 use iscsi_client_rs::{
-    cfg::{cli::resolve_config_path, config::Config, enums::Digest},
+    cfg::{cli::resolve_config_path, config::Config},
     models::{
         common::{Builder, HEADER_LEN},
         data_fromat::{PduRequest, PduResponse},
@@ -49,11 +49,8 @@ fn test_nop_out_minimal() -> Result<()> {
 
     let mut builder = PduRequest::<NopOutRequest>::new_request(header_buf, &cfg);
 
-    let (hdr_bytes, body) = &builder.build(
-        cfg.login.negotiation.max_recv_data_segment_length as usize,
-        cfg.login.negotiation.header_digest == Digest::CRC32C,
-        cfg.login.negotiation.data_digest == Digest::CRC32C,
-    )?;
+    let (hdr_bytes, body) =
+        &builder.build(cfg.login.flow.max_recv_data_segment_length as usize)?;
 
     assert!(body.is_empty(), "NOP-Out payload must be empty");
 

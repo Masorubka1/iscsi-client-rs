@@ -7,7 +7,7 @@ use anyhow::{Context, Result};
 use bytes::Bytes;
 use hex::FromHex;
 use iscsi_client_rs::{
-    cfg::{cli::resolve_config_path, config::Config, enums::Digest},
+    cfg::{cli::resolve_config_path, config::Config},
     control_block::write::build_write10,
     models::{
         command::{
@@ -62,14 +62,8 @@ fn test_write_pdu_build() -> Result<()> {
     let mut builder = PduRequest::<ScsiCommandRequest>::new_request(header_buf, &cfg);
     builder.append_data(write_buf.as_slice());
 
-    let hd = cfg.login.negotiation.header_digest == Digest::CRC32C;
-    let dd = cfg.login.negotiation.data_digest == Digest::CRC32C;
-
-    let (hdr_bytes, body_bytes) = &builder.build(
-        cfg.login.negotiation.max_recv_data_segment_length as usize,
-        hd,
-        dd,
-    )?;
+    let (hdr_bytes, body_bytes) =
+        &builder.build(cfg.login.flow.max_recv_data_segment_length as usize)?;
 
     assert_eq!(&hdr_bytes[..], &expected[..HEADER_LEN], "BHS mismatch");
     assert_eq!(
@@ -91,14 +85,11 @@ fn test_write_response_parse() -> Result<()> {
         load_fixture("tests/unit_tests/fixtures/scsi_commands/write10_response.hex")?;
     assert!(bytes.len() >= HEADER_LEN);
 
-    let hd = cfg.login.negotiation.header_digest == Digest::CRC32C;
-    let dd = cfg.login.negotiation.data_digest == Digest::CRC32C;
-
     let mut hdr_buf = [0u8; HEADER_LEN];
     hdr_buf.copy_from_slice(&bytes[..HEADER_LEN]);
 
     let mut pdu = PDUWithData::<ScsiCommandResponse>::from_header_slice(hdr_buf, &cfg);
-    pdu.parse_with_buff(&Bytes::copy_from_slice(&bytes[HEADER_LEN..]), hd, dd)?;
+    pdu.parse_with_buff(&Bytes::copy_from_slice(&bytes[HEADER_LEN..]))?;
 
     assert!(pdu.data()?.is_empty());
     assert!(pdu.header_digest.is_none());

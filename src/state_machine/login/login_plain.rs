@@ -4,7 +4,7 @@
 use std::pin::Pin;
 
 use crate::{
-    cfg::config::ToLoginKeys,
+    cfg::config::{login_keys_operational, login_keys_security},
     models::{
         common::Builder,
         data_fromat::PduRequest,
@@ -16,7 +16,7 @@ use crate::{
     },
     state_machine::{
         common::{StateMachine, Transition},
-        login::common::{LoginCtx, LoginStepOut},
+        login::common::{LoginCtx, LoginStepOut, verify_operational_negotiation},
     },
 };
 
@@ -37,28 +37,28 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for PlainStart {
                 .transit()
                 .csg(Stage::Operational)
                 .nsg(Stage::FullFeature)
-                .versions(
-                    ctx.conn.cfg.login.negotiation.version_min,
-                    ctx.conn.cfg.login.negotiation.version_max,
-                )
+                .versions(0, 0)
                 .initiator_task_tag(ctx.itt)
-                .connection_id(ctx.cid)
-                .cmd_sn(0)
-                .exp_stat_sn(0);
+                .connection_id(ctx.cid);
 
             if let Err(e) = header.header.to_bhs_bytes(ctx.buf.as_mut_slice()) {
                 return Transition::Done(Err(e));
             }
 
             let mut pdu = PduRequest::<LoginRequest>::new_request(ctx.buf, &ctx.conn.cfg);
-            for key in ctx.conn.cfg.to_login_keys() {
-                pdu.append_data(key.into_bytes().as_slice());
-            }
+            let mut sec_bytes = login_keys_security(&ctx.conn.cfg);
+            sec_bytes.extend_from_slice(&login_keys_operational(&ctx.conn.cfg));
+            pdu.append_data(&sec_bytes);
 
             match ctx.conn.send_request(ctx.itt, pdu).await {
                 Err(e) => Transition::Done(Err(e)),
                 Ok(()) => match ctx.conn.read_response::<LoginResponse>(ctx.itt).await {
                     Ok(rsp) => {
+                        if let Err(e) =
+                            verify_operational_negotiation(&ctx.conn.cfg, &rsp)
+                        {
+                            return Transition::Done(Err(e));
+                        }
                         ctx.last_response = Some(rsp);
                         Transition::Done(Ok(()))
                     },

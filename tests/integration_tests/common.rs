@@ -4,13 +4,11 @@
 use std::{path::PathBuf, sync::Arc};
 
 use anyhow::{Context, Result};
-use iscsi_client_rs::{
-    cfg::config::Config, client::client::ClientConnection, utils::generate_isid,
-};
+use iscsi_client_rs::{cfg::config::Config, client::client::ClientConnection};
 use tokio_util::sync::CancellationToken;
 
 pub fn test_path() -> String {
-    std::env::var("TEST_CONFIG").unwrap_or_else(|_| "tests/config.yaml".into())
+    std::env::var("TEST_CONFIG").unwrap_or_else(|_| "docker/lio/config.lio.yaml".into())
 }
 
 pub fn load_config() -> Result<Config> {
@@ -26,7 +24,7 @@ pub async fn connect_cfg(cfg: &Config) -> Result<Arc<ClientConnection>> {
 }
 
 pub fn test_isid() -> [u8; 6] {
-    generate_isid().0
+    [0, 2, 61, 0, 0, 14]
 }
 
 pub fn get_lun() -> u64 {

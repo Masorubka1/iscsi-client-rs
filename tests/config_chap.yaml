@@ -1,46 +1,39 @@
 login:
-  # 1) Security Negotiation
-  security:
-    SessionType: Normal # Discovery | Normal
-    TargetPortalGroupTag: 1
+  identity:
+    SessionType: Normal
     InitiatorName: iqn.2004-10.com.ubuntu:01:c676ed18968f
     InitiatorAlias: ubuntu
     TargetName: iqn.2025-08.example:disk0
-    TargetAlias: iscsi-target-vm
-    TargetAddress: 127.0.0.1:3260
-
-  # 2) Auth
+    IsX86: No
   auth:
     AuthMethod: CHAP
     username: testuser
     secret: secretpass
-
-  # 3) Operational Parameter Negotiation
-  negotiation:
-    VersionMax: 0
-    VersionMin: 0
-    HeaderDigest: None # None | CRC32C
-    DataDigest: None # None | CRC32C
-
+  integrity:
+    HeaderDigest: None
+    DataDigest: None
+  flow:
     MaxRecvDataSegmentLength: 262144
     MaxBurstLength: 16776192
     FirstBurstLength: 262144
-
-    DataPDUInOrder: Yes # Yes | No
-    DataSequenceInOrder: Yes # Yes | No
-    ErrorRecoveryLevel: 1 # 0–2
-
-extra_data:
-  markers:
-    IFMarker: No
-    OFMarker: No
-  r2t:
+  write_flow:
     InitialR2T: Yes
     ImmediateData: No
     MaxOutstandingR2T: 1
-    DefaultTime2Wait: 2 # seconds
-    DefaultTime2Retain: 0 # seconds (0 = без окна удержания)
-  connections:
+  ordering:
+    DataPDUInOrder: Yes
+    DataSequenceInOrder: Yes
+  recovery:
+    ErrorRecoveryLevel: 1
+  timers:
+    DefaultTime2Wait: 2
+    DefaultTime2Retain: 0
+  limits:
     MaxConnections: 1
-    MaxSessions: 1 # не RFC-ключ, внешний параметр; ок
-    TimeoutConnection: 30 # seconds
+  extensions: {}
+  transport:
+    TargetAddress: 127.0.0.1:3260
+    TargetPortalGroupTag: 1
+runtime:
+  MaxSessions: 1
+  TimeoutConnection: 7

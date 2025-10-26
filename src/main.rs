@@ -15,7 +15,7 @@ use iscsi_client_rs::{
         },
         write::build_write16,
     },
-    models::nop::request::NopOutRequest,
+    models::{logout::common::LogoutReason, nop::request::NopOutRequest},
     state_machine::{nop_states::NopCtx, read_states::ReadCtx, write_states::WriteCtx},
 };
 use tokio::time::sleep;
@@ -62,7 +62,7 @@ async fn main() -> Result<()> {
 
     // Load config
     let cfg: Arc<Config> = Arc::new(
-        resolve_config_path("tests/config.yaml")
+        resolve_config_path("docker/lio/config.lio.yaml")
             .and_then(Config::load_from_file)
             .context("failed to resolve or load config")?,
     );
@@ -82,7 +82,7 @@ async fn main() -> Result<()> {
     assert!(!tsihs.is_empty());
 
     // ---- Add extra connections (MC/S) per session if requested in cfg ----
-    let max_conns = cfg.extra_data.connections.max_connections.max(1);
+    let max_conns = cfg.login.limits.max_connections.max(1);
     if max_conns > 1 {
         for &tsih in &tsihs {
             for cid in 1..max_conns {
@@ -185,8 +185,8 @@ async fn main() -> Result<()> {
 
     // Limits (like in the test)
     const FD_MAX_BYTES: usize = 8 * 1024 * 1024;
-    let burst_bytes = cfg.login.negotiation.max_burst_length as usize;
-    let mrdsl_bytes = cfg.login.negotiation.max_recv_data_segment_length as usize;
+    let burst_bytes = cfg.login.flow.max_burst_length as usize;
+    let mrdsl_bytes = cfg.login.flow.max_recv_data_segment_length as usize;
     let max_blocks_by_scsi10 = u16::MAX as usize;
     let max_blocks_by_fd = (FD_MAX_BYTES / blk_sz).max(1);
     let max_blocks_by_burst = (burst_bytes / blk_sz).max(1);
@@ -262,7 +262,6 @@ async fn main() -> Result<()> {
     }
     info!("WRITE done.");
 
-    // Маленькая пауза (даём таргету выровнять очередь/кэш)
     sleep(Duration::from_millis(200)).await;
 
     // ===================== Parallel READ + verify =====================
@@ -338,8 +337,16 @@ async fn main() -> Result<()> {
     }
     info!("READ verify done.");
 
+    let mut logout_handles = Vec::new();
+    for (tsih, cid) in workers.iter().cloned() {
+        logout_handles.push(pool.logout(tsih, LogoutReason::CloseConnection, Some(cid)));
+    }
+    for h in logout_handles {
+        h.await?;
+    }
+
     // ---- Clean logout ----
-    pool.shutdown_gracefully(Duration::from_secs(10)).await?;
+    //pool.shutdown_gracefully(Duration::from_secs(10)).await?;
     info!("All sessions logged out.");
 
     Ok(())

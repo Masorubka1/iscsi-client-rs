@@ -1,46 +1,50 @@
 login:
-  # 1) Security Negotiation
-  security:
+  identity:
     SessionType: Normal
-    TargetPortalGroupTag: 1
-
     InitiatorName: iqn.2004-10.com.ubuntu:01:c676ed18968f
     InitiatorAlias: ubuntu
-
     TargetName: iqn.2025-08.example:disk0
-    TargetAlias: iscsi-target-vm
-    TargetAddress: 127.0.0.1:3260
 
-  # 2) Auth
   auth:
-    AuthMethod: None # или CHAP
+    AuthMethod: None
 
-  # 3) Operational Parameter Negotiation
-  negotiation:
-    VersionMax: 0
-    VersionMin: 0
-    HeaderDigest: None # None | CRC32C
-    DataDigest: None # None | CRC32C
+  integrity:
+    HeaderDigest: None
+    DataDigest: None
 
+  flow:
     MaxRecvDataSegmentLength: 262144
     MaxBurstLength: 16776192
     FirstBurstLength: 262144
 
-    DataPDUInOrder: Yes # Yes | No
-    DataSequenceInOrder: Yes # Yes | No
-    ErrorRecoveryLevel: 1 # 0–2
-
-extra_data:
-  markers:
-    IFMarker: No
-    OFMarker: No
-  r2t:
-    InitialR2T: Yes # данные только по R2T
+  write_flow:
+    InitialR2T: Yes
     ImmediateData: No
     MaxOutstandingR2T: 1
-    DefaultTime2Wait: 2 # сек
-    DefaultTime2Retain: 0 # сек (0 = без окна удержания задач)
-  connections:
+
+  ordering:
+    DataPDUInOrder: Yes
+    DataSequenceInOrder: Yes
+
+  recovery:
+    ErrorRecoveryLevel: 1
+
+  timers:
+    DefaultTime2Wait: 2
+    DefaultTime2Retain: 0
+
+  limits:
     MaxConnections: 1
-    MaxSessions: 2 # не RFC-ключ, параметр инициатора
-    TimeoutConnection: 30 # (опционально) сек
+
+  extensions:
+    IFMarker: "No"
+    OFMarker: "No"
+    X-TargetAlias: "iscsi-target-vm"
+
+  transport:
+    TargetAddress: 127.0.0.1:3260
+    TargetPortalGroupTag: 1
+
+runtime:
+  MaxSessions: 2
+  TimeoutConnection: 30
