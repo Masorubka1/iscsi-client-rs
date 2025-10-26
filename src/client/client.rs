@@ -89,7 +89,7 @@ pub struct ClientConnection {
 impl ClientConnection {
     /// Establishes a new TCP connection to the given address.
     pub async fn connect(cfg: Config, cancel: CancellationToken) -> Result<Arc<Self>> {
-        let stream = TcpStream::connect(&cfg.login.security.target_address).await?;
+        let stream = TcpStream::connect(&cfg.login.transport.target_address).await?;
         stream.set_linger(None)?;
         stream.set_nodelay(true)?;
 
@@ -197,11 +197,8 @@ impl ClientConnection {
         }
 
         let mut w = self.writer.lock().await;
-        let (out_header, out_data) = req.to_bytes(
-            self.cfg.login.negotiation.max_recv_data_segment_length as usize,
-            self.cfg.login.negotiation.header_digest == Digest::CRC32C,
-            self.cfg.login.negotiation.data_digest == Digest::CRC32C,
-        )?;
+        let (out_header, out_data) =
+            req.to_bytes(self.cfg.login.flow.max_recv_data_segment_length as usize)?;
         debug!("SEND {req:?}");
         debug!(
             "Size_header: {} Size_data: {}",
@@ -212,7 +209,7 @@ impl ClientConnection {
         io_with_timeout(
             "write header (write_all)",
             w.write_all(&out_header),
-            self.cfg.extra_data.connections.timeout_connection,
+            self.cfg.runtime.timeout_connection,
             &self.cancel,
         )
         .await?;
@@ -221,7 +218,7 @@ impl ClientConnection {
             io_with_timeout(
                 "write data (write_all)",
                 w.write_all(&out_data),
-                self.cfg.extra_data.connections.timeout_connection,
+                self.cfg.runtime.timeout_connection,
                 &self.cancel,
             )
             .await?;
@@ -299,25 +296,17 @@ impl ClientConnection {
     ) -> Result<PduResponse<T>> {
         let (mut pdu, data) = self.read_response_raw(initiator_task_tag).await?;
 
-        let header: &T = pdu.header_view()?;
-
-        let hd = self.cfg.login.negotiation.header_digest == Digest::CRC32C;
-        let hd = header.get_header_diggest(hd);
-        let dd = self.cfg.login.negotiation.data_digest == Digest::CRC32C;
-        let dd = header.get_data_diggest(dd);
-
-        pdu.parse_with_buff(&data, hd != 0, dd != 0)?;
+        pdu.parse_with_buff(&data)?;
 
         Ok(pdu)
     }
 
     async fn read_loop(self: Arc<Self>) -> Result<()> {
-        let mut scratch = BytesMut::with_capacity(
-            self.cfg.login.negotiation.first_burst_length as usize,
-        );
+        let mut scratch =
+            BytesMut::with_capacity(self.cfg.login.flow.first_burst_length as usize);
 
-        let hd = self.cfg.login.negotiation.header_digest == Digest::CRC32C;
-        let dd = self.cfg.login.negotiation.data_digest == Digest::CRC32C;
+        let hd = self.cfg.login.integrity.header_digest == Digest::CRC32C;
+        let dd = self.cfg.login.integrity.data_digest == Digest::CRC32C;
 
         loop {
             if self.cancel.is_cancelled() {
@@ -332,7 +321,7 @@ impl ClientConnection {
                 io_with_timeout(
                     "read header",
                     r.read_exact(&mut scratch[..HEADER_LEN]),
-                    self.cfg.extra_data.connections.timeout_connection,
+                    self.cfg.runtime.timeout_connection,
                     &self.cancel,
                 )
                 .await?;
@@ -363,7 +352,7 @@ impl ClientConnection {
                 io_with_timeout(
                     "read payload",
                     r.read_exact(&mut scratch[old..old + payload_len]),
-                    self.cfg.extra_data.connections.timeout_connection,
+                    self.cfg.runtime.timeout_connection,
                     &self.cancel,
                 )
                 .await?;
@@ -429,7 +418,7 @@ impl ClientConnection {
     ) -> bool {
         let mut pdu = PduResponse::<NopInResponse>::from_header_slice(hdr, &self.cfg);
 
-        let (hd, dd, ttt) = {
+        let ttt = {
             let header = match pdu.header_view() {
                 Ok(h) => h,
                 Err(e) => {
@@ -438,16 +427,10 @@ impl ClientConnection {
                 },
             };
 
-            let hd_en = self.cfg.login.negotiation.header_digest == Digest::CRC32C;
-            let dd_en = self.cfg.login.negotiation.data_digest == Digest::CRC32C;
-
-            let hd = header.get_header_diggest(hd_en);
-            let dd = header.get_data_diggest(dd_en);
-            let ttt = header.target_task_tag.get();
-            (hd, dd, ttt)
+            header.target_task_tag.get()
         };
 
-        if let Err(e) = pdu.parse_with_buff(&payload, hd != 0, dd != 0) {
+        if let Err(e) = pdu.parse_with_buff(&payload) {
             debug!("NOP-In parse failed (probably other opcode): {e}");
             return false;
         }

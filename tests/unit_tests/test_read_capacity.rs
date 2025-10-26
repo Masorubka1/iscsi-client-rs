@@ -4,7 +4,7 @@
 use anyhow::{Context, Result};
 use bytes::Bytes;
 use iscsi_client_rs::{
-    cfg::{cli::resolve_config_path, config::Config, enums::Digest},
+    cfg::{cli::resolve_config_path, config::Config},
     control_block::read_capacity::{
         Rc10Raw, Rc16Raw, build_read_capacity10, build_read_capacity16,
         parse_read_capacity10_zerocopy, parse_read_capacity16_zerocopy,
@@ -57,11 +57,8 @@ fn test_read_capacity10_request_build() -> Result<()> {
 
     let mut pdu = PduRequest::<ScsiCommandRequest>::new_request(header_buf, &cfg);
 
-    let (hdr_bytes, body_bytes) = pdu.build(
-        cfg.login.negotiation.max_recv_data_segment_length as usize,
-        cfg.login.negotiation.header_digest == Digest::CRC32C,
-        cfg.login.negotiation.data_digest == Digest::CRC32C,
-    )?;
+    let (hdr_bytes, body_bytes) =
+        pdu.build(cfg.login.flow.max_recv_data_segment_length as usize)?;
 
     assert_eq!(&hdr_bytes[..], &expected[..HEADER_LEN], "BHS mismatch");
     assert_eq!(
@@ -108,11 +105,8 @@ fn test_read_capacity16_request_build() -> Result<()> {
 
     let mut pdu = PduRequest::<ScsiCommandRequest>::new_request(header_buf, &cfg);
 
-    let (hdr_bytes, body_bytes) = pdu.build(
-        cfg.login.negotiation.max_recv_data_segment_length as usize,
-        cfg.login.negotiation.header_digest == Digest::CRC32C,
-        cfg.login.negotiation.data_digest == Digest::CRC32C,
-    )?;
+    let (hdr_bytes, body_bytes) =
+        pdu.build(cfg.login.flow.max_recv_data_segment_length as usize)?;
 
     assert_eq!(&hdr_bytes[..], &expected[..HEADER_LEN], "BHS mismatch");
     assert_eq!(
@@ -149,7 +143,7 @@ fn test_rc10_response_parse() -> Result<()> {
     hdr_buf.copy_from_slice(hdr_bytes);
 
     let mut pdu = PduResponse::<ScsiDataIn>::from_header_slice(hdr_buf, &cfg);
-    pdu.parse_with_buff(&Bytes::copy_from_slice(body_bytes), false, false)
+    pdu.parse_with_buff(&Bytes::copy_from_slice(body_bytes))
         .context("failed to parse ScsiDataIn PDU body")?;
 
     let header = pdu.header_view()?;
@@ -214,7 +208,7 @@ fn test_rc16_response_parse() -> Result<()> {
     hdr_buf.copy_from_slice(hdr_bytes);
 
     let mut pdu = PduResponse::<ScsiDataIn>::from_header_slice(hdr_buf, &cfg);
-    pdu.parse_with_buff(&Bytes::copy_from_slice(body_bytes), false, false)
+    pdu.parse_with_buff(&Bytes::copy_from_slice(body_bytes))
         .context("failed to parse ScsiDataIn PDU body")?;
 
     let header = pdu.header_view()?;

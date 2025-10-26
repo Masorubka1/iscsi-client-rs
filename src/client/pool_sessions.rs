@@ -89,11 +89,9 @@ impl Pool {
     /// Create a pool with its own root cancellation token.
     pub fn new(cfg: &Config) -> Self {
         Self {
-            sessions: DashMap::with_capacity(
-                cfg.extra_data.connections.max_sessions as usize,
-            ),
-            max_sessions: cfg.extra_data.connections.max_sessions,
-            max_connections: cfg.extra_data.connections.max_connections,
+            sessions: DashMap::with_capacity(cfg.runtime.max_sessions as usize),
+            max_sessions: cfg.runtime.max_sessions,
+            max_connections: cfg.login.limits.max_connections,
             self_weak: OnceCell::new(),
             cancel: CancellationToken::new(),
         }
@@ -102,11 +100,9 @@ impl Pool {
     /// Optionally construct with an external root cancellation token.
     pub fn with_cancel(cfg: &Config, cancel: CancellationToken) -> Self {
         Self {
-            sessions: DashMap::with_capacity(
-                cfg.extra_data.connections.max_sessions as usize,
-            ),
-            max_sessions: cfg.extra_data.connections.max_sessions,
-            max_connections: cfg.extra_data.connections.max_connections,
+            sessions: DashMap::with_capacity(cfg.runtime.max_sessions as usize),
+            max_sessions: cfg.runtime.max_sessions,
+            max_connections: cfg.login.limits.max_connections,
             self_weak: OnceCell::new(),
             cancel,
         }
@@ -127,7 +123,7 @@ impl Pool {
     pub async fn login_sessions_from_cfg(&self, cfg: &Config) -> Result<Vec<u16>> {
         ensure!(self.max_sessions > 0, "max_sessions must be > 0");
 
-        let target_name: Arc<str> = Arc::from(cfg.login.security.target_name.clone());
+        let target_name: Arc<str> = Arc::from(cfg.login.identity.target_name.clone());
         let mut tsihs = Vec::with_capacity(self.max_sessions as usize);
 
         for _ in 0..self.max_sessions {

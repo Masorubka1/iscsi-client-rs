@@ -29,7 +29,7 @@ fn test_reject_parse() -> Result<()> {
     hdr_buf.copy_from_slice(&bytes[..HEADER_LEN]);
 
     let mut pdu = PDUWithData::<RejectPdu>::from_header_slice(hdr_buf, &cfg);
-    pdu.parse_with_buff(&Bytes::copy_from_slice(&bytes[HEADER_LEN..]), false, false)?;
+    pdu.parse_with_buff(&Bytes::copy_from_slice(&bytes[HEADER_LEN..]))?;
 
     assert!(!pdu.data()?.is_empty());
     assert!(pdu.header_digest.is_none());

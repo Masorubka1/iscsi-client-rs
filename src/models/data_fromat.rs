@@ -15,7 +15,10 @@ use zerocopy::{
 };
 
 use crate::{
-    cfg::{config::Config, enums::Digest},
+    cfg::{
+        config::Config,
+        enums::{Digest, YesNo},
+    },
     client::pdu_connection::FromBytes,
     models::{
         common::{BasicHeaderSegment, Builder, HEADER_LEN, SendingData},
@@ -82,12 +85,13 @@ pub struct PDUWithData<T, Body = Bytes> {
 
     enable_header_digest: bool,
     enable_data_digest: bool,
+    allocated_header_diggest: bool,
     /// The optional header digest value.
     pub header_digest: Option<U32<BigEndian>>,
     /// The optional data digest value.
     pub data_digest: Option<U32<BigEndian>>,
-    hd_reserved: bool,
-    dd_appended: bool,
+
+    pub is_x86: bool,
 
     _marker: PhantomData<T>,
 }
@@ -102,16 +106,14 @@ where T: BasicHeaderSegment + SendingData + FromBytes + ZeroCopyType
     /// 4-byte slot for it right before DATA; then append DATA and update
     /// DataSegmentLength.
     fn append_data(&mut self, more: &[u8]) {
-        if self.enable_header_digest && !self.hd_reserved {
-            let hd_len = self
-                .header_view_mut()
-                .expect("uninitialized header")
-                .get_header_diggest(true);
-            if hd_len != 0 {
-                self.payload.extend_from_slice(&[0u8; 4][..hd_len]);
-            }
-            self.hd_reserved = true;
+        let hd_len = self
+            .header_view()
+            .expect("uninitialized header")
+            .get_header_diggest(self.enable_header_digest);
+        if !self.allocated_header_diggest && hd_len != 0 {
+            self.payload.extend_from_slice(&[0u8; 4][..hd_len]);
         }
+        self.allocated_header_diggest = true;
 
         if !more.is_empty() {
             self.payload.extend_from_slice(more);
@@ -133,32 +135,18 @@ where T: BasicHeaderSegment + SendingData + FromBytes + ZeroCopyType
     fn build(
         &mut self,
         max_recv_data_segment_length: usize,
-        enable_header_digest: bool,
-        enable_data_digest: bool,
     ) -> Result<(Self::Header, Self::Body)> {
-        if enable_header_digest != self.enable_header_digest {
-            bail!(
-                "header-digest flag mismatch: build={enable_header_digest}, layout={}",
-                self.enable_header_digest
-            );
-        }
-        if enable_data_digest != self.enable_data_digest {
-            bail!(
-                "data-digest flag mismatch: build={enable_data_digest}, layout={}",
-                self.enable_data_digest
-            );
-        }
-
         let (opcode, ahs_len, data_len, hd_len, dd_len) = {
+            let enable_hd = self.enable_header_digest;
+            let enable_dd = self.enable_data_digest;
+
             let h = self.header_view_mut().expect("building without header_buf");
             let opcode = h.get_opcode()?.opcode;
-            if opcode != Opcode::ScsiDataOut && opcode != Opcode::LogoutReq {
-                h.set_final_bit();
-            }
+            h.set_final_bit();
             let ahs_len = h.get_ahs_length_bytes();
             let data_len = h.get_data_length_bytes();
-            let hd_len = h.get_header_diggest(enable_header_digest); // 0 or 4
-            let dd_len = h.get_data_diggest(enable_data_digest); // 0 or 4
+            let hd_len = h.get_header_diggest(enable_hd); // 0 or 4
+            let dd_len = h.get_data_diggest(enable_dd); // 0 or 4
             (opcode, ahs_len, data_len, hd_len, dd_len)
         };
 
@@ -169,32 +157,30 @@ where T: BasicHeaderSegment + SendingData + FromBytes + ZeroCopyType
             );
         }
 
-        // If no DATA at all but we still need to ensure the layout (e.g., reserve HD
-        // slot), call append_data([]) once.
-        if data_len == 0 {
-            self.append_data(&[]);
-        }
-
         // compute pads
         let ahs_pad = pad_len(ahs_len);
         let data_pad = pad_len(data_len);
+        self.append_data(&[]); // Allocate place for crc32 header
+        self.payload.extend_from_slice(&[0u8; 4][..data_pad]);
+
+        if hd_len != 0 && opcode != Opcode::LoginReq {
+            let hd = compute_header_digest(&self.header_buf, self.additional_header()?);
+            self.header_digest = Some(U32::<BigEndian>::new(hd));
+            let expected_slice = [hd.to_le_bytes(), hd.to_be_bytes()];
+            self.payload
+                .get_mut(0..hd_len)
+                .context("failed to get slice for crc in payload")?
+                .clone_from_slice(&expected_slice[self.is_x86 as usize]);
+        }
 
         // current payload should be: [AHS][padAHS][HD?][DATA]
         // we now append [padDATA][DD?] (exactly once)
-        if !self.dd_appended {
-            if data_pad != 0 {
-                self.payload.extend_from_slice(&[0u8; 3][..data_pad]);
-            }
-
-            if dd_len != 0 && opcode != Opcode::LoginReq {
-                let dd = compute_data_digest(self.data()?);
-                self.data_digest = Some(U32::<BigEndian>::new(dd));
-                self.payload.extend_from_slice(&dd.to_be_bytes());
-            } else {
-                self.data_digest = None;
-            }
-
-            self.dd_appended = true;
+        if dd_len != 0 && opcode != Opcode::LoginReq {
+            let dd = compute_data_digest(self.data()?);
+            self.data_digest = Some(U32::<BigEndian>::new(dd));
+            let expected_slice = [dd.to_le_bytes(), dd.to_be_bytes()];
+            self.payload
+                .extend_from_slice(&expected_slice[self.is_x86 as usize]);
         }
 
         let expected = ahs_len + ahs_pad + hd_len + data_len + data_pad + dd_len;
@@ -214,8 +200,8 @@ where T: BasicHeaderSegment + SendingData + FromBytes + ZeroCopyType
             );
         }
 
-        let body = std::mem::take(&mut self.payload).freeze();
-        Ok((self.header_buf, body))
+        let body = self.payload.clone();
+        Ok((self.header_buf, body.freeze()))
     }
 }
 
@@ -226,12 +212,12 @@ impl<T> PDUWithData<T, Bytes> {
         Self {
             header_buf,
             payload: Bytes::new(),
-            enable_header_digest: cfg.login.negotiation.header_digest == Digest::CRC32C,
+            enable_header_digest: cfg.login.integrity.header_digest == Digest::CRC32C,
             header_digest: None,
-            enable_data_digest: cfg.login.negotiation.data_digest == Digest::CRC32C,
+            allocated_header_diggest: false,
+            enable_data_digest: cfg.login.integrity.data_digest == Digest::CRC32C,
             data_digest: None,
-            hd_reserved: cfg.login.negotiation.header_digest == Digest::CRC32C,
-            dd_appended: cfg.login.negotiation.data_digest == Digest::CRC32C,
+            is_x86: cfg.login.identity.is_x86 == YesNo::Yes,
             _marker: PhantomData,
         }
     }
@@ -243,33 +229,26 @@ impl<T> PDUWithData<T, BytesMut> {
         Self {
             header_buf,
             payload: BytesMut::new(),
-            enable_header_digest: cfg.login.negotiation.header_digest == Digest::CRC32C,
+            enable_header_digest: cfg.login.integrity.header_digest == Digest::CRC32C,
             header_digest: None,
-            enable_data_digest: cfg.login.negotiation.data_digest == Digest::CRC32C,
+            allocated_header_diggest: false,
+            enable_data_digest: cfg.login.integrity.data_digest == Digest::CRC32C,
             data_digest: None,
-            hd_reserved: false,
-            dd_appended: false,
+            is_x86: cfg.login.identity.is_x86 == YesNo::Yes,
             _marker: PhantomData,
         }
     }
 
     /// Parses the PDU payload from a mutable buffer, verifying digests.
-    pub fn parse_with_buff_mut(
-        &mut self,
-        mut buf: BytesMut,
-        enable_header_digest: bool,
-        enable_data_digest: bool,
-    ) -> Result<()>
-    where
-        T: BasicHeaderSegment + FromBytes + ZeroCopyType,
-    {
+    pub fn parse_with_buff_mut(&mut self, mut buf: BytesMut) -> Result<()>
+    where T: BasicHeaderSegment + FromBytes + ZeroCopyType {
         let tn = type_name::<T>();
         let h = self.header_view().context("parsing without header_buf")?;
 
         let ahs_len = h.get_ahs_length_bytes();
-        let hd_len = h.get_header_diggest(enable_header_digest);
+        let hd_len = h.get_header_diggest(self.enable_header_digest);
         let data_len = h.get_data_length_bytes();
-        let dd_len = h.get_data_diggest(enable_data_digest);
+        let dd_len = h.get_data_diggest(self.enable_data_digest);
 
         let ahs_pad = pad_len(ahs_len);
         let data_pad = pad_len(data_len);
@@ -289,30 +268,38 @@ impl<T> PDUWithData<T, BytesMut> {
 
         let mut off = ahs_len + ahs_pad;
 
-        self.header_digest = if enable_header_digest {
-            let hd = u32::from_be_bytes(payload[off..off + hd_len].try_into()?);
+        self.header_digest = if self.enable_header_digest {
+            let expected_slice = payload[off..off + hd_len].try_into()?;
+            let hd = [
+                u32::from_le_bytes(expected_slice),
+                u32::from_be_bytes(expected_slice),
+            ];
             off += hd_len;
-            Some(U32::<BigEndian>::new(hd))
+            Some(U32::<BigEndian>::new(hd[self.is_x86 as usize]))
         } else {
             None
         };
 
         off += data_len + data_pad;
 
-        self.data_digest = if enable_data_digest {
-            let dd = u32::from_be_bytes(payload[off..off + dd_len].try_into()?);
-            Some(U32::<BigEndian>::new(dd))
+        self.data_digest = if self.enable_data_digest {
+            let expected_slice = payload[off..off + dd_len].try_into()?;
+            let dd = [
+                u32::from_le_bytes(expected_slice),
+                u32::from_be_bytes(expected_slice),
+            ];
+            Some(U32::<BigEndian>::new(dd[self.is_x86 as usize]))
         } else {
             None
         };
 
-        if enable_header_digest {
+        if self.enable_header_digest {
             let want = compute_header_digest(&self.header_buf, self.additional_header()?);
             if self.header_digest.map(|x| x.get()) != Some(want) {
                 bail!("{tn}: HeaderDigest mismatch");
             }
         }
-        if enable_data_digest {
+        if self.enable_data_digest {
             let data = self.data()?;
             let want = compute_data_digest(data);
             if !data.is_empty() && self.data_digest.map(|x| x.get()) != Some(want) {
@@ -324,16 +311,9 @@ impl<T> PDUWithData<T, BytesMut> {
     }
 
     /// Parses the PDU payload from a reference to a mutable buffer.
-    pub fn parse_with_buff_ref(
-        &mut self,
-        buf: &BytesMut,
-        enable_header_digest: bool,
-        enable_data_digest: bool,
-    ) -> Result<()>
-    where
-        T: BasicHeaderSegment + FromBytes + ZeroCopyType,
-    {
-        self.parse_with_buff_mut(buf.clone(), enable_header_digest, enable_data_digest)
+    pub fn parse_with_buff_ref(&mut self, buf: &BytesMut) -> Result<()>
+    where T: BasicHeaderSegment + FromBytes + ZeroCopyType {
+        self.parse_with_buff_mut(buf.clone())
     }
 }
 
@@ -367,11 +347,13 @@ where
     pub fn data(&self) -> Result<&[u8]>
     where T: FromBytes + ZeroCopyType {
         let header = self.header_view()?;
-        let ahs_size = header.get_ahs_length_bytes();
+        let ahs_len = header.get_ahs_length_bytes();
         let hd = header.get_header_diggest(self.enable_header_digest);
-        let data_sz = header.get_data_length_bytes();
-        let total = ahs_size + pad_len(ahs_size) + hd;
-        Ok(&self.payload[total..total + data_sz])
+        let data_len = header.get_data_length_bytes();
+        let total = ahs_len + pad_len(ahs_len) + hd;
+        self.payload
+            .get(total..total + data_len)
+            .context("failed to get slice payload")
     }
 
     /// Rebinds the PDU to a different header type.
@@ -382,11 +364,11 @@ where
             payload: self.payload,
             enable_header_digest: self.enable_header_digest,
             header_digest: self.header_digest,
+            allocated_header_diggest: self.allocated_header_diggest,
             enable_data_digest: self.enable_data_digest,
             data_digest: self.data_digest,
-            hd_reserved: self.hd_reserved,
-            dd_appended: self.dd_appended,
-            _marker: core::marker::PhantomData,
+            is_x86: self.is_x86,
+            _marker: PhantomData,
         })
     }
 }
@@ -395,19 +377,15 @@ impl<T> PDUWithData<T, Bytes>
 where T: BasicHeaderSegment + FromBytes + ZeroCopyType
 {
     /// Parses the PDU payload from an immutable buffer, verifying digests.
-    pub fn parse_with_buff(
-        &mut self,
-        buf: &Bytes,
-        enable_header_digest: bool,
-        enable_data_digest: bool,
-    ) -> Result<()> {
+    pub fn parse_with_buff(&mut self, buf: &Bytes) -> Result<()> {
         let tn = type_name::<T>();
+
         let h = self.header_view().context("parsing without header_buf")?;
 
         let ahs_len = h.get_ahs_length_bytes();
-        let hd_len = h.get_header_diggest(enable_header_digest);
+        let hd_len = h.get_header_diggest(self.enable_header_digest);
         let data_len = h.get_data_length_bytes();
-        let dd_len = h.get_data_diggest(enable_data_digest);
+        let dd_len = h.get_data_diggest(self.enable_data_digest);
 
         let ahs_pad = pad_len(ahs_len);
         let data_pad = pad_len(data_len);
@@ -422,8 +400,8 @@ where T: BasicHeaderSegment + FromBytes + ZeroCopyType
         let mut off = 0usize;
         off += ahs_len + ahs_pad;
 
-        self.header_digest = if enable_header_digest {
-            let hd = u32::from_be_bytes(buf[off..off + hd_len].try_into()?);
+        self.header_digest = if hd_len != 0 {
+            let hd = u32::from_le_bytes(buf[off..off + hd_len].try_into()?);
             off += hd_len;
             Some(U32::<BigEndian>::new(hd))
         } else {
@@ -432,20 +410,20 @@ where T: BasicHeaderSegment + FromBytes + ZeroCopyType
 
         off += data_len + data_pad;
 
-        self.data_digest = if enable_data_digest {
-            let dd = u32::from_be_bytes(buf[off..off + dd_len].try_into()?);
+        self.data_digest = if dd_len != 0 {
+            let dd = u32::from_le_bytes(buf[off..off + dd_len].try_into()?);
             Some(U32::<BigEndian>::new(dd))
         } else {
             None
         };
 
-        if enable_header_digest {
+        if hd_len != 0 {
             let want = compute_header_digest(&self.header_buf, self.additional_header()?);
             if self.header_digest.map(|x| x.get()) != Some(want) {
                 bail!("{tn}: HeaderDigest mismatch");
             }
         }
-        if enable_data_digest {
+        if dd_len != 0 {
             let data = self.data()?;
             let want = compute_data_digest(data);
             if !data.is_empty() && self.data_digest.map(|x| x.get()) != Some(want) {

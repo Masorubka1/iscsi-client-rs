@@ -8,10 +8,9 @@ use iscsi_client_rs::{
     cfg::{
         cli::resolve_config_path,
         config::{
-            AuthConfig, Config, ToLoginKeys, login_keys_chap_response,
-            login_keys_operational, login_keys_security,
+            AuthConfig, Config, login_keys_chap_response, login_keys_operational,
+            login_keys_security,
         },
-        enums::Digest,
     },
     models::{
         common::{Builder, HEADER_LEN},
@@ -97,30 +96,22 @@ fn test_login_request() -> Result<()> {
         .transit()
         .csg(Stage::Operational)
         .nsg(Stage::FullFeature)
-        .versions(
-            cfg.login.negotiation.version_min,
-            cfg.login.negotiation.version_max,
-        );
+        .versions(0, 0);
 
     let mut header_buf = [0u8; HEADER_LEN];
     header_builder.header.to_bhs_bytes(&mut header_buf)?;
 
     let mut builder = PduRequest::<LoginRequest>::new_request(header_buf, &cfg);
-
-    for key in cfg.to_login_keys() {
-        builder.append_data(key.into_bytes().as_slice());
-    }
+    let sec_bytes = login_keys_security(&cfg);
+    builder.append_data(&sec_bytes);
 
     assert_eq!(
         builder.header_buf, parsed.header_buf,
         "BHS differs from fixture"
     );
 
-    let (_hdr, body) = &builder.build(
-        cfg.login.negotiation.max_recv_data_segment_length as usize,
-        cfg.login.negotiation.header_digest == Digest::CRC32C,
-        cfg.login.negotiation.data_digest == Digest::CRC32C,
-    )?;
+    let (_hdr, body) =
+        &builder.build(cfg.login.flow.max_recv_data_segment_length as usize)?;
 
     let left: BTreeSet<_> = split_zeroes(body);
     let right: BTreeSet<_> = split_zeroes(&parsed.data()?);
@@ -147,10 +138,7 @@ fn test_login_response_echo() -> Result<()> {
         .csg(Stage::Operational)
         .nsg(Stage::FullFeature)
         .connection_id(1)
-        .versions(
-            cfg.login.negotiation.version_min,
-            cfg.login.negotiation.version_max,
-        );
+        .versions(0, 0);
 
     assert_eq!(
         parsed.header_view()?.version_max,
@@ -177,11 +165,9 @@ fn chap_step1_security_only() -> Result<()> {
     let _r1: PduResponse<LoginResponse> = parse_imm(&resp_bytes, &cfg)?;
 
     let s1_hdr = LoginRequestBuilder::new(ISID, 0)
-        .transit()
         .csg(Stage::Security)
-        .nsg(Stage::Operational)
+        .nsg(Stage::Security)
         .initiator_task_tag(0)
-        .connection_id(1)
         .cmd_sn(0)
         .exp_stat_sn(0);
 
@@ -191,11 +177,8 @@ fn chap_step1_security_only() -> Result<()> {
     let mut s1 = PduRequest::<LoginRequest>::new_request(header_buf, &cfg);
     s1.append_data(login_keys_security(&cfg).as_slice());
 
-    let (hdr_bytes, data_bytes) = &s1.build(
-        cfg.login.negotiation.max_recv_data_segment_length as usize,
-        cfg.login.negotiation.header_digest == Digest::CRC32C,
-        cfg.login.negotiation.data_digest == Digest::CRC32C,
-    )?;
+    let (hdr_bytes, data_bytes) =
+        &s1.build(cfg.login.flow.max_recv_data_segment_length as usize)?;
     let mut got = hdr_bytes.to_vec();
     got.extend_from_slice(data_bytes);
 
@@ -231,7 +214,6 @@ fn chap_step2_chap_a() -> Result<()> {
         .csg(Stage::Security)
         .nsg(Stage::Security)
         .initiator_task_tag(r1_header.initiator_task_tag.get())
-        .connection_id(1)
         .cmd_sn(r1_header.exp_cmd_sn.get())
         .exp_stat_sn(r1_header.exp_cmd_sn.get().wrapping_add(1));
 
@@ -276,7 +258,6 @@ fn chap_step3_chap_response() -> Result<()> {
         .csg(Stage::Security)
         .nsg(Stage::Operational)
         .initiator_task_tag(r2_header.initiator_task_tag.get())
-        .connection_id(1)
         .cmd_sn(r2_header.exp_cmd_sn.get())
         .exp_stat_sn(r2_header.stat_sn.get().wrapping_add(1));
 
@@ -286,11 +267,8 @@ fn chap_step3_chap_response() -> Result<()> {
     let mut s3 = PduRequest::<LoginRequest>::new_request(header_buf, &cfg);
     s3.append_data(login_keys_chap_response(user, &chap_r).as_slice());
 
-    let (hdr_bytes, data_bytes) = &s3.build(
-        cfg.login.negotiation.max_recv_data_segment_length as usize,
-        cfg.login.negotiation.header_digest == Digest::CRC32C,
-        cfg.login.negotiation.data_digest == Digest::CRC32C,
-    )?;
+    let (hdr_bytes, data_bytes) =
+        &s3.build(cfg.login.flow.max_recv_data_segment_length as usize)?;
     let mut got = hdr_bytes.to_vec();
     got.extend_from_slice(data_bytes);
 
@@ -324,7 +302,6 @@ fn chap_step4_oper_to_ff_with_ops() -> Result<()> {
         .csg(Stage::Operational)
         .nsg(Stage::FullFeature)
         .versions(r2_header.version_max, r2_header.version_active)
-        .connection_id(1)
         .cmd_sn(r2_header.exp_cmd_sn.get())
         .exp_stat_sn(r2_header.stat_sn.get().wrapping_add(1));
 
@@ -334,11 +311,8 @@ fn chap_step4_oper_to_ff_with_ops() -> Result<()> {
     let mut s4 = PduRequest::<LoginRequest>::new_request(header_buf, &cfg);
     s4.append_data(login_keys_operational(&cfg).as_slice());
 
-    let (hdr_bytes, data_bytes) = &s4.build(
-        cfg.login.negotiation.max_recv_data_segment_length as usize,
-        cfg.login.negotiation.header_digest == Digest::CRC32C,
-        cfg.login.negotiation.data_digest == Digest::CRC32C,
-    )?;
+    let (hdr_bytes, data_bytes) =
+        &s4.build(cfg.login.flow.max_recv_data_segment_length as usize)?;
     let mut got = hdr_bytes.to_vec();
     got.extend_from_slice(data_bytes);
 

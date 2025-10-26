@@ -5,7 +5,7 @@
 // Copyright (C) 2012-2025 Andrei Maltsev
 
 use anyhow::{Result, bail};
-use tracing::warn;
+use tracing::{debug, warn};
 use zerocopy::{
     BigEndian, FromBytes as ZFromBytes, Immutable, IntoBytes, KnownLayout, U32, U64,
 };
@@ -178,7 +178,7 @@ impl SendingData for NopOutRequest {
     }
 
     fn set_final_bit(&mut self) {
-        warn!("NopOut Request cannot be marked as Final");
+        debug!("NopOut Request cannot be marked as Final")
     }
 
     fn get_continue_bit(&self) -> bool {

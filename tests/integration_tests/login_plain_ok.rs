@@ -25,7 +25,7 @@ async fn login_and_nop() -> Result<()> {
 
     // Use a pre-connected TCP (helper), then attach it as CID=0 into a new session
     let conn = connect_cfg(&cfg).await?;
-    let target_name: Arc<str> = Arc::from(cfg.login.security.target_name.clone());
+    let target_name: Arc<str> = Arc::from(cfg.login.identity.target_name.clone());
     let isid = test_isid();
     let cid: u16 = 0;
 

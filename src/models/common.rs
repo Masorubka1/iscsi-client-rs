@@ -132,7 +132,7 @@ impl<T: BasicHeaderSegment> BasicHeaderSegment for &mut T {
     }
 
     #[inline]
-    fn get_opcode(&self) -> anyhow::Result<crate::models::opcode::BhsOpcode> {
+    fn get_opcode(&self) -> anyhow::Result<BhsOpcode> {
         (**self).get_opcode()
     }
 
@@ -211,7 +211,5 @@ pub trait Builder: Sized {
     fn build(
         &mut self,
         max_recv_data_segment_length: usize,
-        enable_header_digest: bool,
-        enable_data_digest: bool,
     ) -> Result<(Self::Header, Self::Body)>;
 }

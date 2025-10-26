@@ -46,7 +46,7 @@ async fn read10_write10_read10_plain_pool() -> Result<()> {
     pool.attach_self();
 
     let conn = connect_cfg(&cfg).await?;
-    let target_name: Arc<str> = Arc::from(cfg.login.security.target_name.clone());
+    let target_name: Arc<str> = Arc::from(cfg.login.identity.target_name.clone());
     let isid = test_isid();
     let cid: u16 = 0;
 

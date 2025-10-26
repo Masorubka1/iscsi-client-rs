@@ -5,7 +5,7 @@
 // Copyright (C) 2012-2025 Andrei Maltsev
 
 use anyhow::{Result, bail};
-use tracing::{error, warn};
+use tracing::{debug, error, warn};
 use zerocopy::{
     BigEndian, FromBytes as ZFromBytes, Immutable, IntoBytes, KnownLayout, U16, U32,
 };
@@ -124,7 +124,7 @@ impl SendingData for LogoutRequest {
     }
 
     fn set_final_bit(&mut self) {
-        warn!("Logout Request cannot be marked as Final");
+        debug!("Logout Request cannot be marked as Final");
     }
 
     fn get_continue_bit(&self) -> bool {
@@ -186,8 +186,8 @@ impl BasicHeaderSegment for LogoutRequest {
     }
 
     #[inline]
-    fn get_header_diggest(&self, _: bool) -> usize {
-        0
+    fn get_header_diggest(&self, header_digest: bool) -> usize {
+        4 * (header_digest as usize)
     }
 
     #[inline]

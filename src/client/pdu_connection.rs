@@ -27,8 +27,6 @@ pub trait ToBytes: Sized {
     fn to_bytes(
         &mut self,
         max_recv_data_segment_length: usize,
-        enable_header_digest: bool,
-        enable_data_digest: bool,
     ) -> Result<(Self::Header, Self::Body)>;
 }
 
@@ -58,13 +56,7 @@ where B: Builder
     fn to_bytes(
         &mut self,
         max_recv_data_segment_length: usize,
-        enable_header_digest: bool,
-        enable_data_digest: bool,
     ) -> Result<(Self::Header, Self::Body)> {
-        self.build(
-            max_recv_data_segment_length,
-            enable_header_digest,
-            enable_data_digest,
-        )
+        self.build(max_recv_data_segment_length)
     }
 }

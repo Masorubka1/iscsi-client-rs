@@ -32,7 +32,7 @@ mod unit_tests {
 
         let mut pdu = PduResponse::<T>::from_header_slice(header_buf, cfg);
         let payload = Bytes::copy_from_slice(&bytes[HEADER_LEN..]);
-        pdu.parse_with_buff(&payload, false, false)?;
+        pdu.parse_with_buff(&payload)?;
         Ok(pdu)
     }
 
@@ -43,7 +43,7 @@ mod unit_tests {
 
         let mut pdu = PduRequest::<T>::new_request(header_buf, cfg);
         let payload = BytesMut::from(&bytes[HEADER_LEN..]);
-        pdu.parse_with_buff_mut(payload, false, false)?;
+        pdu.parse_with_buff_mut(payload)?;
         Ok(pdu)
     }
 

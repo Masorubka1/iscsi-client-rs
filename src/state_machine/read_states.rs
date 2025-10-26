@@ -21,7 +21,6 @@ use tokio_util::sync::CancellationToken;
 use tracing::debug;
 
 use crate::{
-    cfg::enums::Digest,
     client::client::ClientConnection,
     models::{
         command::{
@@ -29,7 +28,7 @@ use crate::{
             request::{ScsiCommandRequest, ScsiCommandRequestBuilder},
             response::ScsiCommandResponse,
         },
-        common::{BasicHeaderSegment, HEADER_LEN},
+        common::HEADER_LEN,
         data::{response::ScsiDataIn, sense_data::SenseData},
         data_fromat::{PduRequest, PduResponse},
         opcode::{BhsOpcode, Opcode},
@@ -128,30 +127,15 @@ impl<'a> ReadCtx<'a> {
             self.conn.read_response_raw(itt).await?;
         let op = BhsOpcode::try_from(p_any.header_buf[0])?.opcode;
 
-        let hd = self.conn.cfg.login.negotiation.header_digest == Digest::CRC32C;
-        let dd = self.conn.cfg.login.negotiation.data_digest == Digest::CRC32C;
-
         let pdu_local = match op {
             Opcode::ScsiDataIn => Ok(ReadPdu::DataIn({
                 let mut pdu = p_any.rebind_pdu::<ScsiDataIn>()?;
-
-                let header = pdu.header_view()?;
-
-                let hd = header.get_header_diggest(hd);
-                let dd = header.get_data_diggest(dd);
-
-                pdu.parse_with_buff(&data, hd != 0, dd != 0)?;
+                pdu.parse_with_buff(&data)?;
                 pdu
             })),
             Opcode::ScsiCommandResp => Ok(ReadPdu::CmdResp({
                 let mut pdu = p_any.rebind_pdu::<ScsiCommandResponse>()?;
-
-                let header = pdu.header_view()?;
-
-                let hd = header.get_header_diggest(hd);
-                let dd = header.get_data_diggest(dd);
-
-                pdu.parse_with_buff(&data, hd != 0, dd != 0)?;
+                pdu.parse_with_buff(&data)?;
                 pdu
             })),
             other => anyhow::bail!("unexpected PDU opcode for read path: {other:?}"),

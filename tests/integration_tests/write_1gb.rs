@@ -64,7 +64,7 @@ async fn write10_read10_1_gib_plain_pool_multi_tsih_mcs() -> Result<()> {
     assert!(!tsihs.is_empty(), "no sessions created by pool");
 
     // --- Для каждой сессии добавим дополнительные CIDs (MC/S) ---
-    let max_conns = cfg.extra_data.connections.max_connections.max(1);
+    let max_conns = cfg.login.limits.max_connections.max(1);
     for &tsih in &tsihs {
         for cid in 1..max_conns {
             // отдельный TCP для каждого CID
@@ -147,8 +147,8 @@ async fn write10_read10_1_gib_plain_pool_multi_tsih_mcs() -> Result<()> {
     let lba0: u32 = choose_lba_safely(max_lba_u64, need_blocks_total as u64)?;
 
     const FD_MAX_BYTES: usize = 8 * 1024 * 1024;
-    let burst_bytes = cfg.login.negotiation.max_burst_length as usize;
-    let mrdsl_bytes = cfg.login.negotiation.max_recv_data_segment_length as usize;
+    let burst_bytes = cfg.login.flow.max_burst_length as usize;
+    let mrdsl_bytes = cfg.login.flow.max_recv_data_segment_length as usize;
 
     let max_blocks_by_scsi10 = u16::MAX as usize;
     let max_blocks_by_fd = (FD_MAX_BYTES / blk_sz).max(1);

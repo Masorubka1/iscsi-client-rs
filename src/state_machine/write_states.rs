@@ -222,31 +222,31 @@ impl<'a> WriteCtx<'a> {
     /// Returns whether the peer expects an initial R2T.
     #[inline]
     fn peer_initial_r2t(&self) -> bool {
-        self.conn.cfg.extra_data.r2t.initial_r2t == YesNo::Yes
+        self.conn.cfg.login.write_flow.initial_r2t == YesNo::Yes
     }
 
     /// Returns whether the peer accepts immediate data.
     #[inline]
     fn peer_immediate_data(&self) -> bool {
-        self.conn.cfg.extra_data.r2t.immediate_data == YesNo::Yes
+        self.conn.cfg.login.write_flow.immediate_data == YesNo::Yes
     }
 
     /// Returns the peer's first burst length.
     #[inline]
     fn peer_first_burst(&self) -> usize {
-        self.conn.cfg.login.negotiation.first_burst_length as usize
+        self.conn.cfg.login.flow.first_burst_length as usize
     }
 
     /// Returns the peer's maximum burst length.
     #[inline]
     fn peer_max_burst(&self) -> usize {
-        self.conn.cfg.login.negotiation.max_burst_length as usize
+        self.conn.cfg.login.flow.max_burst_length as usize
     }
 
     /// Returns the peer's maximum receive data segment length.
     #[inline]
     fn peer_mrdsl(&self) -> usize {
-        self.conn.cfg.login.negotiation.max_recv_data_segment_length as usize
+        self.conn.cfg.login.flow.max_recv_data_segment_length as usize
     }
 
     /// Sends the SCSI Write command with immediate data.
