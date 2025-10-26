@@ -1,15 +1,24 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright ...
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use anyhow::{Context, Result, bail};
 use iscsi_client_rs::{
     cfg::{cli::resolve_config_path, config::Config, logger::init_logger},
     client::{client::ClientConnection, pool_sessions::Pool},
+    control_block::{
+        read::build_read16,
+        read_capacity::{
+            Rc10Raw, Rc16Raw, build_read_capacity10, build_read_capacity16,
+            parse_read_capacity10_zerocopy, parse_read_capacity16_zerocopy,
+        },
+        write::build_write16,
+    },
     models::{logout::common::LogoutReason, nop::request::NopOutRequest},
-    state_machine::nop_states::NopCtx,
+    state_machine::{nop_states::NopCtx, read_states::ReadCtx, write_states::WriteCtx},
 };
+use tokio::time::sleep;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
@@ -112,7 +121,7 @@ async fn main() -> Result<()> {
     }
 
     // Read capacity(10/16) using the first worker
-    /*let (tsih0, cid0) = workers[0];
+    let (tsih0, cid0) = workers[0];
 
     let _ = pool
         .execute_with(tsih0, cid0, |c, itt, cmd_sn, exp_stat_sn| {
@@ -253,7 +262,6 @@ async fn main() -> Result<()> {
     }
     info!("WRITE done.");
 
-    // Маленькая пауза (даём таргету выровнять очередь/кэш)
     sleep(Duration::from_millis(200)).await;
 
     // ===================== Parallel READ + verify =====================
@@ -327,7 +335,7 @@ async fn main() -> Result<()> {
     for h in read_handles {
         h.await.expect("join read task")?;
     }
-    info!("READ verify done.");*/
+    info!("READ verify done.");
 
     let mut logout_handles = Vec::new();
     for (tsih, cid) in workers.iter().cloned() {

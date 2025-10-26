@@ -2,16 +2,19 @@
 //! machine. It provides the context and state definitions for handling the
 //! login process.
 
-use std::{marker::PhantomData, sync::Arc};
+use std::{collections::HashMap, marker::PhantomData, sync::Arc};
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, bail};
 use tokio_util::sync::CancellationToken;
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::{
+    cfg::config::{Config, login_keys_operational},
     client::client::ClientConnection,
     models::{
-        common::HEADER_LEN, data_fromat::PduResponse, login::response::LoginResponse,
+        common::HEADER_LEN,
+        data_fromat::PduResponse,
+        login::{common::Stage, response::LoginResponse},
     },
     state_machine::{
         common::{StateMachine, StateMachineCtx, Transition},
@@ -143,5 +146,76 @@ impl<'ctx> StateMachineCtx<LoginCtx<'ctx>, PduResponse<LoginResponse>>
                 },
             }
         }
+    }
+}
+
+fn parse_login_text_map(data: &[u8]) -> Result<HashMap<String, Vec<String>>> {
+    let mut map: HashMap<String, Vec<String>> = HashMap::new();
+    for entry in data.split(|b| *b == 0) {
+        if entry.is_empty() {
+            continue;
+        }
+        let entry_str = std::str::from_utf8(entry)
+            .context("login response contains invalid UTF-8 text")?;
+        let (key, value) = entry_str.split_once('=').ok_or_else(|| {
+            anyhow!("login response entry '{entry_str}' is missing '=' separator")
+        })?;
+        let value = value.trim().to_string();
+        if value == "NotUnderstood" {
+            warn!("{}={}", key.to_string(), value);
+            continue;
+        }
+
+        map.entry(key.to_string())
+            .or_default()
+            .push(value.trim().to_string());
+    }
+    Ok(map)
+}
+
+/// Ensures that the target accepted every operational key/value requested in
+/// the configuration.
+pub(crate) fn verify_operational_negotiation(
+    cfg: &Config,
+    rsp: &PduResponse<LoginResponse>,
+) -> Result<()> {
+    let header = rsp.header_view()?;
+    match header.flags.nsg() {
+        Some(Stage::FullFeature) => {},
+        other => bail!(
+            "login response NSG={other:?} (expected {:?})",
+            Stage::FullFeature
+        ),
+    }
+
+    let data = rsp
+        .data()
+        .context("login response missing negotiation payload")?;
+    if data.is_empty() {
+        bail!("login response negotiation payload is empty");
+    }
+
+    let server = parse_login_text_map(data)?;
+    let expected_bytes = login_keys_operational(cfg);
+    let expected = parse_login_text_map(expected_bytes.as_slice())?;
+
+    let mut mismatches = Vec::new();
+    for (key, exp_values) in expected {
+        for expected_value in exp_values {
+            match server.get(&key) {
+                Some(values) if values.iter().any(|v| v == &expected_value) => {},
+                Some(values) => mismatches.push(format!(
+                    "{key}: expected '{expected_value}' but target replied '{}'",
+                    values.join(", ")
+                )),
+                None => {},
+            }
+        }
+    }
+
+    if mismatches.is_empty() {
+        Ok(())
+    } else {
+        bail!("login negotiation mismatch: {}", mismatches.join("; "))
     }
 }

@@ -27,9 +27,11 @@ pub struct LoginConfig {
     pub auth: AuthConfig,
     /// Header/Data digest preferences.
     pub integrity: Integrity,
-    /// Read-side flow limits (MaxRecvDataSegmentLength / MaxBurst / FirstBurst).
+    /// Read-side flow limits (MaxRecvDataSegmentLength / MaxBurst /
+    /// FirstBurst).
     pub flow: Flow,
-    /// Write-side flow control parameters (InitialR2T / ImmediateData / MaxOutstandingR2T).
+    /// Write-side flow control parameters (InitialR2T / ImmediateData /
+    /// MaxOutstandingR2T).
     pub write_flow: WriteFlow,
     /// Ordering preferences (DataPDUInOrder / DataSequenceInOrder).
     pub ordering: Ordering,
@@ -41,7 +43,8 @@ pub struct LoginConfig {
     pub limits: Limits,
     /// RFC7143 extensions plus custom vendor keys.
     pub extensions: Extensions,
-    /// Transport hints (TargetAddress / TPGT) kept locally and never sent on the wire.
+    /// Transport hints (TargetAddress / TPGT) kept locally and never sent on
+    /// the wire.
     pub transport: TransportHints,
 }
 
@@ -217,7 +220,8 @@ pub struct RuntimeConfig {
 }
 
 impl Config {
-    /// Loads the configuration from YAML, validates it, and returns the ready-to-use value.
+    /// Loads the configuration from YAML, validates it, and returns the
+    /// ready-to-use value.
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
         let s = fs::read_to_string(path)?;
         let mut cfg: Config =
@@ -279,12 +283,10 @@ impl SessionType {
 // ─────────────────────────────────────────────────────────────────────────────
 // Login key generation (Security / CHAP / Operational)
 
-/// Builds a null-delimited `key=value` list, skipping `None` entries and sorting
-/// by key name for a canonical order.
+/// Builds a null-delimited `key=value` list, skipping `None` entries and
+/// sorting by key name for a canonical order.
 fn build_kv_sorted<'a, I>(items: I) -> Vec<u8>
-where
-    I: IntoIterator<Item = (&'a str, Option<String>)>,
-{
+where I: IntoIterator<Item = (&'a str, Option<String>)> {
     let mut vec: Vec<(String, String)> = items
         .into_iter()
         .filter_map(|(k, v)| v.map(|vv| (k.to_string(), vv)))
@@ -305,8 +307,9 @@ where
     out
 }
 
-/// Builds the Login(Security) payload with the minimal required keys (SessionType,
-/// InitiatorName, optional alias, optional target, and optional AuthMethod).
+/// Builds the Login(Security) payload with the minimal required keys
+/// (SessionType, InitiatorName, optional alias, optional target, and optional
+/// AuthMethod).
 pub fn login_keys_security(cfg: &Config) -> Vec<u8> {
     let id = &cfg.login.identity;
 

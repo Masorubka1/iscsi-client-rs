@@ -16,7 +16,7 @@ use crate::{
     },
     state_machine::{
         common::{StateMachine, Transition},
-        login::common::{LoginCtx, LoginStepOut},
+        login::common::{LoginCtx, LoginStepOut, verify_operational_negotiation},
     },
 };
 
@@ -54,6 +54,11 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for PlainStart {
                 Err(e) => Transition::Done(Err(e)),
                 Ok(()) => match ctx.conn.read_response::<LoginResponse>(ctx.itt).await {
                     Ok(rsp) => {
+                        if let Err(e) =
+                            verify_operational_negotiation(&ctx.conn.cfg, &rsp)
+                        {
+                            return Transition::Done(Err(e));
+                        }
                         ctx.last_response = Some(rsp);
                         Transition::Done(Ok(()))
                     },

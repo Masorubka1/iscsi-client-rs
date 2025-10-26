@@ -13,7 +13,7 @@ login:
     DataDigest: None
 
   flow:
-    MaxRecvDataSegmentLength: 262144
+    MaxRecvDataSegmentLength: 524288
     MaxBurstLength: 16776192
     FirstBurstLength: 262144
 
@@ -39,7 +39,6 @@ login:
   extensions:
     IFMarker: "No"
     OFMarker: "No"
-    X-TargetAlias: "iscsi-target-vmmm"
 
   transport:
     TargetAddress: 127.0.0.1:3261
