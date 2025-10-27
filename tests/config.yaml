@@ -12,8 +12,8 @@ login:
     DataDigest: None
   flow:
     MaxRecvDataSegmentLength: 262144
-    MaxBurstLength: 16776192
-    FirstBurstLength: 262144
+    MaxBurstLength: 262144
+    FirstBurstLength: 65536
   write_flow:
     InitialR2T: Yes
     ImmediateData: No
@@ -22,7 +22,7 @@ login:
     DataPDUInOrder: Yes
     DataSequenceInOrder: Yes
   recovery:
-    ErrorRecoveryLevel: 1
+    ErrorRecoveryLevel: 0
   timers:
     DefaultTime2Wait: 2
     DefaultTime2Retain: 0
