@@ -8,7 +8,7 @@ use iscsi_client_rs::{cfg::config::Config, client::client::ClientConnection};
 use tokio_util::sync::CancellationToken;
 
 pub fn test_path() -> String {
-    std::env::var("TEST_CONFIG").unwrap_or_else(|_| "docker/lio/config.lio.yaml".into())
+    std::env::var("TEST_CONFIG").unwrap_or_else(|_| "tests/config.yaml".into())
 }
 
 pub fn load_config() -> Result<Config> {
