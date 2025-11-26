@@ -284,8 +284,8 @@ A high‑level plan, tracked as **Now → Next → Later** with checkboxes. Pool
 * **Reliability & ergonomics**
 
   * [x] Structured errors with retry hints
-  * [ ] Timeouts & cancellation tokens per I/O and login
-  * [ ] Back‑pressure & graceful shutdown (quiesce writers, drain in‑flights)
+  * [x] Timeouts & cancellation tokens per I/O and login
+  * [x] Back‑pressure & graceful shutdown (quiesce writers, drain in‑flights)
 
 * **Testing & CI**
 
