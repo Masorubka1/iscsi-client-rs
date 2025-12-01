@@ -51,7 +51,7 @@ tracing-subscriber = { version = "0.3.20", features = [
     "local-time",
     "valuable",
 ] }
-tracing-appender = "0.2.3"
+tracing-appender = "0.2.4"
 fastrace = { version = "0.7", features = ["enable"] }
 fastrace-tracing = "0.1"
 chrono = "0.4.42"
