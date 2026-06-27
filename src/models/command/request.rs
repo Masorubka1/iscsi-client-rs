@@ -14,7 +14,10 @@ use crate::{
     client::pdu_connection::FromBytes,
     models::{
         command::{common::TaskAttribute, zero_copy::RawScsiCmdReqFlags},
-        common::{BasicHeaderSegment, HEADER_LEN, SendingData},
+        common::{
+            BasicHeaderSegment, HEADER_LEN, InitiatorTaskTag, LogicalUnitNumber,
+            SendingData,
+        },
         data_fromat::ZeroCopyType,
         opcode::{BhsOpcode, Opcode, RawBhsOpcode},
     },
@@ -39,9 +42,9 @@ pub struct ScsiCommandRequest {
     /// Data Segment Length (bytes 5-7) - length of immediate data
     pub data_segment_length: [u8; 3],
     /// Logical Unit Number (bytes 8-15)
-    pub lun: u64,
+    pub lun: LogicalUnitNumber,
     /// Initiator Task Tag (bytes 16-19) - unique command identifier
-    pub initiator_task_tag: u32,
+    pub initiator_task_tag: InitiatorTaskTag,
     /// Expected Data Transfer Length (bytes 20-23) - total data expected
     pub expected_data_transfer_length: U32<BigEndian>,
     /// Command Sequence Number (bytes 24-27) - for ordering
@@ -149,7 +152,7 @@ impl ScsiCommandRequestBuilder {
 
     /// Sets the initiator task tag, a unique identifier for this command.
     pub fn initiator_task_tag(mut self, tag: u32) -> Self {
-        self.header.initiator_task_tag = tag;
+        self.header.initiator_task_tag.set(tag);
         self
     }
 
@@ -175,7 +178,7 @@ impl ScsiCommandRequestBuilder {
 
     /// Sets the Logical Unit Number (LUN) for the command.
     pub fn lun(mut self, lun: u64) -> Self {
-        self.header.lun = lun;
+        self.header.lun.set(lun);
         self
     }
 
@@ -224,7 +227,7 @@ impl BasicHeaderSegment for ScsiCommandRequest {
     }
 
     fn get_initiator_task_tag(&self) -> u32 {
-        self.initiator_task_tag
+        self.initiator_task_tag.get()
     }
 
     #[inline]

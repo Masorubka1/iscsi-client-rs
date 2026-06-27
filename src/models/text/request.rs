@@ -12,7 +12,10 @@ use zerocopy::{
 use crate::{
     client::pdu_connection::FromBytes,
     models::{
-        common::{BasicHeaderSegment, HEADER_LEN, SendingData},
+        common::{
+            BasicHeaderSegment, HEADER_LEN, InitiatorTaskTag, LogicalUnitNumber,
+            SendingData, TargetTaskTag,
+        },
         data_fromat::ZeroCopyType,
         opcode::{BhsOpcode, Opcode, RawBhsOpcode},
         text::common::RawStageFlags,
@@ -27,14 +30,14 @@ pub struct TextRequest {
                                * `Opcode::TextReq`). */
     pub flags: RawStageFlags, /* Byte 1: stage flags (F/C); interpretation is Text-PDU
                                * specific. */
-    reserved1: [u8; 2],               // Byte 2..5
-    pub total_ahs_length: u8,         // Bytes 5..8
-    pub data_segment_length: [u8; 3], // Bytes 8..16
-    pub lun: u64,                     // Bytes 16..20
-    pub initiator_task_tag: u32,      // Bytes 20..24
-    pub target_task_tag: u32,         // Bytes 24..28
-    pub cmd_sn: U32<BigEndian>,       // Bytes 28..32
-    pub exp_stat_sn: U32<BigEndian>,  // Bytes 32..36
+    reserved1: [u8; 2],                       // Byte 2..5
+    pub total_ahs_length: u8,                 // Bytes 5..8
+    pub data_segment_length: [u8; 3],         // Bytes 8..16
+    pub lun: LogicalUnitNumber,               // Bytes 16..20
+    pub initiator_task_tag: InitiatorTaskTag, // Bytes 20..24
+    pub target_task_tag: TargetTaskTag,       // Bytes 24..28
+    pub cmd_sn: U32<BigEndian>,               // Bytes 28..32
+    pub exp_stat_sn: U32<BigEndian>,          // Bytes 32..36
     reserved2: [u8; 16],
 }
 
@@ -134,14 +137,14 @@ impl TextRequestBuilder {
 
     /// Sets the initiator task tag, a unique identifier for this command.
     pub fn initiator_task_tag(mut self, tag: u32) -> Self {
-        self.header.initiator_task_tag = tag;
+        self.header.initiator_task_tag.set(tag);
         self
     }
 
     /// Sets the target task tag, used to identify a command to which this is a
     /// response.
     pub fn target_task_tag(mut self, tag: u32) -> Self {
-        self.header.target_task_tag = tag;
+        self.header.target_task_tag.set(tag);
         self
     }
 
@@ -159,7 +162,7 @@ impl TextRequestBuilder {
 
     /// Sets the Logical Unit Number (LUN) for the command.
     pub fn lun(mut self, lun: u64) -> Self {
-        self.header.lun = lun;
+        self.header.lun.set(lun);
         self
     }
 }
@@ -209,7 +212,7 @@ impl BasicHeaderSegment for TextRequest {
 
     #[inline]
     fn get_initiator_task_tag(&self) -> u32 {
-        self.initiator_task_tag
+        self.initiator_task_tag.get()
     }
 
     #[inline]

@@ -13,7 +13,7 @@ use zerocopy::{
 use crate::{
     client::pdu_connection::FromBytes,
     models::{
-        common::{BasicHeaderSegment, HEADER_LEN, SendingData},
+        common::{BasicHeaderSegment, HEADER_LEN, InitiatorTaskTag, SendingData},
         data_fromat::ZeroCopyType,
         logout::common::{LogoutReason, RawLogoutReason},
         opcode::{BhsOpcode, Opcode, RawBhsOpcode},
@@ -34,9 +34,9 @@ pub struct LogoutRequest {
     pub data_segment_length: [u8; 3], // bytes 5..8: must be zero
     reserved1: [u8; 8],               /* bytes 8..16: Reserved (no ISID/Tsih in
                                        * LogoutReq) */
-    pub initiator_task_tag: u32, // bytes 16..20: ITT
-    pub cid: U16<BigEndian>,     /* bytes 20..22: CID (if closing a
-                                  * specific connection) */
+    pub initiator_task_tag: InitiatorTaskTag, // bytes 16..20: ITT
+    pub cid: U16<BigEndian>,                  /* bytes 20..22: CID (if closing a
+                                               * specific connection) */
     reserved2: [u8; 2],              // bytes 22..24: Reserved
     pub cmd_sn: U32<BigEndian>,      // bytes 24..28
     pub exp_stat_sn: U32<BigEndian>, // bytes 28..32
@@ -92,7 +92,7 @@ impl LogoutRequestBuilder {
                 reason: reason.into(),
                 total_ahs_length: 0,
                 data_segment_length: [0, 0, 0],
-                initiator_task_tag: itt,
+                initiator_task_tag: InitiatorTaskTag::new(itt),
                 cid: cid.into(),
                 ..Default::default()
             },
@@ -155,7 +155,7 @@ impl BasicHeaderSegment for LogoutRequest {
 
     #[inline]
     fn get_initiator_task_tag(&self) -> u32 {
-        self.initiator_task_tag
+        self.initiator_task_tag.get()
     }
 
     #[inline]

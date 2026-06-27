@@ -210,9 +210,11 @@ impl Pool {
             .clone();
 
         if let Some(current) = sess.conns.get(&cid).map(|entry| entry.clone())
-            && !Arc::ptr_eq(&current, &expected) && !current.conn.is_poisoned() {
-                return Ok(());
-            }
+            && !Arc::ptr_eq(&current, &expected)
+            && !current.conn.is_poisoned()
+        {
+            return Ok(());
+        }
 
         let target_name = sess.target_name.clone();
         let isid = sess.isid;
@@ -265,7 +267,7 @@ impl Pool {
                     conns: DashMap::with_capacity(self.max_connections as usize),
                     cmd_sn: Arc::new(AtomicU32::new(hdr.exp_cmd_sn.get())),
                     itt_gen: Arc::new(AtomicU32::new(
-                        hdr.initiator_task_tag.wrapping_add(1),
+                        hdr.initiator_task_tag.get().wrapping_add(1),
                     )),
                 })
             })

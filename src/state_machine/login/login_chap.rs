@@ -150,12 +150,12 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for ChapA {
                 let header = LoginRequestBuilder::new(ctx.isid, last.tsih.get())
                     .csg(Stage::Security)
                     .nsg(Stage::Security)
-                    .initiator_task_tag(last.initiator_task_tag)
+                    .initiator_task_tag(last.initiator_task_tag.get())
                     .connection_id(ctx.cid)
                     .cmd_sn(last.exp_cmd_sn.get())
                     .exp_stat_sn(last.stat_sn.get().wrapping_add(1));
 
-                (header, last.initiator_task_tag)
+                (header, last.initiator_task_tag.get())
             };
 
             if let Err(e) = header.header.to_bhs_bytes(ctx.buf.as_mut_slice()) {
@@ -230,12 +230,12 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for ChapAnswer {
                     .transit()
                     .csg(Stage::Security)
                     .nsg(Stage::Operational)
-                    .initiator_task_tag(last_header.initiator_task_tag)
+                    .initiator_task_tag(last_header.initiator_task_tag.get())
                     .connection_id(ctx.cid)
                     .cmd_sn(last_header.exp_cmd_sn.get())
                     .exp_stat_sn(last_header.stat_sn.get().wrapping_add(1));
 
-                (header, last_header.initiator_task_tag, user, chap_r)
+                (header, last_header.initiator_task_tag.get(), user, chap_r)
             };
 
             if let Err(e) = header.header.to_bhs_bytes(ctx.buf.as_mut_slice()) {
@@ -286,11 +286,11 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for ChapOpToFull {
                     .csg(Stage::Operational)
                     .nsg(Stage::FullFeature)
                     .versions(last.version_max, last.version_active)
-                    .initiator_task_tag(last.initiator_task_tag)
+                    .initiator_task_tag(last.initiator_task_tag.get())
                     .connection_id(ctx.cid)
                     .cmd_sn(last.exp_cmd_sn.get())
                     .exp_stat_sn(last.stat_sn.get().wrapping_add(1));
-                (header, last.initiator_task_tag)
+                (header, last.initiator_task_tag.get())
             };
 
             if let Err(e) = header.header.to_bhs_bytes(ctx.buf.as_mut_slice()) {

@@ -14,7 +14,10 @@ use zerocopy::{
 use crate::{
     client::pdu_connection::FromBytes,
     models::{
-        common::{BasicHeaderSegment, HEADER_LEN, SendingData},
+        common::{
+            BasicHeaderSegment, HEADER_LEN, InitiatorTaskTag, LogicalUnitNumber,
+            SendingData, TargetTaskTag,
+        },
         data_fromat::ZeroCopyType,
         opcode::{BhsOpcode, Opcode, RawBhsOpcode},
     },
@@ -24,17 +27,17 @@ use crate::{
 #[repr(C)]
 #[derive(Debug, Default, PartialEq, ZFromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct NopInResponse {
-    pub opcode: RawBhsOpcode,         // 0
-    reserved1: [u8; 3],               // 1..4
-    pub total_ahs_length: u8,         // 4
-    pub data_segment_length: [u8; 3], // 5..8
-    pub lun: u64,                     // 8..16
-    pub initiator_task_tag: u32,      // 16..20
-    pub target_task_tag: u32,         // 20..24
-    pub stat_sn: U32<BigEndian>,      // 24..28
-    pub exp_cmd_sn: U32<BigEndian>,   // 28..32
-    pub max_cmd_sn: U32<BigEndian>,   // 32..36
-    reserved2: [u8; 12],              // 36..48
+    pub opcode: RawBhsOpcode,                 // 0
+    reserved1: [u8; 3],                       // 1..4
+    pub total_ahs_length: u8,                 // 4
+    pub data_segment_length: [u8; 3],         // 5..8
+    pub lun: LogicalUnitNumber,               // 8..16
+    pub initiator_task_tag: InitiatorTaskTag, // 16..20
+    pub target_task_tag: TargetTaskTag,       // 20..24
+    pub stat_sn: U32<BigEndian>,              // 24..28
+    pub exp_cmd_sn: U32<BigEndian>,           // 28..32
+    pub max_cmd_sn: U32<BigEndian>,           // 32..36
+    reserved2: [u8; 12],                      // 36..48
 }
 
 impl NopInResponse {
@@ -98,7 +101,7 @@ impl BasicHeaderSegment for NopInResponse {
 
     #[inline]
     fn get_initiator_task_tag(&self) -> u32 {
-        self.initiator_task_tag
+        self.initiator_task_tag.get()
     }
 
     #[inline]

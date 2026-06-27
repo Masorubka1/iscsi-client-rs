@@ -177,7 +177,7 @@ impl ClientConnection {
                     return false;
                 },
             };
-            header.target_task_tag
+            header.target_task_tag.get()
         };
 
         if let Err(error) = pdu.parse_with_buff(&payload) {

@@ -13,7 +13,10 @@ use zerocopy::{
 use crate::{
     client::pdu_connection::FromBytes,
     models::{
-        common::{BasicHeaderSegment, HEADER_LEN, SendingData},
+        common::{
+            BasicHeaderSegment, HEADER_LEN, InitiatorTaskTag, LogicalUnitNumber,
+            SendingData, TargetTaskTag,
+        },
         data_fromat::ZeroCopyType,
         opcode::{BhsOpcode, Opcode, RawBhsOpcode},
     },
@@ -23,16 +26,16 @@ use crate::{
 #[repr(C)]
 #[derive(Debug, Default, PartialEq, ZFromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct NopOutRequest {
-    pub opcode: RawBhsOpcode,         // 0
-    reserved1: [u8; 3],               // 1..4
-    pub total_ahs_length: u8,         // 4
-    pub data_segment_length: [u8; 3], // 5..8
-    pub lun: u64,                     // 8..16
-    pub initiator_task_tag: u32,      // 16..20
-    pub target_task_tag: u32,         // 20..24
-    pub cmd_sn: U32<BigEndian>,       // 24..28
-    pub exp_stat_sn: U32<BigEndian>,  // 28..32
-    reserved2: [u8; 16],              // 32..48
+    pub opcode: RawBhsOpcode,                 // 0
+    reserved1: [u8; 3],                       // 1..4
+    pub total_ahs_length: u8,                 // 4
+    pub data_segment_length: [u8; 3],         // 5..8
+    pub lun: LogicalUnitNumber,               // 8..16
+    pub initiator_task_tag: InitiatorTaskTag, // 16..20
+    pub target_task_tag: TargetTaskTag,       // 20..24
+    pub cmd_sn: U32<BigEndian>,               // 24..28
+    pub exp_stat_sn: U32<BigEndian>,          // 28..32
+    reserved2: [u8; 16],                      // 32..48
 }
 
 impl NopOutRequest {
@@ -143,13 +146,13 @@ impl NopOutRequestBuilder {
 
     /// Sets the initiator task tag, a unique identifier for this command.
     pub fn initiator_task_tag(mut self, tag: u32) -> Self {
-        self.header.initiator_task_tag = tag;
+        self.header.initiator_task_tag.set(tag);
         self
     }
 
     /// Sets the target task tag, used to match a response to a NOP-In.
     pub fn target_task_tag(mut self, tag: u32) -> Self {
-        self.header.target_task_tag = tag;
+        self.header.target_task_tag.set(tag);
         self
     }
 
@@ -167,7 +170,7 @@ impl NopOutRequestBuilder {
 
     /// Sets the Logical Unit Number (LUN) for the command.
     pub fn lun(mut self, lun: u64) -> Self {
-        self.header.lun = lun;
+        self.header.lun.set(lun);
         self
     }
 }
@@ -209,7 +212,7 @@ impl BasicHeaderSegment for NopOutRequest {
 
     #[inline]
     fn get_initiator_task_tag(&self) -> u32 {
-        self.initiator_task_tag
+        self.initiator_task_tag.get()
     }
 
     #[inline]
