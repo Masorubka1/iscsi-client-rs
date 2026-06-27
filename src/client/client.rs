@@ -8,19 +8,19 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 use bytes::{Bytes, BytesMut};
 use dashmap::DashMap;
 use once_cell::sync::OnceCell;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{
-        tcp::{OwnedReadHalf, OwnedWriteHalf},
         TcpStream,
+        tcp::{OwnedReadHalf, OwnedWriteHalf},
     },
     select,
-    sync::{mpsc, Mutex},
-    time::{sleep, Instant},
+    sync::{Mutex, mpsc},
+    time::{Instant, sleep},
 };
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
@@ -28,12 +28,12 @@ use tracing::{debug, warn};
 use crate::{
     cfg::{config::Config, enums::Digest},
     client::{
-        common::{io_with_timeout, RawPdu},
+        common::{RawPdu, io_with_timeout},
         pdu_connection::{FromBytes, ToBytes},
         pool_sessions::Pool,
     },
     models::{
-        common::{BasicHeaderSegment, SendingData, HEADER_LEN},
+        common::{BasicHeaderSegment, HEADER_LEN, SendingData},
         data_fromat::{PduResponse, ZeroCopyType},
         nop::{request::NopOutRequest, response::NopInResponse},
         parse::Pdu,
