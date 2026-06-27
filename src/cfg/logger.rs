@@ -13,7 +13,7 @@ use anyhow::{Context, Result};
 use chrono::Utc;
 use fastrace::collector::{Config, ConsoleReporter};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use simd_json::{json, value::owned::Object as JsonObject};
 use tokio::{self, fs::File, io::AsyncWriteExt};
 use tracing::{Event, Subscriber, span};
 use tracing_appender::{
@@ -92,7 +92,7 @@ struct LogConfig {
 ///
 /// Holds structured data fields associated with tracing spans as a JSON map.
 #[derive(Default, Debug)]
-struct SpanFields(pub serde_json::Map<String, serde_json::Value>);
+struct SpanFields(pub JsonObject);
 
 /// Tracing layer for capturing span field data
 ///
@@ -109,8 +109,8 @@ where S: Subscriber + for<'a> LookupSpan<'a>
         ctx: tracing_subscriber::layer::Context<'_, S>,
     ) {
         if let Some(span) = ctx.span(id) {
-            let mut map = serde_json::Map::with_capacity(8);
-            struct V<'a>(&'a mut serde_json::Map<String, serde_json::Value>);
+            let mut map = JsonObject::with_capacity(8);
+            struct V<'a>(&'a mut JsonObject);
             impl<'a> tracing::field::Visit for V<'a> {
                 fn record_debug(&mut self, f: &tracing::field::Field, v: &dyn Debug) {
                     self.0
@@ -148,7 +148,7 @@ where S: Subscriber + for<'a> LookupSpan<'a>
         if let Some(span) = ctx.span(id)
             && let Some(fields) = span.extensions_mut().get_mut::<SpanFields>()
         {
-            struct V<'a>(&'a mut serde_json::Map<String, serde_json::Value>);
+            struct V<'a>(&'a mut JsonObject);
             impl<'a> tracing::field::Visit for V<'a> {
                 fn record_debug(&mut self, f: &tracing::field::Field, v: &dyn Debug) {
                     self.0
@@ -204,7 +204,7 @@ struct LogEntry {
     module_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     line: Option<u32>,
-    fields: serde_json::Map<String, serde_json::Value>,
+    fields: JsonObject,
 }
 
 /// Example usage:
@@ -267,7 +267,7 @@ where
         writeln!(
             writer,
             "{}",
-            serde_json::to_string(&log_entry).map_err(|_| std::fmt::Error)?
+            simd_json::to_string(&log_entry).map_err(|_| std::fmt::Error)?
         )
     }
 }
@@ -278,7 +278,7 @@ where
 /// Implements the tracing field visitor pattern to collect log fields
 /// into a JSON map structure for structured logging output.
 struct JsonVisitor {
-    fields: serde_json::Map<String, serde_json::Value>,
+    fields: JsonObject,
 }
 
 impl tracing::field::Visit for JsonVisitor {
