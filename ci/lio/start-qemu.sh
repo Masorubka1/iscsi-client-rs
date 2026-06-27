@@ -7,7 +7,7 @@ readonly HOST_PORT="${3:-3261}"
 readonly WORK_DIR="${RUNNER_TEMP:-/tmp}/iscsi-lio-qemu"
 readonly VM_IMAGE="${WORK_DIR}/lio.qcow2"
 readonly SEED_IMAGE="${WORK_DIR}/seed.img"
-readonly VENDOR_DATA="${WORK_DIR}/vendor-data"
+readonly USER_DATA="${WORK_DIR}/user-data"
 readonly QEMU_LOG="${WORK_DIR}/qemu.log"
 readonly PID_FILE="${WORK_DIR}/qemu.pid"
 readonly QEMU_ACCEL="${LIO_QEMU_ACCEL:-tcg}"
@@ -39,10 +39,8 @@ esac
 
 mkdir -p "${WORK_DIR}"
 qemu-img create -q -f qcow2 -F qcow2 -b "${BASE_IMAGE}" "${VM_IMAGE}" 8G
-printf '#cloud-config\nwrite_files:\n  - path: /etc/lio-test-mode\n    content: %s\n' \
-  "${TEST_MODE}" > "${VENDOR_DATA}"
-cloud-localds --vendor-data "${VENDOR_DATA}" \
-  "${SEED_IMAGE}" ci/lio/user-data ci/lio/meta-data
+sed "s/__LIO_TEST_MODE__/${TEST_MODE}/g" ci/lio/user-data > "${USER_DATA}"
+cloud-localds "${SEED_IMAGE}" "${USER_DATA}" ci/lio/meta-data
 
 qemu-system-x86_64 \
   -accel "${QEMU_ACCEL}" \
@@ -60,7 +58,7 @@ qemu-system-x86_64 \
   -pidfile "${PID_FILE}"
 
 for attempt in $(seq 1 300); do
-  if grep -q "LIO_READY" "${QEMU_LOG}"; then
+  if grep -q "LIO_SETUP_READY" "${QEMU_LOG}"; then
     if ! nc -z 127.0.0.1 "${HOST_PORT}"; then
       cat "${QEMU_LOG}"
       echo "cloud-init completed, but LIO is not accepting connections" >&2

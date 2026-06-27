@@ -3,7 +3,7 @@
 test cfg="":
 	@set -euo pipefail; \
 	CFG="{{cfg}}"; \
-	[ -z "$CFG" ] && CFG=tests/config_tgt.yaml; \
+	[ -z "$CFG" ] && CFG=tests/configs/tgt/plain.yaml; \
 	trap 'just -f just/docker.just down' EXIT; \
 	echo "Up TGT..."; \
 	just -f just/docker.just up iscsi-target-plain; \
@@ -13,7 +13,7 @@ test cfg="":
 test-chap cfg="":
 	@set -euo pipefail; \
 	CFG="{{cfg}}"; \
-	[ -z "$CFG" ] && CFG=tests/config_tgt_chap.yaml; \
+	[ -z "$CFG" ] && CFG=tests/configs/tgt/chap.yaml; \
 	trap 'just -f just/docker.just down' EXIT; \
 	just -f just/docker.just up iscsi-target-chap; \
 	TEST_CONFIG="$CFG" cargo test --test integration -- --nocapture --test-threads=1
@@ -21,7 +21,7 @@ test-chap cfg="":
 test-crc cfg="":
 	@set -euo pipefail; \
 	CFG="{{cfg}}"; \
-	[ -z "$CFG" ] && CFG=tests/config_tgt_crc.yaml; \
+	[ -z "$CFG" ] && CFG=tests/configs/tgt/crc.yaml; \
 	trap 'just -f just/docker.just down' EXIT; \
 	just -f just/docker.just up iscsi-target-crc; \
 	TEST_CONFIG="$CFG" cargo test --test integration -- --nocapture --test-threads=1

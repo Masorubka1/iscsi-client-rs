@@ -50,13 +50,13 @@ jobs:
       matrix:
         include:
           - mode: plain
-            config: tests/config_tgt.yaml
+            config: tests/configs/tgt/plain.yaml
             service: iscsi-target-plain
           - mode: chap
-            config: tests/config_tgt_chap.yaml
+            config: tests/configs/tgt/chap.yaml
             service: iscsi-target-chap
           - mode: crc
-            config: tests/config_tgt_crc.yaml
+            config: tests/configs/tgt/crc.yaml
             service: iscsi-target-crc
     steps:
       - uses: actions/checkout@v7
@@ -91,13 +91,13 @@ jobs:
       matrix:
         include:
           - mode: plain
-            config: ci/lio/config_plain.yaml
+            config: tests/configs/lio/plain.yaml
             host_port: 3261
           - mode: chap
-            config: ci/lio/config_chap.yaml
+            config: tests/configs/lio/chap.yaml
             host_port: 3262
           - mode: crc
-            config: ci/lio/config_crc.yaml
+            config: tests/configs/lio/crc.yaml
             host_port: 3263
     steps:
       - uses: actions/checkout@v7

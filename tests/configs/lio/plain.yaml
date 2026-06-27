@@ -3,7 +3,7 @@ login:
     SessionType: Normal
     InitiatorName: iqn.2004-10.com.ubuntu:01:c676ed18968f
     InitiatorAlias: ubuntu
-    TargetName: iqn.2025-08.example:disk0
+    TargetName: iqn.2025-08.com.example:disk0
     IsX86: No
   auth:
     AuthMethod: None
@@ -13,14 +13,14 @@ login:
     DataDigest: None
 
   flow:
-    MaxRecvDataSegmentLength: 524288
-    MaxBurstLength: 16776192
-    FirstBurstLength: 262144
+    MaxRecvDataSegmentLength: 262144
+    MaxBurstLength: 262144
+    FirstBurstLength: 65536
 
   write_flow:
-    InitialR2T: No
+    InitialR2T: Yes
     ImmediateData: Yes
-    MaxOutstandingR2T: 32
+    MaxOutstandingR2T: 1
 
   ordering:
     DataPDUInOrder: Yes

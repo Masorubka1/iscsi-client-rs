@@ -4,6 +4,9 @@ packages:
   - targetcli-fb
 
 write_files:
+  - path: /etc/lio-test-mode
+    content: __LIO_TEST_MODE__
+
   - path: /usr/local/sbin/setup-lio
     permissions: "0755"
     content: |
@@ -17,32 +20,33 @@ write_files:
       truncate -s 2G /var/lib/lio/backing.img
 
       targetcli /backstores/fileio create name=backing file_or_dev=/var/lib/lio/backing.img
-      targetcli /iscsi create iqn.2025-08.example:disk0
-      targetcli /iscsi/iqn.2025-08.example:disk0/tpg1/portals create 0.0.0.0 3260 || true
-      targetcli /iscsi/iqn.2025-08.example:disk0/tpg1/luns create /backstores/fileio/backing lun=1
+      targetcli /iscsi create iqn.2025-08.com.example:disk0
+      targetcli /iscsi/iqn.2025-08.com.example:disk0/tpg1/portals create 0.0.0.0 3260 || true
+      targetcli /iscsi/iqn.2025-08.com.example:disk0/tpg1/luns create /backstores/fileio/backing lun=1
 
       if [ "$(cat /etc/lio-test-mode)" = chap ]; then
-        targetcli /iscsi/iqn.2025-08.example:disk0/tpg1 set attribute authentication=1
-        targetcli /iscsi/iqn.2025-08.example:disk0/tpg1 set attribute generate_node_acls=0
-        targetcli /iscsi/iqn.2025-08.example:disk0/tpg1 set attribute demo_mode_write_protect=0
-        targetcli /iscsi/iqn.2025-08.example:disk0/tpg1/acls create iqn.2004-10.com.ubuntu:01:c676ed18968f
-        targetcli /iscsi/iqn.2025-08.example:disk0/tpg1/acls/iqn.2004-10.com.ubuntu:01:c676ed18968f set auth userid=testuser password=secretpass
+        targetcli /iscsi/iqn.2025-08.com.example:disk0/tpg1 set attribute authentication=1
+        targetcli /iscsi/iqn.2025-08.com.example:disk0/tpg1 set attribute generate_node_acls=0
+        targetcli /iscsi/iqn.2025-08.com.example:disk0/tpg1 set attribute demo_mode_write_protect=0
+        targetcli /iscsi/iqn.2025-08.com.example:disk0/tpg1/acls create iqn.2004-10.com.ubuntu:01:c676ed18968f
+        targetcli /iscsi/iqn.2025-08.com.example:disk0/tpg1/acls/iqn.2004-10.com.ubuntu:01:c676ed18968f set auth userid=testuser password=secretpass
       else
-        targetcli /iscsi/iqn.2025-08.example:disk0/tpg1 set attribute authentication=0
-        targetcli /iscsi/iqn.2025-08.example:disk0/tpg1 set attribute generate_node_acls=1
-        targetcli /iscsi/iqn.2025-08.example:disk0/tpg1 set attribute demo_mode_write_protect=0
+        targetcli /iscsi/iqn.2025-08.com.example:disk0/tpg1 set attribute authentication=0
+        targetcli /iscsi/iqn.2025-08.com.example:disk0/tpg1 set attribute generate_node_acls=1
+        targetcli /iscsi/iqn.2025-08.com.example:disk0/tpg1 set attribute demo_mode_write_protect=0
       fi
 
       if [ "$(cat /etc/lio-test-mode)" = crc ]; then
-        targetcli /iscsi/iqn.2025-08.example:disk0/tpg1 set parameter HeaderDigest=CRC32C
-        targetcli /iscsi/iqn.2025-08.example:disk0/tpg1 set parameter DataDigest=CRC32C
+        targetcli /iscsi/iqn.2025-08.com.example:disk0/tpg1 set parameter HeaderDigest=CRC32C
+        targetcli /iscsi/iqn.2025-08.com.example:disk0/tpg1 set parameter DataDigest=CRC32C
       fi
 
-      targetcli /iscsi/iqn.2025-08.example:disk0/tpg1 set parameter MaxConnections=2
+      targetcli /iscsi/iqn.2025-08.com.example:disk0/tpg1 set parameter MaxConnections=2
       targetcli saveconfig
+      echo LIO_SETUP_READY > /dev/console
 
 runcmd:
   - /usr/local/sbin/setup-lio
   - touch /run/lio-ready
 
-final_message: "LIO_READY"
+final_message: "CLOUD_INIT_FINISHED"
