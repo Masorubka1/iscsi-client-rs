@@ -35,10 +35,11 @@ impl ClientConnection {
             mut header,
             payload,
         } = tokio::select! {
-            _ = self.cancel.cancelled() => return Err(anyhow!("cancelled")),
+            biased;
             response = receiver.recv() => {
                 response.ok_or_else(|| anyhow!("connection closed before response"))?
             },
+            _ = self.cancel.cancelled() => return Err(anyhow!("cancelled")),
         };
 
         let pdu_header = Pdu::from_bhs_bytes(&mut header)?;
