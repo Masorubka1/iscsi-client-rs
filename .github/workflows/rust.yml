@@ -8,6 +8,11 @@ on:
   pull_request:
     branches: [main]
 
+env:
+  CARGO_HTTP_MULTIPLEXING: false
+  CARGO_HTTP_TIMEOUT: 120
+  CARGO_NET_RETRY: 10
+
 jobs:
   lint:
     name: Lint (clippy + rustfmt)
@@ -21,11 +26,31 @@ jobs:
           toolchain: nightly
           components: clippy, rustfmt
 
+      - &cache-cargo
+        name: Cache Cargo registry
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+
+      - &fetch-cargo
+        name: Fetch Cargo dependencies
+        run: |
+          for attempt in 1 2 3 4 5; do
+            cargo fetch --locked && exit 0
+            if [ "$attempt" -eq 5 ]; then
+              exit 1
+            fi
+            sleep $((attempt * 5))
+          done
+
       - name: rustfmt check
         run: cargo +nightly fmt -- --check
 
       - name: clippy check
-        run: cargo clippy --tests --examples --benches --no-deps --all-targets -- -D warnings
+        run: cargo clippy --offline --tests --examples --benches --no-deps --all-targets -- -D warnings
 
   test:
     name: Run tests
@@ -38,8 +63,11 @@ jobs:
         with:
           toolchain: nightly
 
+      - *cache-cargo
+      - *fetch-cargo
+
       - name: Run tests
-        run: cargo test --tests unit --no-fail-fast --verbose
+        run: cargo test --offline --tests unit --no-fail-fast --verbose
 
   test-tgt:
     name: Integration tests (TGT/${{ matrix.mode }})
@@ -66,13 +94,16 @@ jobs:
         with:
           toolchain: stable
 
+      - *cache-cargo
+      - *fetch-cargo
+
       - name: Start TGT
         run: docker compose --profile tgt up -d --build --wait --wait-timeout 60 ${{ matrix.service }}
 
       - name: Run integration tests
         env:
           TEST_CONFIG: ${{ matrix.config }}
-        run: cargo test --test integration -- --nocapture --test-threads=1
+        run: cargo test --offline --test integration -- --nocapture --test-threads=1
 
       - name: Show TGT logs
         if: failure()
@@ -106,6 +137,9 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
+
+      - *cache-cargo
+      - *fetch-cargo
 
       - name: Install QEMU and cloud-init tools
         run: |
@@ -141,7 +175,7 @@ jobs:
       - name: Run integration tests
         env:
           TEST_CONFIG: ${{ matrix.config }}
-        run: cargo test --test integration -- --nocapture --test-threads=1
+        run: cargo test --offline --test integration -- --nocapture --test-threads=1
 
       - name: Stop LIO VM
         if: always()
