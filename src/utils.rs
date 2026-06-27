@@ -3,7 +3,7 @@
 
 use std::fmt::Write;
 
-use rand::Rng;
+use rand::RngExt;
 
 /// Generates a random ISID (6 bytes) and returns:
 /// - `[u8; 6]` for direct use in the PDU

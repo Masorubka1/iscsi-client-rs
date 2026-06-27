@@ -8,19 +8,19 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{Result, anyhow, bail};
+use anyhow::{anyhow, bail, Result};
 use bytes::{Bytes, BytesMut};
 use dashmap::DashMap;
 use once_cell::sync::OnceCell;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{
-        TcpStream,
         tcp::{OwnedReadHalf, OwnedWriteHalf},
+        TcpStream,
     },
     select,
-    sync::{Mutex, mpsc},
-    time::{Instant, sleep},
+    sync::{mpsc, Mutex},
+    time::{sleep, Instant},
 };
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
@@ -28,12 +28,12 @@ use tracing::{debug, warn};
 use crate::{
     cfg::{config::Config, enums::Digest},
     client::{
-        common::{RawPdu, io_with_timeout},
+        common::{io_with_timeout, RawPdu},
         pdu_connection::{FromBytes, ToBytes},
         pool_sessions::Pool,
     },
     models::{
-        common::{BasicHeaderSegment, HEADER_LEN, SendingData},
+        common::{BasicHeaderSegment, SendingData, HEADER_LEN},
         data_fromat::{PduResponse, ZeroCopyType},
         nop::{request::NopOutRequest, response::NopInResponse},
         parse::Pdu,
@@ -90,7 +90,6 @@ impl ClientConnection {
     /// Establishes a new TCP connection to the given address.
     pub async fn connect(cfg: Config, cancel: CancellationToken) -> Result<Arc<Self>> {
         let stream = TcpStream::connect(&cfg.login.transport.target_address).await?;
-        stream.set_linger(None)?;
         stream.set_nodelay(true)?;
 
         let (r, w) = stream.into_split();
