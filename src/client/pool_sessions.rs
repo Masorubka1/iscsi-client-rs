@@ -18,6 +18,7 @@ use crate::{
     models::logout::common::LogoutReason,
     state_machine::{
         common::StateMachineCtx, login::common::LoginCtx, logout_states::LogoutCtx,
+        nop_states::NopCtx,
     },
     utils::generate_isid,
 };
@@ -84,6 +85,8 @@ pub struct Pool {
     /// shutdown.
     cancel: CancellationToken,
 }
+
+const MAX_CONNECTION_RECOVERY_ATTEMPTS: usize = 3;
 
 impl Pool {
     /// Create a pool with its own root cancellation token.
@@ -181,6 +184,56 @@ impl Pool {
         Ok(())
     }
 
+    fn drop_connection_local(&self, tsih: u16, cid: u16) {
+        let should_remove_session = if let Some(sess) = self.sessions.get(&tsih) {
+            sess.conns.remove(&cid);
+            sess.conns.is_empty()
+        } else {
+            false
+        };
+
+        if should_remove_session {
+            self.sessions.remove(&tsih);
+        }
+    }
+
+    async fn recover_connection(
+        &self,
+        tsih: u16,
+        cid: u16,
+        expected: Arc<Connection>,
+    ) -> Result<()> {
+        let sess = self
+            .sessions
+            .get(&tsih)
+            .with_context(|| format!("unknown TSIH={tsih}"))?
+            .clone();
+
+        if let Some(current) = sess.conns.get(&cid).map(|entry| entry.clone())
+            && !Arc::ptr_eq(&current, &expected) && !current.conn.is_poisoned() {
+                return Ok(());
+            }
+
+        let target_name = sess.target_name.clone();
+        let isid = sess.isid;
+        let cfg = expected.conn.cfg.clone();
+
+        if let Some(current) = sess.conns.get(&cid).map(|entry| entry.clone()) {
+            if Arc::ptr_eq(&current, &expected) || current.conn.is_poisoned() {
+                sess.conns.remove(&cid);
+            } else {
+                return Ok(());
+            }
+        }
+
+        let child = self.cancel.child_token();
+        let conn = ClientConnection::connect(cfg, child).await?;
+        let _ = self
+            .login_one_and_insert_impl(target_name, isid, tsih, cid, conn)
+            .await?;
+        Ok(())
+    }
+
     async fn login_one_and_insert_impl(
         &self,
         target_name: Arc<str>,
@@ -212,7 +265,7 @@ impl Pool {
                     conns: DashMap::with_capacity(self.max_connections as usize),
                     cmd_sn: Arc::new(AtomicU32::new(hdr.exp_cmd_sn.get())),
                     itt_gen: Arc::new(AtomicU32::new(
-                        hdr.initiator_task_tag.get().wrapping_add(1),
+                        hdr.initiator_task_tag.wrapping_add(1),
                     )),
                 })
             })
@@ -408,7 +461,7 @@ impl Pool {
         build: Build,
     ) -> Result<Res>
     where
-        Build: for<'a> FnOnce(
+        Build: for<'a> Fn(
             Arc<ClientConnection>,
             Arc<AtomicU32>, // ITT
             Arc<AtomicU32>, // CmdSN
@@ -416,6 +469,104 @@ impl Pool {
         ) -> Ctx,
         Ctx: StateMachineCtx<Ctx, Res>,
     {
+        let mut last_error = None;
+
+        for attempt in 0..=MAX_CONNECTION_RECOVERY_ATTEMPTS {
+            let sess = self
+                .sessions
+                .get(&tsih)
+                .with_context(|| format!("unknown TSIH={tsih}"))?
+                .clone();
+            let conn = sess
+                .conns
+                .get(&cid)
+                .with_context(|| format!("CID={cid} not found in TSIH={tsih}"))?
+                .clone();
+
+            if conn.conn.is_poisoned() {
+                let reason = conn
+                    .conn
+                    .poison_reason()
+                    .unwrap_or_else(|| "unknown poison reason".to_string());
+                warn!(
+                    "TSIH={}, CID={} is poisoned before execute attempt {}: {}",
+                    tsih,
+                    cid,
+                    attempt + 1,
+                    reason
+                );
+                last_error = Some(anyhow::anyhow!("connection poisoned: {reason}"));
+            } else {
+                let mut ctx = build(
+                    conn.conn.clone(),
+                    sess.itt_gen.clone(),
+                    sess.cmd_sn.clone(),
+                    conn.exp_stat_sn.clone(),
+                );
+                match ctx.execute(&conn.conn.stop_writes).await {
+                    Ok(res) => return Ok(res),
+                    Err(error) if conn.conn.is_poisoned() => {
+                        warn!(
+                            "TSIH={}, CID={} poisoned during execute attempt {}: {}",
+                            tsih,
+                            cid,
+                            attempt + 1,
+                            error
+                        );
+                        last_error = Some(error);
+                    },
+                    Err(error) => return Err(error),
+                }
+            }
+
+            if attempt == MAX_CONNECTION_RECOVERY_ATTEMPTS {
+                self.drop_connection_local(tsih, cid);
+                return Err(last_error.unwrap_or_else(|| {
+                    anyhow::anyhow!(
+                        "connection recovery attempts exhausted for TSIH={}, CID={}",
+                        tsih,
+                        cid
+                    )
+                }));
+            }
+
+            match self.recover_connection(tsih, cid, conn.clone()).await {
+                Ok(()) => {
+                    debug!(
+                        "recovered TSIH={}, CID={} after poisoned connection",
+                        tsih, cid
+                    );
+                },
+                Err(error) => {
+                    warn!(
+                        "failed to recover TSIH={}, CID={} on attempt {}: {}",
+                        tsih,
+                        cid,
+                        attempt + 1,
+                        error
+                    );
+                    last_error = Some(error);
+                },
+            }
+        }
+
+        Err(last_error.unwrap_or_else(|| {
+            anyhow::anyhow!(
+                "connection recovery attempts exhausted for TSIH={}, CID={}",
+                tsih,
+                cid
+            )
+        }))
+    }
+
+    pub(crate) async fn execute_nop_reply(
+        &self,
+        tsih: u16,
+        cid: u16,
+        pdu: crate::models::data_fromat::PduResponse<
+            crate::models::nop::response::NopInResponse,
+        >,
+    ) -> Result<()> {
         let sess = self
             .sessions
             .get(&tsih)
@@ -427,13 +578,15 @@ impl Pool {
             .with_context(|| format!("CID={cid} not found in TSIH={tsih}"))?
             .clone();
 
-        let mut ctx = build(
+        let mut ctx = NopCtx::for_reply(
             conn.conn.clone(),
             sess.itt_gen.clone(),
             sess.cmd_sn.clone(),
             conn.exp_stat_sn.clone(),
-        );
-        ctx.execute(&conn.conn.stop_writes).await
+            pdu,
+        )
+        .expect("failed to build NopCtx::for_reply");
+        ctx.execute(&conn.conn.stop_writes).await.map(|_| ())
     }
 }
 

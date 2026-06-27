@@ -10,8 +10,11 @@ use tracing::debug;
 
 use super::ClientConnection;
 use crate::{
-    client::{common::io_with_timeout, pdu_connection::ToBytes},
-    models::common::{HEADER_LEN, InitiatorTaskTag},
+    client::{
+        common::{io_with_timeout, is_timeout_error},
+        pdu_connection::ToBytes,
+    },
+    models::common::HEADER_LEN,
 };
 
 impl ClientConnection {
@@ -28,6 +31,7 @@ impl ClientConnection {
         &self,
         mut request: impl ToBytes<Header = [u8; HEADER_LEN], Body = Bytes> + fmt::Debug,
     ) -> Result<()> {
+        self.ensure_healthy()?;
         if self.cancel.is_cancelled() {
             bail!("cancelled");
         }
@@ -44,7 +48,13 @@ impl ClientConnection {
             self.cfg.runtime.timeout_connection,
             &self.cancel,
         )
-        .await?;
+        .await
+        .map_err(|error| {
+            if is_timeout_error(&error) {
+                self.poison(format!("write header timeout: {error}"));
+            }
+            error
+        })?;
 
         if !data.is_empty() {
             io_with_timeout(
@@ -53,7 +63,13 @@ impl ClientConnection {
                 self.cfg.runtime.timeout_connection,
                 &self.cancel,
             )
-            .await?;
+            .await
+            .map_err(|error| {
+                if is_timeout_error(&error) {
+                    self.poison(format!("write data timeout: {error}"));
+                }
+                error
+            })?;
         }
 
         Ok(())
@@ -64,20 +80,19 @@ impl ClientConnection {
         initiator_task_tag: u32,
         request: impl ToBytes<Header = [u8; HEADER_LEN], Body = Bytes> + Debug,
     ) -> Result<()> {
+        self.ensure_healthy()?;
         if self.cancel.is_cancelled() {
             bail!("cancelled");
         }
 
         let expects_response = initiator_task_tag != u32::MAX;
         if expects_response {
-            self.pending
-                .register(InitiatorTaskTag::new(initiator_task_tag)?);
+            self.pending.register(initiator_task_tag);
         }
 
         if let Err(error) = self.write(request).await {
             if expects_response {
-                self.pending
-                    .remove(InitiatorTaskTag::new(initiator_task_tag)?);
+                self.pending.remove(initiator_task_tag);
             }
             return Err(error);
         }

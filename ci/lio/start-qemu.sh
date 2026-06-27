@@ -2,15 +2,28 @@
 set -euo pipefail
 
 readonly BASE_IMAGE="${1:?usage: start-qemu.sh BASE_IMAGE}"
+readonly TEST_MODE="${2:-plain}"
 readonly WORK_DIR="${RUNNER_TEMP:-/tmp}/iscsi-lio-qemu"
 readonly VM_IMAGE="${WORK_DIR}/lio.qcow2"
 readonly SEED_IMAGE="${WORK_DIR}/seed.img"
+readonly VENDOR_DATA="${WORK_DIR}/vendor-data"
 readonly QEMU_LOG="${WORK_DIR}/qemu.log"
 readonly PID_FILE="${WORK_DIR}/qemu.pid"
 
+case "${TEST_MODE}" in
+  plain|chap|crc) ;;
+  *)
+    echo "unsupported LIO test mode: ${TEST_MODE}" >&2
+    exit 2
+    ;;
+esac
+
 mkdir -p "${WORK_DIR}"
 qemu-img create -q -f qcow2 -F qcow2 -b "${BASE_IMAGE}" "${VM_IMAGE}" 8G
-cloud-localds "${SEED_IMAGE}" ci/lio/user-data ci/lio/meta-data
+printf '#cloud-config\nwrite_files:\n  - path: /etc/lio-test-mode\n    content: %s\n' \
+  "${TEST_MODE}" > "${VENDOR_DATA}"
+cloud-localds --vendor-data "${VENDOR_DATA}" \
+  "${SEED_IMAGE}" ci/lio/user-data ci/lio/meta-data
 
 qemu-system-x86_64 \
   -accel tcg \

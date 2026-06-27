@@ -20,9 +20,23 @@ write_files:
       targetcli /iscsi create iqn.2025-08.example:disk0
       targetcli /iscsi/iqn.2025-08.example:disk0/tpg1/portals create 0.0.0.0 3260 || true
       targetcli /iscsi/iqn.2025-08.example:disk0/tpg1/luns create /backstores/fileio/backing lun=1
-      targetcli /iscsi/iqn.2025-08.example:disk0/tpg1 set attribute authentication=0
-      targetcli /iscsi/iqn.2025-08.example:disk0/tpg1 set attribute generate_node_acls=1
-      targetcli /iscsi/iqn.2025-08.example:disk0/tpg1 set attribute demo_mode_write_protect=0
+
+      if [ "$(cat /etc/lio-test-mode)" = chap ]; then
+        targetcli /iscsi/iqn.2025-08.example:disk0/tpg1 set attribute authentication=1
+        targetcli /iscsi/iqn.2025-08.example:disk0/tpg1 set attribute generate_node_acls=0
+        targetcli /iscsi/iqn.2025-08.example:disk0/tpg1/acls create iqn.2004-10.com.ubuntu:01:c676ed18968f
+        targetcli /iscsi/iqn.2025-08.example:disk0/tpg1/acls/iqn.2004-10.com.ubuntu:01:c676ed18968f set auth userid=testuser password=secretpass
+      else
+        targetcli /iscsi/iqn.2025-08.example:disk0/tpg1 set attribute authentication=0
+        targetcli /iscsi/iqn.2025-08.example:disk0/tpg1 set attribute generate_node_acls=1
+        targetcli /iscsi/iqn.2025-08.example:disk0/tpg1 set attribute demo_mode_write_protect=0
+      fi
+
+      if [ "$(cat /etc/lio-test-mode)" = crc ]; then
+        targetcli /iscsi/iqn.2025-08.example:disk0/tpg1 set parameter HeaderDigest=CRC32C
+        targetcli /iscsi/iqn.2025-08.example:disk0/tpg1 set parameter DataDigest=CRC32C
+      fi
+
       targetcli /iscsi/iqn.2025-08.example:disk0/tpg1 set parameter MaxConnections=2
       targetcli saveconfig
 

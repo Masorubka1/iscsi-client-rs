@@ -46,4 +46,4 @@ login:
 
 runtime:
   MaxSessions: 2
-  TimeoutConnection: 20
+  TimeoutConnection: 5

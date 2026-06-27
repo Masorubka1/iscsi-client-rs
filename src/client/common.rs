@@ -3,12 +3,27 @@
 
 use std::time::Duration;
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use bytes::Bytes;
+use thiserror::Error;
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 
 use crate::models::common::HEADER_LEN;
+
+#[derive(Debug, Error)]
+pub enum ClientIoError {
+    #[error("{label} cancelled")]
+    Cancelled { label: &'static str },
+    #[error("{label} timeout")]
+    Timeout { label: &'static str },
+}
+
+pub(super) fn is_timeout_error(error: &anyhow::Error) -> bool {
+    error
+        .downcast_ref::<ClientIoError>()
+        .is_some_and(|client_error| matches!(client_error, ClientIoError::Timeout { .. }))
+}
 
 pub(super) async fn io_with_timeout<F, T>(
     label: &'static str,
@@ -20,12 +35,12 @@ where
     F: Future<Output = std::io::Result<T>>,
 {
     tokio::select! {
-        _ = cancel.cancelled() => Err(anyhow!("{label} cancelled")),
+        _ = cancel.cancelled() => Err(ClientIoError::Cancelled { label }.into()),
         res = timeout(io_timeout, fut) => {
             match res {
                 Ok(Ok(v)) => Ok(v),
                 Ok(Err(e)) => Err(e.into()),
-                Err(_) => Err(anyhow!("{label} timeout")),
+                Err(_) => Err(ClientIoError::Timeout { label }.into()),
             }
         }
     }

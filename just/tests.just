@@ -8,7 +8,7 @@ test cfg="":
 	echo "Up TGT..."; \
 	just -f just/docker.just up; \
 	echo "Run integration tests with $CFG"; \
-	TEST_CONFIG="$CFG" cargo test --test integration -- --nocapture
+	TEST_CONFIG="$CFG" cargo test --test integration -- --nocapture --test-threads=1
 
 test-chap cfg="":
 	@set -euo pipefail; \
@@ -16,4 +16,4 @@ test-chap cfg="":
 	[ -z "$CFG" ] && CFG=tests/config.yaml; \
 	trap 'just -f just/docker.just down' EXIT; \
 	just -f just/docker.just up; \
-	TEST_CONFIG="$CFG" cargo test --test integration -- --nocapture
+	TEST_CONFIG="$CFG" cargo test --test integration -- --nocapture --test-threads=1

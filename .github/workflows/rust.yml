@@ -42,9 +42,28 @@ jobs:
         run: cargo test --tests unit --no-fail-fast --verbose
 
   test-tgt:
-    name: Integration tests (TGT/Docker)
+    name: Integration tests (TGT/${{ matrix.mode }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - mode: plain
+            config: tests/config.yaml
+            chap_user: ""
+            chap_pass: ""
+            digest: ""
+          - mode: chap
+            config: tests/config_chap.yaml
+            chap_user: testuser
+            chap_pass: secretpass
+            digest: ""
+          - mode: crc
+            config: tests/config_crc.yaml
+            chap_user: ""
+            chap_pass: ""
+            digest: CRC32C
     steps:
       - uses: actions/checkout@v7
 
@@ -54,12 +73,16 @@ jobs:
           toolchain: stable
 
       - name: Start TGT
+        env:
+          TGT_CHAP_USER: ${{ matrix.chap_user }}
+          TGT_CHAP_PASS: ${{ matrix.chap_pass }}
+          TGT_DIGEST: ${{ matrix.digest }}
         run: docker compose --profile tgt up -d --build --wait --wait-timeout 60
 
       - name: Run integration tests
         env:
-          TEST_CONFIG: tests/config.yaml
-        run: cargo test --test integration -- --nocapture
+          TEST_CONFIG: ${{ matrix.config }}
+        run: cargo test --test integration -- --nocapture --test-threads=1
 
       - name: Show TGT logs
         if: failure()
@@ -70,9 +93,19 @@ jobs:
         run: docker compose --profile tgt down -v
 
   test-lio:
-    name: Integration tests (LIO/QEMU)
+    name: Integration tests (LIO/${{ matrix.mode }})
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - mode: plain
+            config: tests/config.yaml
+          - mode: chap
+            config: tests/config_chap.yaml
+          - mode: crc
+            config: tests/config_crc.yaml
     steps:
       - uses: actions/checkout@v7
 
@@ -101,12 +134,20 @@ jobs:
             --output "${RUNNER_TEMP}/ubuntu-24.04-server-cloudimg-amd64.img"
 
       - name: Start LIO VM
-        run: bash ci/lio/start-qemu.sh "${RUNNER_TEMP}/ubuntu-24.04-server-cloudimg-amd64.img"
+        run: |
+          bash ci/lio/start-qemu.sh \
+            "${RUNNER_TEMP}/ubuntu-24.04-server-cloudimg-amd64.img" \
+            "${{ matrix.mode }}"
+
+      - name: Prepare LIO client config
+        run: |
+          sed 's/127\.0\.0\.1:3260/127.0.0.1:3261/' \
+            "${{ matrix.config }}" > "${RUNNER_TEMP}/lio-config.yaml"
 
       - name: Run integration tests
         env:
-          TEST_CONFIG: ci/lio/config.yaml
-        run: cargo test --test integration -- --nocapture
+          TEST_CONFIG: ${{ runner.temp }}/lio-config.yaml
+        run: cargo test --test integration -- --nocapture --test-threads=1
 
       - name: Stop LIO VM
         if: always()

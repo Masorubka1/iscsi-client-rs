@@ -5,18 +5,18 @@ use anyhow::{Result, anyhow};
 use dashmap::DashMap;
 use tokio::sync::mpsc;
 
-use crate::{client::common::RawPdu, models::common::InitiatorTaskTag};
+use crate::client::common::RawPdu;
 
 const RESPONSE_QUEUE_CAPACITY: usize = 32;
 
 #[derive(Debug, Default)]
 pub(super) struct PendingRequests {
-    senders: DashMap<InitiatorTaskTag, mpsc::Sender<RawPdu>>,
-    receivers: DashMap<InitiatorTaskTag, mpsc::Receiver<RawPdu>>,
+    senders: DashMap<u32, mpsc::Sender<RawPdu>>,
+    receivers: DashMap<u32, mpsc::Receiver<RawPdu>>,
 }
 
 impl PendingRequests {
-    pub(super) fn register(&self, itt: InitiatorTaskTag) {
+    pub(super) fn register(&self, itt: u32) {
         if self.senders.contains_key(&itt) {
             return;
         }
@@ -26,32 +26,25 @@ impl PendingRequests {
         self.receivers.insert(itt, rx);
     }
 
-    pub(super) fn remove(&self, itt: InitiatorTaskTag) {
+    pub(super) fn remove(&self, itt: u32) {
         self.senders.remove(&itt);
         self.receivers.remove(&itt);
     }
 
-    pub(super) fn take_receiver(
-        &self,
-        itt: InitiatorTaskTag,
-    ) -> Result<mpsc::Receiver<RawPdu>> {
+    pub(super) fn take_receiver(&self, itt: u32) -> Result<mpsc::Receiver<RawPdu>> {
         self.receivers
             .remove(&itt)
             .map(|(_, receiver)| receiver)
             .ok_or_else(|| anyhow!("no pending request with itt={itt}"))
     }
 
-    pub(super) fn restore_receiver(
-        &self,
-        itt: InitiatorTaskTag,
-        receiver: mpsc::Receiver<RawPdu>,
-    ) {
+    pub(super) fn restore_receiver(&self, itt: u32, receiver: mpsc::Receiver<RawPdu>) {
         self.receivers.insert(itt, receiver);
     }
 
     pub(super) async fn deliver(
         &self,
-        itt: InitiatorTaskTag,
+        itt: u32,
         pdu: RawPdu,
         is_final: bool,
     ) -> Result<()> {
@@ -81,13 +74,18 @@ impl PendingRequests {
         self.senders.len()
     }
 
-    pub(super) fn inflight_tags(&self) -> Vec<InitiatorTaskTag> {
+    pub(super) fn inflight_tags(&self) -> Vec<u32> {
         let mut tags = self
             .senders
             .iter()
             .map(|entry| *entry.key())
             .collect::<Vec<_>>();
-        tags.sort_unstable_by_key(|tag| tag.get());
+        tags.sort_unstable();
         tags
+    }
+
+    pub(super) fn abort_all(&self) {
+        self.senders.clear();
+        self.receivers.clear();
     }
 }

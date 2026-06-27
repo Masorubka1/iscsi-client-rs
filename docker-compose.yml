@@ -15,6 +15,7 @@ services:
       TGT_CHAP_PASS: ${TGT_CHAP_PASS:-}
       TGT_MUTUAL_USER: ${TGT_MUTUAL_USER:-}
       TGT_MUTUAL_PASS: ${TGT_MUTUAL_PASS:-}
+      TGT_DIGEST: ${TGT_DIGEST:-}
     ports:
       - "3260:3260/tcp"
     restart: unless-stopped

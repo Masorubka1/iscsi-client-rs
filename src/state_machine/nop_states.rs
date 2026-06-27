@@ -111,7 +111,7 @@ impl<'a> NopCtx<'a> {
             itt: 0,
             cmd_sn: cmd_sn.load(Ordering::SeqCst),
             exp_stat_sn,
-            ttt: header.target_task_tag.get(),
+            ttt: header.target_task_tag,
             buf: [0u8; HEADER_LEN],
             last_response: Some(response),
             state: Some(NopStates::Reply(Reply)),

@@ -12,16 +12,15 @@ use super::ClientConnection;
 use crate::{
     cfg::enums::Digest,
     client::{
-        common::{RawPdu, io_with_timeout},
+        common::{RawPdu, io_with_timeout, is_timeout_error},
         pdu_connection::FromBytes,
     },
     models::{
-        common::{BasicHeaderSegment, HEADER_LEN, InitiatorTaskTag, SendingData},
+        common::{BasicHeaderSegment, HEADER_LEN, SendingData},
         data_fromat::{PduResponse, ZeroCopyType},
         nop::response::NopInResponse,
         parse::Pdu,
     },
-    state_machine::nop_states::NopCtx,
 };
 
 impl ClientConnection {
@@ -29,8 +28,8 @@ impl ClientConnection {
         &self,
         initiator_task_tag: u32,
     ) -> Result<(PduResponse<T>, Bytes)> {
-        let itt = InitiatorTaskTag::new(initiator_task_tag)?;
-        let mut receiver = self.pending.take_receiver(itt)?;
+        self.ensure_healthy()?;
+        let mut receiver = self.pending.take_receiver(initiator_task_tag)?;
 
         let RawPdu {
             mut header,
@@ -49,7 +48,7 @@ impl ClientConnection {
             pdu_header.get_final_bit()
         );
         if !pdu_header.get_final_bit() {
-            self.pending.restore_receiver(itt, receiver);
+            self.pending.restore_receiver(initiator_task_tag, receiver);
         }
 
         Ok((
@@ -76,12 +75,11 @@ impl ClientConnection {
         loop {
             let (raw_itt, is_final, pdu) = self.read_pdu(&mut scratch).await?;
 
-            if let Ok(itt) = InitiatorTaskTag::new(raw_itt)
-                && self
-                    .pending
-                    .deliver(itt, pdu.clone(), is_final)
-                    .await
-                    .is_ok()
+            if self
+                .pending
+                .deliver(raw_itt, pdu.clone(), is_final)
+                .await
+                .is_ok()
             {
                 continue;
             }
@@ -98,6 +96,7 @@ impl ClientConnection {
     }
 
     async fn read_pdu(&self, scratch: &mut BytesMut) -> Result<(u32, bool, RawPdu)> {
+        self.ensure_healthy()?;
         scratch.clear();
         scratch.resize(HEADER_LEN, 0);
 
@@ -108,7 +107,13 @@ impl ClientConnection {
             self.cfg.runtime.timeout_connection,
             &self.cancel,
         )
-        .await?;
+        .await
+        .map_err(|error| {
+            if is_timeout_error(&error) {
+                self.poison(format!("read header timeout: {error}"));
+            }
+            error
+        })?;
 
         let header = Pdu::from_bhs_bytes(&mut scratch[..HEADER_LEN])?;
         debug!("RECV BHS: {header:?}");
@@ -134,7 +139,13 @@ impl ClientConnection {
                 self.cfg.runtime.timeout_connection,
                 &self.cancel,
             )
-            .await?;
+            .await
+            .map_err(|error| {
+                if is_timeout_error(&error) {
+                    self.poison(format!("read payload timeout: {error}"));
+                }
+                error
+            })?;
         }
         drop(reader);
 
@@ -166,7 +177,7 @@ impl ClientConnection {
                     return false;
                 },
             };
-            header.target_task_tag.get()
+            header.target_task_tag
         };
 
         if let Err(error) = pdu.parse_with_buff(&payload) {
@@ -190,14 +201,7 @@ impl ClientConnection {
 
         tokio::spawn(async move {
             let result = pool
-                .execute_with(
-                    session_ref.tsih,
-                    session_ref.cid,
-                    |conn, itt, cmd_sn, exp_stat_sn| {
-                        NopCtx::for_reply(conn, itt, cmd_sn, exp_stat_sn, pdu)
-                            .expect("failed to build NopCtx::for_reply")
-                    },
-                )
+                .execute_nop_reply(session_ref.tsih, session_ref.cid, pdu)
                 .await;
             if let Err(error) = result {
                 warn!("NOP-In auto-reply failed: {error}");

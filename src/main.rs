@@ -242,7 +242,15 @@ async fn main() -> Result<()> {
                             0,
                             0,
                         );
-                        WriteCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, cdb, payload)
+                        WriteCtx::new(
+                            c,
+                            lun,
+                            itt,
+                            cmd_sn,
+                            exp_stat_sn,
+                            cdb,
+                            payload.clone(),
+                        )
                     })
                     .await
                     .with_context(|| {
