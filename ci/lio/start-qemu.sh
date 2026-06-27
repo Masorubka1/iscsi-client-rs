@@ -42,8 +42,12 @@ qemu-system-x86_64 \
   -pidfile "${PID_FILE}"
 
 for _ in $(seq 1 360); do
-  if nc -z 127.0.0.1 "${HOST_PORT}"; then
-    sleep 2
+  if grep -q "LIO_READY" "${QEMU_LOG}"; then
+    if ! nc -z 127.0.0.1 "${HOST_PORT}"; then
+      cat "${QEMU_LOG}"
+      echo "cloud-init completed, but LIO is not accepting connections" >&2
+      exit 1
+    fi
     echo "LIO is accepting connections on 127.0.0.1:${HOST_PORT}"
     exit 0
   fi

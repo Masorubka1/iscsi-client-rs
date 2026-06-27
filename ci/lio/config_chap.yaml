@@ -7,8 +7,8 @@ login:
     IsX86: No
   auth:
     AuthMethod: CHAP
-    Username: testuser
-    Secret: secretpass
+    username: testuser
+    secret: secretpass
 
   integrity:
     HeaderDigest: None
