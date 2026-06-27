@@ -7,11 +7,16 @@
 
 use anyhow::Result;
 use enum_dispatch::enum_dispatch;
+use zerocopy::{BigEndian, U32, U64};
 
 use crate::models::opcode::BhsOpcode;
 
 /// The fixed length of the Basic Header Segment (BHS) in bytes.
 pub const HEADER_LEN: usize = 48;
+
+pub type InitiatorTaskTag = U32<BigEndian>;
+pub type TargetTaskTag = U32<BigEndian>;
+pub type LogicalUnitNumber = U64<BigEndian>;
 
 /// Common helper-trait for PDUs that may be fragmented into several
 /// wire-frames (RFC 7143 ― “F”/“C” bits).

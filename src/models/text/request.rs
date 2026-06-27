@@ -6,13 +6,16 @@
 
 use anyhow::{Result, bail};
 use zerocopy::{
-    BigEndian, FromBytes as ZFromBytes, Immutable, IntoBytes, KnownLayout, U32, U64,
+    BigEndian, FromBytes as ZFromBytes, Immutable, IntoBytes, KnownLayout, U32,
 };
 
 use crate::{
     client::pdu_connection::FromBytes,
     models::{
-        common::{BasicHeaderSegment, HEADER_LEN, SendingData},
+        common::{
+            BasicHeaderSegment, HEADER_LEN, InitiatorTaskTag, LogicalUnitNumber,
+            SendingData, TargetTaskTag,
+        },
         data_fromat::ZeroCopyType,
         opcode::{BhsOpcode, Opcode, RawBhsOpcode},
         text::common::RawStageFlags,
@@ -27,14 +30,14 @@ pub struct TextRequest {
                                * `Opcode::TextReq`). */
     pub flags: RawStageFlags, /* Byte 1: stage flags (F/C); interpretation is Text-PDU
                                * specific. */
-    reserved1: [u8; 2],                     // Byte 2..5
-    pub total_ahs_length: u8,               // Bytes 5..8
-    pub data_segment_length: [u8; 3],       // Bytes 8..16
-    pub lun: U64<BigEndian>,                // Bytes 16..20
-    pub initiator_task_tag: U32<BigEndian>, // Bytes 20..24
-    pub target_task_tag: U32<BigEndian>,    // Bytes 24..28
-    pub cmd_sn: U32<BigEndian>,             // Bytes 28..32
-    pub exp_stat_sn: U32<BigEndian>,        // Bytes 32..36
+    reserved1: [u8; 2],                       // Byte 2..5
+    pub total_ahs_length: u8,                 // Bytes 5..8
+    pub data_segment_length: [u8; 3],         // Bytes 8..16
+    pub lun: LogicalUnitNumber,               // Bytes 16..20
+    pub initiator_task_tag: InitiatorTaskTag, // Bytes 20..24
+    pub target_task_tag: TargetTaskTag,       // Bytes 24..28
+    pub cmd_sn: U32<BigEndian>,               // Bytes 28..32
+    pub exp_stat_sn: U32<BigEndian>,          // Bytes 32..36
     reserved2: [u8; 16],
 }
 

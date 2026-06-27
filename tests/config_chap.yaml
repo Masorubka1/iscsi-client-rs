@@ -36,4 +36,4 @@ login:
     TargetPortalGroupTag: 1
 runtime:
   MaxSessions: 1
-  TimeoutConnection: 7
+  TimeoutConnection: 2

@@ -6,7 +6,9 @@ login:
     TargetName: iqn.2025-08.example:disk0
     IsX86: No
   auth:
-    AuthMethod: None
+    AuthMethod: CHAP
+    username: testuser
+    secret: secretpass
   integrity:
     HeaderDigest: None
     DataDigest: None
@@ -30,7 +32,7 @@ login:
     MaxConnections: 1
   extensions: {}
   transport:
-    TargetAddress: 127.0.0.1:3260
+    TargetAddress: 127.0.0.1:3262
     TargetPortalGroupTag: 1
 runtime:
   MaxSessions: 1

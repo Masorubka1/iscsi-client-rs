@@ -96,6 +96,22 @@ pub struct PDUWithData<T, Body = Bytes> {
     _marker: PhantomData<T>,
 }
 
+impl<T, Body: Clone> Clone for PDUWithData<T, Body> {
+    fn clone(&self) -> Self {
+        Self {
+            header_buf: self.header_buf,
+            payload: self.payload.clone(),
+            enable_header_digest: self.enable_header_digest,
+            enable_data_digest: self.enable_data_digest,
+            allocated_header_diggest: self.allocated_header_diggest,
+            header_digest: self.header_digest,
+            data_digest: self.data_digest,
+            is_x86: self.is_x86,
+            _marker: PhantomData,
+        }
+    }
+}
+
 impl<T> Builder for PDUWithData<T, BytesMut>
 where T: BasicHeaderSegment + SendingData + FromBytes + ZeroCopyType
 {

@@ -27,6 +27,13 @@ tgtadm --lld iscsi --op new    --mode logicalunit --tid 1 --lun "${TGT_LUN:-1}" 
        --device-type disk
 tgtadm --lld iscsi --op bind   --mode target      --tid 1 --initiator-address ALL
 
+# --- Header/Data digests (optional) ---
+if [ "${TGT_DIGEST:-}" = "CRC32C" ]; then
+  echo "🔐 enabling HeaderDigest/DataDigest CRC32C"
+  tgtadm --lld iscsi --op update --mode target --tid 1 --name HeaderDigest --value CRC32C
+  tgtadm --lld iscsi --op update --mode target --tid 1 --name DataDigest --value CRC32C
+fi
+
 # --- CHAP auth (optional) ---
 # If TGT_CHAP_USER/TGT_CHAP_PASS are set, require initiators to login via CHAP.
 if [ -n "${TGT_CHAP_USER}" ] && [ -n "${TGT_CHAP_PASS}" ]; then

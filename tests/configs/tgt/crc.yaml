@@ -8,8 +8,8 @@ login:
   auth:
     AuthMethod: None
   integrity:
-    HeaderDigest: None
-    DataDigest: None
+    HeaderDigest: CRC32C
+    DataDigest: CRC32C
   flow:
     MaxRecvDataSegmentLength: 262144
     MaxBurstLength: 262144
@@ -30,7 +30,7 @@ login:
     MaxConnections: 1
   extensions: {}
   transport:
-    TargetAddress: 127.0.0.1:3260
+    TargetAddress: 127.0.0.1:3263
     TargetPortalGroupTag: 1
 runtime:
   MaxSessions: 1

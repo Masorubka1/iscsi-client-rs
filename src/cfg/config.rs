@@ -215,7 +215,7 @@ pub struct RuntimeConfig {
     pub max_sessions: u32,
 
     #[serde(rename = "TimeoutConnection", with = "serde_secs")]
-    /// Timeout for establishing the TCP connection.
+    /// Timeout for TCP connect and per-I/O read/write operations.
     pub timeout_connection: Duration,
 }
 

@@ -8,6 +8,11 @@ on:
   pull_request:
     branches: [main]
 
+env:
+  CARGO_HTTP_MULTIPLEXING: false
+  CARGO_HTTP_TIMEOUT: 120
+  CARGO_NET_RETRY: 10
+
 jobs:
   lint:
     name: Lint (clippy + rustfmt)
@@ -21,11 +26,31 @@ jobs:
           toolchain: nightly
           components: clippy, rustfmt
 
+      - &cache-cargo
+        name: Cache Cargo registry
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+
+      - &fetch-cargo
+        name: Fetch Cargo dependencies
+        run: |
+          for attempt in 1 2 3 4 5; do
+            cargo fetch --locked && exit 0
+            if [ "$attempt" -eq 5 ]; then
+              exit 1
+            fi
+            sleep $((attempt * 5))
+          done
+
       - name: rustfmt check
         run: cargo +nightly fmt -- --check
 
       - name: clippy check
-        run: cargo clippy --tests --examples --benches --no-deps --all-targets -- -D warnings
+        run: cargo clippy --offline --tests --examples --benches --no-deps --all-targets -- -D warnings
 
   test:
     name: Run tests
@@ -38,13 +63,128 @@ jobs:
         with:
           toolchain: nightly
 
+      - *cache-cargo
+      - *fetch-cargo
+
       - name: Run tests
-        run: cargo test --tests unit --no-fail-fast --verbose
+        run: cargo test --offline --tests unit --no-fail-fast --verbose
+
+  test-tgt:
+    name: Integration tests (TGT/${{ matrix.mode }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - mode: plain
+            config: tests/configs/tgt/plain.yaml
+            service: iscsi-target-plain
+          - mode: chap
+            config: tests/configs/tgt/chap.yaml
+            service: iscsi-target-chap
+          - mode: crc
+            config: tests/configs/tgt/crc.yaml
+            service: iscsi-target-crc
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+
+      - *cache-cargo
+      - *fetch-cargo
+
+      - name: Start TGT
+        run: docker compose --profile tgt up -d --build --wait --wait-timeout 60 ${{ matrix.service }}
+
+      - name: Run integration tests
+        env:
+          TEST_CONFIG: ${{ matrix.config }}
+        run: cargo test --offline --test integration -- --nocapture --test-threads=1
+
+      - name: Show TGT logs
+        if: failure()
+        run: docker compose --profile tgt logs --no-color ${{ matrix.service }}
+
+      - name: Stop TGT
+        if: always()
+        run: docker compose --profile tgt down -v
+
+  test-lio:
+    name: Integration tests (LIO/${{ matrix.mode }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - mode: plain
+            config: tests/configs/lio/plain.yaml
+            host_port: 3261
+          - mode: chap
+            config: tests/configs/lio/chap.yaml
+            host_port: 3262
+          - mode: crc
+            config: tests/configs/lio/crc.yaml
+            host_port: 3263
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+
+      - *cache-cargo
+      - *fetch-cargo
+
+      - name: Install QEMU and cloud-init tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 qemu-utils cloud-image-utils netcat-openbsd
+          test -e /dev/kvm
+          sudo chmod 666 /dev/kvm
+
+      - name: Cache Ubuntu cloud image
+        id: cache-cloud-image
+        uses: actions/cache@v5
+        with:
+          path: ${{ runner.temp }}/ubuntu-24.04-server-cloudimg-amd64.img
+          key: ubuntu-24.04-server-cloudimg-amd64-20260627
+
+      - name: Download Ubuntu cloud image
+        if: steps.cache-cloud-image.outputs.cache-hit != 'true'
+        run: |
+          curl --fail --location --retry 3 \
+            https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img \
+            --output "${RUNNER_TEMP}/ubuntu-24.04-server-cloudimg-amd64.img"
+
+      - name: Start LIO VM
+        timeout-minutes: 10
+        env:
+          LIO_QEMU_ACCEL: kvm
+        run: |
+          bash ci/lio/start-qemu.sh \
+            "${RUNNER_TEMP}/ubuntu-24.04-server-cloudimg-amd64.img" \
+            "${{ matrix.mode }}" \
+            "${{ matrix.host_port }}"
+
+      - name: Run integration tests
+        env:
+          TEST_CONFIG: ${{ matrix.config }}
+        run: cargo test --offline --test integration -- --nocapture --test-threads=1
+
+      - name: Stop LIO VM
+        if: always()
+        run: bash ci/lio/stop-qemu.sh
 
   publish:
     name: Publish to crates.io
     runs-on: ubuntu-latest
-    needs: [lint, test]
+    needs: [lint, test, test-tgt, test-lio]
     if: startsWith(github.ref, 'refs/tags/')
     steps:
       - uses: actions/checkout@v7

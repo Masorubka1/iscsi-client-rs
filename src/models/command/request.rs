@@ -7,14 +7,17 @@
 
 use anyhow::{Result, anyhow, bail};
 use zerocopy::{
-    BigEndian, FromBytes as ZFromBytes, Immutable, IntoBytes, KnownLayout, U32, U64,
+    BigEndian, FromBytes as ZFromBytes, Immutable, IntoBytes, KnownLayout, U32,
 };
 
 use crate::{
     client::pdu_connection::FromBytes,
     models::{
         command::{common::TaskAttribute, zero_copy::RawScsiCmdReqFlags},
-        common::{BasicHeaderSegment, HEADER_LEN, SendingData},
+        common::{
+            BasicHeaderSegment, HEADER_LEN, InitiatorTaskTag, LogicalUnitNumber,
+            SendingData,
+        },
         data_fromat::ZeroCopyType,
         opcode::{BhsOpcode, Opcode, RawBhsOpcode},
     },
@@ -39,9 +42,9 @@ pub struct ScsiCommandRequest {
     /// Data Segment Length (bytes 5-7) - length of immediate data
     pub data_segment_length: [u8; 3],
     /// Logical Unit Number (bytes 8-15)
-    pub lun: U64<BigEndian>,
+    pub lun: LogicalUnitNumber,
     /// Initiator Task Tag (bytes 16-19) - unique command identifier
-    pub initiator_task_tag: U32<BigEndian>,
+    pub initiator_task_tag: InitiatorTaskTag,
     /// Expected Data Transfer Length (bytes 20-23) - total data expected
     pub expected_data_transfer_length: U32<BigEndian>,
     /// Command Sequence Number (bytes 24-27) - for ordering

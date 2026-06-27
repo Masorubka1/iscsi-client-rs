@@ -3,6 +3,10 @@
 
 We welcome contributions! To enable a future dual‑licensing path while keeping the repo AGPL‑only today, we require:
 
+Commit subjects must follow the Conventional Commits format, for example
+`feat(client): add transport abstraction`. Release notes are generated from
+these subjects with `git-cliff`; use `just release-notes-preview` to inspect
+the pending release notes.
 
 1. **DCO sign‑off** on every commit:
 Add a line to each commit message:

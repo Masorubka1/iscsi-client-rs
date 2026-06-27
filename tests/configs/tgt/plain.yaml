@@ -3,47 +3,35 @@ login:
     SessionType: Normal
     InitiatorName: iqn.2004-10.com.ubuntu:01:c676ed18968f
     InitiatorAlias: ubuntu
-    TargetName: iqn.2024-01.com.example:disk0
+    TargetName: iqn.2025-08.example:disk0
     IsX86: No
   auth:
     AuthMethod: None
-
   integrity:
     HeaderDigest: None
     DataDigest: None
-
   flow:
-    MaxRecvDataSegmentLength: 524288
-    MaxBurstLength: 16776192
-    FirstBurstLength: 262144
-
+    MaxRecvDataSegmentLength: 262144
+    MaxBurstLength: 262144
+    FirstBurstLength: 65536
   write_flow:
-    InitialR2T: No
-    ImmediateData: Yes
-    MaxOutstandingR2T: 32
-
+    InitialR2T: Yes
+    ImmediateData: No
+    MaxOutstandingR2T: 1
   ordering:
     DataPDUInOrder: Yes
     DataSequenceInOrder: Yes
-
   recovery:
     ErrorRecoveryLevel: 0
-
   timers:
     DefaultTime2Wait: 2
     DefaultTime2Retain: 0
-
   limits:
-    MaxConnections: 2
-
-  extensions:
-    IFMarker: "No"
-    OFMarker: "No"
-
+    MaxConnections: 1
+  extensions: {}
   transport:
-    TargetAddress: 127.0.0.1:3261
+    TargetAddress: 127.0.0.1:3260
     TargetPortalGroupTag: 1
-
 runtime:
-  MaxSessions: 2
-  TimeoutConnection: 20
+  MaxSessions: 1
+  TimeoutConnection: 2

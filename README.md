@@ -1,6 +1,6 @@
 [![crates.io](https://img.shields.io/crates/v/iscsi-client-rs.svg)](https://crates.io/crates/iscsi-client-rs)
 [![docs.rs](https://docs.rs/iscsi-client-rs/badge.svg)](https://docs.rs/iscsi-client-rs)
-[![license](https://img.shields.io/crates/l/iscsi-client-rs.svg)](LICENSE)
+[![license](https://img.shields.io/crates/l/iscsi-client-rs.svg)](./LICENSE-AGPL-3.0.md)
 
 # iscsi-client-rs
 

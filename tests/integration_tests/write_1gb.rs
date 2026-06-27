@@ -196,7 +196,15 @@ async fn write10_read10_1_gib_plain_pool_multi_tsih_mcs() -> Result<()> {
                     .execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
                         let mut cdb = [0u8; 16];
                         build_write10(&mut cdb, start_lba_u32, blk_this as u16, 0, 0);
-                        WriteCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, cdb, payload)
+                        WriteCtx::new(
+                            c,
+                            lun,
+                            itt,
+                            cmd_sn,
+                            exp_stat_sn,
+                            cdb,
+                            payload.clone(),
+                        )
                     })
                     .await
                     .with_context(|| {

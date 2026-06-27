@@ -6,13 +6,16 @@
 
 use anyhow::{Result, bail};
 use zerocopy::{
-    BigEndian, FromBytes as ZFromBytes, Immutable, IntoBytes, KnownLayout, U32, U64,
+    BigEndian, FromBytes as ZFromBytes, Immutable, IntoBytes, KnownLayout, U32,
 };
 
 use crate::{
     client::pdu_connection::FromBytes,
     models::{
-        common::{BasicHeaderSegment, HEADER_LEN, SendingData},
+        common::{
+            BasicHeaderSegment, HEADER_LEN, InitiatorTaskTag, LogicalUnitNumber,
+            SendingData,
+        },
         data::common::RawDataOutFlags,
         data_fromat::ZeroCopyType,
         opcode::{BhsOpcode, Opcode, RawBhsOpcode},
@@ -23,19 +26,19 @@ use crate::{
 #[repr(C)]
 #[derive(Debug, Default, PartialEq, ZFromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct ScsiDataOut {
-    pub opcode: RawBhsOpcode,                // 0 (0x26)
-    pub flags: RawDataOutFlags,              // 1 (F, rest 0)
-    pub reserved2: [u8; 2],                  // 2..4
-    pub total_ahs_length: u8,                // 4
-    pub data_segment_length: [u8; 3],        // 5..8
-    pub lun: U64<BigEndian>,                 // 8..16
-    pub initiator_task_tag: U32<BigEndian>,  // 16..20
-    pub target_transfer_tag: U32<BigEndian>, // 20..23
-    pub exp_stat_sn: U32<BigEndian>,         // 24..28
-    pub reserved3: [u8; 8],                  // 28..36
-    pub data_sn: U32<BigEndian>,             // 36..40
-    pub buffer_offset: U32<BigEndian>,       // 40..44
-    pub reserved4: u32,                      // 44..48
+    pub opcode: RawBhsOpcode,                 // 0 (0x26)
+    pub flags: RawDataOutFlags,               // 1 (F, rest 0)
+    pub reserved2: [u8; 2],                   // 2..4
+    pub total_ahs_length: u8,                 // 4
+    pub data_segment_length: [u8; 3],         // 5..8
+    pub lun: LogicalUnitNumber,               // 8..16
+    pub initiator_task_tag: InitiatorTaskTag, // 16..20
+    pub target_transfer_tag: U32<BigEndian>,  // 20..23
+    pub exp_stat_sn: U32<BigEndian>,          // 24..28
+    pub reserved3: [u8; 8],                   // 28..36
+    pub data_sn: U32<BigEndian>,              // 36..40
+    pub buffer_offset: U32<BigEndian>,        // 40..44
+    pub reserved4: u32,                       // 44..48
 }
 
 impl ScsiDataOut {
