@@ -8,6 +8,8 @@ use bytes::Bytes;
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 
+use crate::models::common::HEADER_LEN;
+
 pub(super) async fn io_with_timeout<F, T>(
     label: &'static str,
     fut: F,
@@ -41,7 +43,7 @@ pub struct RawPdu {
     ///
     /// Contains the fundamental PDU information including opcode, flags,
     /// lengths, sequence numbers, and other protocol-specific fields.
-    pub header: Bytes,
+    pub header: [u8; HEADER_LEN],
     /// Variable-length payload section
     ///
     /// May contain Additional Header Segments (AHS), padding, Header Digest

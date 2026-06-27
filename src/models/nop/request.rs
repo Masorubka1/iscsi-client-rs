@@ -7,13 +7,16 @@
 use anyhow::{Result, bail};
 use tracing::{debug, warn};
 use zerocopy::{
-    BigEndian, FromBytes as ZFromBytes, Immutable, IntoBytes, KnownLayout, U32, U64,
+    BigEndian, FromBytes as ZFromBytes, Immutable, IntoBytes, KnownLayout, U32,
 };
 
 use crate::{
     client::pdu_connection::FromBytes,
     models::{
-        common::{BasicHeaderSegment, HEADER_LEN, SendingData},
+        common::{
+            BasicHeaderSegment, HEADER_LEN, InitiatorTaskTag, LogicalUnitNumber,
+            SendingData, TargetTaskTag,
+        },
         data_fromat::ZeroCopyType,
         opcode::{BhsOpcode, Opcode, RawBhsOpcode},
     },
@@ -23,16 +26,16 @@ use crate::{
 #[repr(C)]
 #[derive(Debug, Default, PartialEq, ZFromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct NopOutRequest {
-    pub opcode: RawBhsOpcode,               // 0
-    reserved1: [u8; 3],                     // 1..4
-    pub total_ahs_length: u8,               // 4
-    pub data_segment_length: [u8; 3],       // 5..8
-    pub lun: U64<BigEndian>,                // 8..16
-    pub initiator_task_tag: U32<BigEndian>, // 16..20
-    pub target_task_tag: U32<BigEndian>,    // 20..24
-    pub cmd_sn: U32<BigEndian>,             // 24..28
-    pub exp_stat_sn: U32<BigEndian>,        // 28..32
-    reserved2: [u8; 16],                    // 32..48
+    pub opcode: RawBhsOpcode,                 // 0
+    reserved1: [u8; 3],                       // 1..4
+    pub total_ahs_length: u8,                 // 4
+    pub data_segment_length: [u8; 3],         // 5..8
+    pub lun: LogicalUnitNumber,               // 8..16
+    pub initiator_task_tag: InitiatorTaskTag, // 16..20
+    pub target_task_tag: TargetTaskTag,       // 20..24
+    pub cmd_sn: U32<BigEndian>,               // 24..28
+    pub exp_stat_sn: U32<BigEndian>,          // 28..32
+    reserved2: [u8; 16],                      // 32..48
 }
 
 impl NopOutRequest {
@@ -143,13 +146,17 @@ impl NopOutRequestBuilder {
 
     /// Sets the initiator task tag, a unique identifier for this command.
     pub fn initiator_task_tag(mut self, tag: u32) -> Self {
-        self.header.initiator_task_tag.set(tag);
+        self.header.initiator_task_tag = if tag == u32::MAX {
+            InitiatorTaskTag::RESERVED
+        } else {
+            InitiatorTaskTag::new(tag).expect("valid ITT")
+        };
         self
     }
 
     /// Sets the target task tag, used to match a response to a NOP-In.
     pub fn target_task_tag(mut self, tag: u32) -> Self {
-        self.header.target_task_tag.set(tag);
+        self.header.target_task_tag = tag.into();
         self
     }
 
@@ -167,7 +174,7 @@ impl NopOutRequestBuilder {
 
     /// Sets the Logical Unit Number (LUN) for the command.
     pub fn lun(mut self, lun: u64) -> Self {
-        self.header.lun.set(lun);
+        self.header.lun = lun.into();
         self
     }
 }

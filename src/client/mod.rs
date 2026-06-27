@@ -10,5 +10,6 @@ pub mod client;
 pub mod common;
 /// Traits for handling PDU serialization and deserialization.
 pub mod pdu_connection;
+mod pending_requests;
 /// Manages a pool of iSCSI sessions.
 pub mod pool_sessions;

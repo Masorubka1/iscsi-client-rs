@@ -1,0 +1,33 @@
+#cloud-config
+package_update: true
+packages:
+  - targetcli-fb
+
+write_files:
+  - path: /usr/local/sbin/setup-lio
+    permissions: "0755"
+    content: |
+      #!/bin/sh
+      set -eux
+
+      apt-get install -y "linux-modules-extra-$(uname -r)"
+      modprobe target_core_mod
+      modprobe iscsi_target_mod
+      mkdir -p /var/lib/lio
+      truncate -s 2G /var/lib/lio/backing.img
+
+      targetcli /backstores/fileio create name=backing file_or_dev=/var/lib/lio/backing.img
+      targetcli /iscsi create iqn.2025-08.example:disk0
+      targetcli /iscsi/iqn.2025-08.example:disk0/tpg1/portals create 0.0.0.0 3260 || true
+      targetcli /iscsi/iqn.2025-08.example:disk0/tpg1/luns create /backstores/fileio/backing lun=1
+      targetcli /iscsi/iqn.2025-08.example:disk0/tpg1 set attribute authentication=0
+      targetcli /iscsi/iqn.2025-08.example:disk0/tpg1 set attribute generate_node_acls=1
+      targetcli /iscsi/iqn.2025-08.example:disk0/tpg1 set attribute demo_mode_write_protect=0
+      targetcli /iscsi/iqn.2025-08.example:disk0/tpg1 set parameter MaxConnections=2
+      targetcli saveconfig
+
+runcmd:
+  - /usr/local/sbin/setup-lio
+  - touch /run/lio-ready
+
+final_message: "LIO_READY"

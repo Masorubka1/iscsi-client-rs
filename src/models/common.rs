@@ -5,13 +5,159 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
+use std::fmt;
+
 use anyhow::Result;
 use enum_dispatch::enum_dispatch;
+use thiserror::Error;
+use zerocopy::{BigEndian, FromBytes, Immutable, IntoBytes, KnownLayout, U32, U64};
 
 use crate::models::opcode::BhsOpcode;
 
 /// The fixed length of the Basic Header Segment (BHS) in bytes.
 pub const HEADER_LEN: usize = 48;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[error("initiator task tag 0xffffffff is reserved")]
+pub struct InvalidInitiatorTaskTag;
+
+/// Initiator Task Tag stored in iSCSI network byte order.
+#[repr(transparent)]
+#[derive(
+    Debug,
+    Default,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    FromBytes,
+    IntoBytes,
+    KnownLayout,
+    Immutable,
+)]
+pub struct InitiatorTaskTag(U32<BigEndian>);
+
+impl InitiatorTaskTag {
+    pub(crate) const RESERVED: Self = Self(U32::new(u32::MAX));
+
+    pub fn new(value: u32) -> Result<Self> {
+        if value == u32::MAX {
+            return Err(InvalidInitiatorTaskTag.into());
+        }
+        Ok(Self(U32::new(value)))
+    }
+
+    pub fn get(self) -> u32 {
+        self.0.get()
+    }
+}
+
+impl TryFrom<u32> for InitiatorTaskTag {
+    type Error = anyhow::Error;
+
+    fn try_from(value: u32) -> Result<Self> {
+        Self::new(value)
+    }
+}
+
+impl From<InitiatorTaskTag> for u32 {
+    fn from(value: InitiatorTaskTag) -> Self {
+        value.get()
+    }
+}
+
+impl fmt::Display for InitiatorTaskTag {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.get().fmt(formatter)
+    }
+}
+
+/// Target Task Tag stored in iSCSI network byte order.
+#[repr(transparent)]
+#[derive(
+    Debug,
+    Default,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    FromBytes,
+    IntoBytes,
+    KnownLayout,
+    Immutable,
+)]
+pub struct TargetTaskTag(U32<BigEndian>);
+
+impl TargetTaskTag {
+    pub const RESERVED: Self = Self(U32::new(u32::MAX));
+
+    pub fn new(value: u32) -> Self {
+        Self(U32::new(value))
+    }
+
+    pub fn get(self) -> u32 {
+        self.0.get()
+    }
+}
+
+impl From<u32> for TargetTaskTag {
+    fn from(value: u32) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<TargetTaskTag> for u32 {
+    fn from(value: TargetTaskTag) -> Self {
+        value.get()
+    }
+}
+
+impl fmt::Display for TargetTaskTag {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.get().fmt(formatter)
+    }
+}
+
+/// Logical Unit Number stored in iSCSI network byte order.
+#[repr(transparent)]
+#[derive(
+    Debug,
+    Default,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    FromBytes,
+    IntoBytes,
+    KnownLayout,
+    Immutable,
+)]
+pub struct LogicalUnitNumber(U64<BigEndian>);
+
+impl LogicalUnitNumber {
+    pub fn new(value: u64) -> Self {
+        Self(U64::new(value))
+    }
+
+    pub fn get(self) -> u64 {
+        self.0.get()
+    }
+}
+
+impl From<u64> for LogicalUnitNumber {
+    fn from(value: u64) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<LogicalUnitNumber> for u64 {
+    fn from(value: LogicalUnitNumber) -> Self {
+        value.get()
+    }
+}
 
 /// Common helper-trait for PDUs that may be fragmented into several
 /// wire-frames (RFC 7143 ― “F”/“C” bits).
@@ -212,4 +358,37 @@ pub trait Builder: Sized {
         &mut self,
         max_recv_data_segment_length: usize,
     ) -> Result<(Self::Header, Self::Body)>;
+}
+
+#[cfg(test)]
+mod wire_type_tests {
+    use zerocopy::IntoBytes;
+
+    use super::{InitiatorTaskTag, LogicalUnitNumber, TargetTaskTag};
+
+    #[test]
+    fn task_tag_is_big_endian_and_rejects_reserved_value() {
+        let tag = InitiatorTaskTag::new(0x0102_0304).expect("valid ITT");
+
+        assert_eq!(tag.as_bytes(), &[0x01, 0x02, 0x03, 0x04]);
+        assert!(InitiatorTaskTag::new(u32::MAX).is_err());
+    }
+
+    #[test]
+    fn lun_is_big_endian() {
+        let lun = LogicalUnitNumber::new(0x0102_0304_0506_0708);
+
+        assert_eq!(
+            lun.as_bytes(),
+            &[0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]
+        );
+    }
+
+    #[test]
+    fn target_task_tag_is_big_endian_and_allows_reserved_value() {
+        let tag = TargetTaskTag::new(0x0102_0304);
+
+        assert_eq!(tag.as_bytes(), &[0x01, 0x02, 0x03, 0x04]);
+        assert_eq!(TargetTaskTag::RESERVED.get(), u32::MAX);
+    }
 }

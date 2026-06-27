@@ -62,7 +62,7 @@ async fn main() -> Result<()> {
 
     // Load config
     let cfg: Arc<Config> = Arc::new(
-        resolve_config_path("docker/lio/config.lio.yaml")
+        resolve_config_path("ci/lio/config.yaml")
             .and_then(Config::load_from_file)
             .context("failed to resolve or load config")?,
     );

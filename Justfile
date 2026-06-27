@@ -3,6 +3,7 @@ import "just/vars.just"
 import "just/util.just"
 import "just/docker.just"
 import "just/tests.just"
+import "just/release.just"
 import "just/mapper.just"
 import "just/cleanup.just"
 
