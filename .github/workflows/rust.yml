@@ -91,11 +91,14 @@ jobs:
       matrix:
         include:
           - mode: plain
-            config: tests/config.yaml
+            config: ci/lio/config_plain.yaml
+            host_port: 3261
           - mode: chap
-            config: tests/config_chap.yaml
+            config: ci/lio/config_chap.yaml
+            host_port: 3262
           - mode: crc
-            config: tests/config_crc.yaml
+            config: ci/lio/config_crc.yaml
+            host_port: 3263
     steps:
       - uses: actions/checkout@v7
 
@@ -127,16 +130,12 @@ jobs:
         run: |
           bash ci/lio/start-qemu.sh \
             "${RUNNER_TEMP}/ubuntu-24.04-server-cloudimg-amd64.img" \
-            "${{ matrix.mode }}"
-
-      - name: Prepare LIO client config
-        run: |
-          sed 's/127\.0\.0\.1:3260/127.0.0.1:3261/' \
-            "${{ matrix.config }}" > "${RUNNER_TEMP}/lio-config.yaml"
+            "${{ matrix.mode }}" \
+            "${{ matrix.host_port }}"
 
       - name: Run integration tests
         env:
-          TEST_CONFIG: ${{ runner.temp }}/lio-config.yaml
+          TEST_CONFIG: ${{ matrix.config }}
         run: cargo test --test integration -- --nocapture --test-threads=1
 
       - name: Stop LIO VM

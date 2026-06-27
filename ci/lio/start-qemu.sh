@@ -3,6 +3,7 @@ set -euo pipefail
 
 readonly BASE_IMAGE="${1:?usage: start-qemu.sh BASE_IMAGE}"
 readonly TEST_MODE="${2:-plain}"
+readonly HOST_PORT="${3:-3261}"
 readonly WORK_DIR="${RUNNER_TEMP:-/tmp}/iscsi-lio-qemu"
 readonly VM_IMAGE="${WORK_DIR}/lio.qcow2"
 readonly SEED_IMAGE="${WORK_DIR}/seed.img"
@@ -34,16 +35,16 @@ qemu-system-x86_64 \
   -drive "file=${VM_IMAGE},if=virtio,format=qcow2" \
   -drive "file=${SEED_IMAGE},if=virtio,format=raw" \
   -device virtio-net-pci,netdev=net0 \
-  -netdev user,id=net0,hostfwd=tcp:127.0.0.1:3261-:3260 \
+  -netdev user,id=net0,hostfwd=tcp:127.0.0.1:${HOST_PORT}-:3260 \
   -display none \
   -serial "file:${QEMU_LOG}" \
   -daemonize \
   -pidfile "${PID_FILE}"
 
 for _ in $(seq 1 360); do
-  if nc -z 127.0.0.1 3261; then
+  if nc -z 127.0.0.1 "${HOST_PORT}"; then
     sleep 2
-    echo "LIO is accepting connections on 127.0.0.1:3261"
+    echo "LIO is accepting connections on 127.0.0.1:${HOST_PORT}"
     exit 0
   fi
 
