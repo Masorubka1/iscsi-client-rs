@@ -433,6 +433,11 @@ impl Pool {
                     "logout_session(TSIH={}) failed during shutdown: {}",
                     tsih, e
                 );
+                if let Some((_, s)) = self.sessions.remove(&tsih) {
+                    for cid in s.conns.iter().map(|kv| *kv.key()).collect::<Vec<_>>() {
+                        let _ = s.conns.remove(&cid);
+                    }
+                }
             }
         }
 
@@ -442,6 +447,8 @@ impl Pool {
                 warn!("half_close_writes failed on CID={}: {}", c.cid, e);
             }
         }
+
+        self.sessions.clear();
 
         debug!("Set cancel enable");
         self.cancel.cancel();

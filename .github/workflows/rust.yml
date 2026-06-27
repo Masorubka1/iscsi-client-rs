@@ -55,12 +55,12 @@ jobs:
             chap_pass: ""
             digest: ""
           - mode: chap
-            config: tests/config_chap.yaml
+            config: tests/config_tgt_chap.yaml
             chap_user: testuser
             chap_pass: secretpass
             digest: ""
           - mode: crc
-            config: tests/config_crc.yaml
+            config: tests/config_tgt_crc.yaml
             chap_user: ""
             chap_pass: ""
             digest: CRC32C
