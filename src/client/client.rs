@@ -90,7 +90,6 @@ impl ClientConnection {
     /// Establishes a new TCP connection to the given address.
     pub async fn connect(cfg: Config, cancel: CancellationToken) -> Result<Arc<Self>> {
         let stream = TcpStream::connect(&cfg.login.transport.target_address).await?;
-        stream.set_linger(None)?;
         stream.set_nodelay(true)?;
 
         let (r, w) = stream.into_split();
