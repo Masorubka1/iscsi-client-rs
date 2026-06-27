@@ -50,20 +50,14 @@ jobs:
       matrix:
         include:
           - mode: plain
-            config: tests/config.yaml
-            chap_user: ""
-            chap_pass: ""
-            digest: ""
+            config: tests/config_tgt.yaml
+            service: iscsi-target-plain
           - mode: chap
             config: tests/config_tgt_chap.yaml
-            chap_user: testuser
-            chap_pass: secretpass
-            digest: ""
+            service: iscsi-target-chap
           - mode: crc
             config: tests/config_tgt_crc.yaml
-            chap_user: ""
-            chap_pass: ""
-            digest: CRC32C
+            service: iscsi-target-crc
     steps:
       - uses: actions/checkout@v7
 
@@ -73,11 +67,7 @@ jobs:
           toolchain: stable
 
       - name: Start TGT
-        env:
-          TGT_CHAP_USER: ${{ matrix.chap_user }}
-          TGT_CHAP_PASS: ${{ matrix.chap_pass }}
-          TGT_DIGEST: ${{ matrix.digest }}
-        run: docker compose --profile tgt up -d --build --wait --wait-timeout 60
+        run: docker compose --profile tgt up -d --build --wait --wait-timeout 60 ${{ matrix.service }}
 
       - name: Run integration tests
         env:
@@ -86,7 +76,7 @@ jobs:
 
       - name: Show TGT logs
         if: failure()
-        run: docker compose --profile tgt logs --no-color iscsi-target
+        run: docker compose --profile tgt logs --no-color ${{ matrix.service }}
 
       - name: Stop TGT
         if: always()

@@ -1,31 +1,65 @@
+x-tgt-common: &tgt-common
+  profiles: ["tgt"]
+  build:
+    context: ./docker/tgt
+    dockerfile: Dockerfile
+  restart: unless-stopped
+  healthcheck:
+    test: ["CMD", "test", "-S", "/run/tgtd/socket.0"]
+    interval: 1s
+    timeout: 1s
+    retries: 60
+    start_period: 2s
+  tmpfs:
+    - /run/tgtd
+  labels:
+    com.iscsi.role: "target"
+
 services:
-  # --- Userspace TGT ---
-  iscsi-target:
-    profiles: ["tgt"]
-    build:
-      context: ./docker/tgt
-      dockerfile: Dockerfile
-    container_name: iscsi-target-tgt
+  iscsi-target-plain:
+    <<: *tgt-common
+    container_name: iscsi-target-tgt-plain
     environment:
-      TGT_IQN: ${TGT_IQN:-iqn.2025-08.example:disk0}
-      TGT_SIZE_MB: ${TGT_SIZE_MB:-1050}
-      TGT_LUN: ${TGT_LUN:-1}
-      TGT_PGT: ${TGT_PGT:-1}
-      TGT_CHAP_USER: ${TGT_CHAP_USER:-}
-      TGT_CHAP_PASS: ${TGT_CHAP_PASS:-}
-      TGT_MUTUAL_USER: ${TGT_MUTUAL_USER:-}
-      TGT_MUTUAL_PASS: ${TGT_MUTUAL_PASS:-}
-      TGT_DIGEST: ${TGT_DIGEST:-}
+      TGT_IQN: iqn.2025-08.example:disk0
+      TGT_SIZE_MB: 1050
+      TGT_LUN: 1
+      TGT_PGT: 1
+      TGT_CHAP_USER: ""
+      TGT_CHAP_PASS: ""
+      TGT_MUTUAL_USER: ""
+      TGT_MUTUAL_PASS: ""
+      TGT_DIGEST: ""
     ports:
       - "3260:3260/tcp"
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "test", "-S", "/run/tgtd/socket.0"]
-      interval: 1s
-      timeout: 1s
-      retries: 60
-      start_period: 2s
-    tmpfs:
-      - /run/tgtd
-    labels:
-      com.iscsi.role: "target"
+
+  iscsi-target-chap:
+    <<: *tgt-common
+    container_name: iscsi-target-tgt-chap
+    environment:
+      TGT_IQN: iqn.2025-08.example:disk0
+      TGT_SIZE_MB: 1050
+      TGT_LUN: 1
+      TGT_PGT: 1
+      TGT_CHAP_USER: testuser
+      TGT_CHAP_PASS: secretpass
+      TGT_MUTUAL_USER: ""
+      TGT_MUTUAL_PASS: ""
+      TGT_DIGEST: ""
+    ports:
+      - "3262:3260/tcp"
+
+  iscsi-target-crc:
+    <<: *tgt-common
+    container_name: iscsi-target-tgt-crc
+    environment:
+      TGT_IQN: iqn.2025-08.example:disk0
+      TGT_SIZE_MB: 1050
+      TGT_LUN: 1
+      TGT_PGT: 1
+      TGT_CHAP_USER: ""
+      TGT_CHAP_PASS: ""
+      TGT_MUTUAL_USER: ""
+      TGT_MUTUAL_PASS: ""
+      TGT_DIGEST: CRC32C
+    ports:
+      - "3263:3260/tcp"
