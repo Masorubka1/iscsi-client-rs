@@ -31,7 +31,9 @@ impl ClientConnection {
         &self,
         mut request: impl ToBytes<Header = [u8; HEADER_LEN], Body = Bytes> + fmt::Debug,
     ) -> Result<()> {
-        self.ensure_healthy()?;
+        if self.is_poisoned() {
+            bail!("connection poisoned",);
+        }
         if self.cancel.is_cancelled() {
             bail!("cancelled");
         }
@@ -80,7 +82,9 @@ impl ClientConnection {
         initiator_task_tag: u32,
         request: impl ToBytes<Header = [u8; HEADER_LEN], Body = Bytes> + Debug,
     ) -> Result<()> {
-        self.ensure_healthy()?;
+        if self.is_poisoned() {
+            bail!("connection poisoned");
+        }
         if self.cancel.is_cancelled() {
             bail!("cancelled");
         }

@@ -15,7 +15,7 @@ use tracing::{debug, info, warn};
 use crate::{
     cfg::config::{AuthConfig, Config},
     client::client::ClientConnection,
-    models::logout::common::LogoutReason,
+    models::{data_fromat, logout::common::LogoutReason, nop::response::NopInResponse},
     state_machine::{
         common::StateMachineCtx, login::common::LoginCtx, logout_states::LogoutCtx,
         nop_states::NopCtx,
@@ -478,8 +478,6 @@ impl Pool {
         ) -> Ctx,
         Ctx: StateMachineCtx<Ctx, Res>,
     {
-        let mut last_error = None;
-
         for attempt in 0..=MAX_CONNECTION_RECOVERY_ATTEMPTS {
             let sess = self
                 .sessions
@@ -493,18 +491,12 @@ impl Pool {
                 .clone();
 
             if conn.conn.is_poisoned() {
-                let reason = conn
-                    .conn
-                    .poison_reason()
-                    .unwrap_or_else(|| "unknown poison reason".to_string());
                 warn!(
-                    "TSIH={}, CID={} is poisoned before execute attempt {}: {}",
+                    "TSIH={}, CID={} is poisoned before execute attempt {}",
                     tsih,
                     cid,
                     attempt + 1,
-                    reason
                 );
-                last_error = Some(anyhow::anyhow!("connection poisoned: {reason}"));
             } else {
                 let mut ctx = build(
                     conn.conn.clone(),
@@ -522,7 +514,6 @@ impl Pool {
                             attempt + 1,
                             error
                         );
-                        last_error = Some(error);
                     },
                     Err(error) => return Err(error),
                 }
@@ -530,13 +521,11 @@ impl Pool {
 
             if attempt == MAX_CONNECTION_RECOVERY_ATTEMPTS {
                 self.drop_connection_local(tsih, cid);
-                return Err(last_error.unwrap_or_else(|| {
-                    anyhow::anyhow!(
-                        "connection recovery attempts exhausted for TSIH={}, CID={}",
-                        tsih,
-                        cid
-                    )
-                }));
+                return Err(anyhow::anyhow!(
+                    "connection recovery attempts exhausted for TSIH={}, CID={}",
+                    tsih,
+                    cid
+                ));
             }
 
             match self.recover_connection(tsih, cid, conn.clone()).await {
@@ -554,27 +543,22 @@ impl Pool {
                         attempt + 1,
                         error
                     );
-                    last_error = Some(error);
                 },
             }
         }
 
-        Err(last_error.unwrap_or_else(|| {
-            anyhow::anyhow!(
-                "connection recovery attempts exhausted for TSIH={}, CID={}",
-                tsih,
-                cid
-            )
-        }))
+        Err(anyhow::anyhow!(
+            "connection recovery attempts exhausted for TSIH={}, CID={}",
+            tsih,
+            cid
+        ))
     }
 
     pub(crate) async fn execute_nop_reply(
         &self,
         tsih: u16,
         cid: u16,
-        pdu: crate::models::data_fromat::PduResponse<
-            crate::models::nop::response::NopInResponse,
-        >,
+        pdu: data_fromat::PduResponse<NopInResponse>,
     ) -> Result<()> {
         let sess = self
             .sessions

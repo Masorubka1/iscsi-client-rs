@@ -28,7 +28,9 @@ impl ClientConnection {
         &self,
         initiator_task_tag: u32,
     ) -> Result<(PduResponse<T>, Bytes)> {
-        self.ensure_healthy()?;
+        if self.is_poisoned() {
+            bail!("connection poisoned");
+        }
         let mut receiver = self.pending.take_receiver(initiator_task_tag)?;
 
         let RawPdu {
@@ -97,7 +99,9 @@ impl ClientConnection {
     }
 
     async fn read_pdu(&self, scratch: &mut BytesMut) -> Result<(u32, bool, RawPdu)> {
-        self.ensure_healthy()?;
+        if self.is_poisoned() {
+            bail!("connection poisoned");
+        }
         scratch.clear();
         scratch.resize(HEADER_LEN, 0);
 

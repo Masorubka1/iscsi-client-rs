@@ -111,6 +111,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y qemu-system-x86 qemu-utils cloud-image-utils netcat-openbsd
+          test -e /dev/kvm
+          sudo chmod 666 /dev/kvm
 
       - name: Cache Ubuntu cloud image
         id: cache-cloud-image
@@ -127,6 +129,9 @@ jobs:
             --output "${RUNNER_TEMP}/ubuntu-24.04-server-cloudimg-amd64.img"
 
       - name: Start LIO VM
+        timeout-minutes: 10
+        env:
+          LIO_QEMU_ACCEL: kvm
         run: |
           bash ci/lio/start-qemu.sh \
             "${RUNNER_TEMP}/ubuntu-24.04-server-cloudimg-amd64.img" \

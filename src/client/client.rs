@@ -6,7 +6,7 @@ mod write;
 
 use std::{
     sync::{
-        Arc, Mutex as StdMutex, Weak,
+        Arc, Weak,
         atomic::{AtomicBool, Ordering},
     },
     time::Duration,
@@ -79,7 +79,6 @@ pub struct ClientConnection {
     /// but the read loop keeps draining in-flight responses.
     pub(crate) stop_writes: CancellationToken,
     poisoned: AtomicBool,
-    poison_reason: StdMutex<Option<String>>,
 }
 
 impl ClientConnection {
@@ -137,7 +136,6 @@ impl ClientConnection {
             cancel,
             stop_writes: CancellationToken::new(),
             poisoned: AtomicBool::new(false),
-            poison_reason: StdMutex::new(None),
         })
     }
 
@@ -190,21 +188,9 @@ impl ClientConnection {
         self.poisoned.load(Ordering::SeqCst)
     }
 
-    pub fn poison_reason(&self) -> Option<String> {
-        self.poison_reason
-            .lock()
-            .ok()
-            .and_then(|reason| reason.clone())
-    }
-
     pub fn poison(&self, reason: impl Into<String>) {
         let reason = reason.into();
         let first_poison = !self.poisoned.swap(true, Ordering::SeqCst);
-        if let Ok(mut slot) = self.poison_reason.lock()
-            && slot.is_none()
-        {
-            *slot = Some(reason.clone());
-        }
         self.stop_writes.cancel();
         self.cancel.cancel();
         self.pending.abort_all();
@@ -212,18 +198,6 @@ impl ClientConnection {
         if first_poison {
             warn!("connection poisoned: {reason}");
         }
-    }
-
-    pub fn ensure_healthy(&self) -> Result<()> {
-        if self.is_poisoned() {
-            bail!(
-                "connection poisoned{}",
-                self.poison_reason()
-                    .map(|reason| format!(": {reason}"))
-                    .unwrap_or_default()
-            );
-        }
-        Ok(())
     }
 
     pub async fn send_keepalive_via_pool_lun(self: &Arc<Self>, lun: u64) -> Result<()> {
