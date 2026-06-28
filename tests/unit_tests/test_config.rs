@@ -10,6 +10,7 @@ fn integration_configs_are_valid() -> Result<()> {
         "tests/configs/tgt/plain.yaml",
         "tests/configs/tgt/chap.yaml",
         "tests/configs/tgt/crc.yaml",
+        "tests/configs/freebsd/plain.yaml",
     ] {
         Config::load_from_file(path)?;
     }

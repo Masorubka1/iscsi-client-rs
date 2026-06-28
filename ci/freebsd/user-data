@@ -1,0 +1,37 @@
+#cloud-config
+write_files:
+  - path: /usr/local/sbin/setup-ctld
+    permissions: "0755"
+    content: |
+      #!/bin/sh
+      set -eux
+
+      mkdir -p /var/db/ctl
+      truncate -s 2G /var/db/ctl/backing.img
+
+      cat >/etc/ctl.conf <<'EOF'
+      portal-group pg0 {
+          discovery-auth-group no-authentication
+          listen 0.0.0.0
+      }
+
+      target iqn.2025-08.com.example:disk0 {
+          alias disk0
+          auth-group no-authentication
+          portal-group pg0
+          lun 1 {
+              path /var/db/ctl/backing.img
+              blocksize 512
+          }
+      }
+      EOF
+
+      sysrc ctld_enable=YES
+      service ctld restart
+      sockstat -4l | grep ':3260'
+      echo FREEBSD_CTLD_READY > /dev/console
+
+runcmd:
+  - /usr/local/sbin/setup-ctld
+
+final_message: "CLOUD_INIT_FINISHED"
