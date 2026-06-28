@@ -42,7 +42,7 @@ qemu-system-x86_64 \
   -smp 2 \
   -m 2048 \
   -drive "file=${VM_IMAGE},if=virtio,format=qcow2" \
-  -drive "file=${SEED_IMAGE},if=virtio,format=raw" \
+  -cdrom "${SEED_IMAGE}" \
   -device virtio-net-pci,netdev=net0 \
   -netdev user,id=net0,hostfwd=tcp:127.0.0.1:${HOST_PORT}-:3260 \
   -display none \
