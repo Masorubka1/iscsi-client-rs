@@ -5,7 +5,7 @@ use anyhow::Result;
 use iscsi_client_rs::{
     cfg::{cli::resolve_config_path, config::Config},
     models::{
-        common::{Builder, HEADER_LEN},
+        common::{BasicHeaderSegment, Builder, HEADER_LEN},
         data_fromat::{PduRequest, PduResponse},
         nop::{
             request::{NopOutRequest, NopOutRequestBuilder},
@@ -82,6 +82,35 @@ fn test_nop_in_parse() -> Result<()> {
 
     assert_eq!(hdr.stat_sn.get(), 3699214689);
     assert_eq!(hdr.exp_cmd_sn.get(), 191);
+
+    Ok(())
+}
+
+#[test]
+fn nop_payload_boundaries() -> Result<()> {
+    let cfg =
+        resolve_config_path("tests/config.yaml").and_then(Config::load_from_file)?;
+    let limit = cfg.login.flow.max_recv_data_segment_length as usize;
+
+    for len in [0, 1, 3, 4, limit - 1, limit] {
+        let header = NopOutRequestBuilder::new().initiator_task_tag(1);
+        let mut header_buf = [0u8; HEADER_LEN];
+        header.header.to_bhs_bytes(&mut header_buf)?;
+
+        let mut request = PduRequest::<NopOutRequest>::new_request(header_buf, &cfg);
+        request.append_data(&vec![0xa5; len]);
+        let (_, body) = request.build(limit)?;
+
+        assert_eq!(request.header_view()?.get_data_length_bytes(), len);
+        assert_eq!(body.len(), len.next_multiple_of(4));
+    }
+
+    let header = NopOutRequestBuilder::new().initiator_task_tag(2);
+    let mut header_buf = [0u8; HEADER_LEN];
+    header.header.to_bhs_bytes(&mut header_buf)?;
+    let mut oversized = PduRequest::<NopOutRequest>::new_request(header_buf, &cfg);
+    oversized.append_data(&vec![0; limit + 1]);
+    assert!(oversized.build(limit).is_err());
 
     Ok(())
 }

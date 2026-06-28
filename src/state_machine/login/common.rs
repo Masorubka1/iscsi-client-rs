@@ -183,8 +183,10 @@ pub(crate) fn verify_operational_negotiation(
     match header.flags.nsg() {
         Some(Stage::FullFeature) => {},
         other => bail!(
-            "login response NSG={other:?} (expected {:?})",
-            Stage::FullFeature
+            "login response NSG={other:?} (expected {:?}), status={:?}/{:?}",
+            Stage::FullFeature,
+            header.status_class,
+            header.status_detail,
         ),
     }
 

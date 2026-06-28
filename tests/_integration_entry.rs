@@ -7,11 +7,16 @@ mod integration_tests {
     pub mod common;
 
     pub mod check_tur;
+    pub mod client_faults;
+    pub mod concurrent_io;
+    pub mod io_boundaries;
     pub mod login_chap_ok;
+    pub mod login_negative;
     pub mod login_plain_ok;
     pub mod logout_ok;
     pub mod mod_sense;
     pub mod read_sense;
+    pub mod recovery;
     pub mod report_luns;
 
     //inquiry

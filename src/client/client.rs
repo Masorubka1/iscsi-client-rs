@@ -15,6 +15,7 @@ use std::{
 use anyhow::{Result, anyhow, bail};
 use once_cell::sync::OnceCell;
 use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
     net::{
         TcpStream,
         tcp::{OwnedReadHalf, OwnedWriteHalf},
@@ -114,6 +115,78 @@ impl ClientConnection {
 
     pub fn bind_pool_session(&self, pool: Weak<Pool>, tsih: u16, cid: u16) {
         let _ = self.session_ref.set(SessionRef { pool, tsih, cid });
+    }
+
+    #[inline]
+    pub(super) fn ensure_active(&self) -> Result<()> {
+        if self.is_poisoned() {
+            bail!("connection poisoned");
+        }
+        if self.cancel.is_cancelled() {
+            bail!("cancelled");
+        }
+        Ok(())
+    }
+
+    #[inline]
+    pub(super) fn ensure_writable(&self) -> Result<()> {
+        self.ensure_active()?;
+        if self.stop_writes.is_cancelled() {
+            bail!("writes are quiesced");
+        }
+        Ok(())
+    }
+
+    #[inline]
+    pub(super) fn digest_flags(&self) -> (bool, bool) {
+        (
+            self.cfg.login.integrity.header_digest == crate::cfg::enums::Digest::CRC32C,
+            self.cfg.login.integrity.data_digest == crate::cfg::enums::Digest::CRC32C,
+        )
+    }
+
+    pub(super) async fn read_exact_with_timeout(
+        &self,
+        reader: &mut OwnedReadHalf,
+        buf: &mut [u8],
+        label: &'static str,
+    ) -> Result<()> {
+        io_with_timeout(
+            label,
+            reader.read_exact(buf),
+            self.cfg.runtime.timeout_connection,
+            &self.cancel,
+        )
+        .await
+        .map_err(|error| {
+            if is_timeout_error(&error) {
+                self.poison(format!("{label} timeout: {error}"));
+            }
+            error
+        })?;
+        Ok(())
+    }
+
+    pub(super) async fn write_all_with_timeout(
+        &self,
+        writer: &mut OwnedWriteHalf,
+        buf: &[u8],
+        label: &'static str,
+    ) -> Result<()> {
+        io_with_timeout(
+            label,
+            writer.write_all(buf),
+            self.cfg.runtime.timeout_connection,
+            &self.cancel,
+        )
+        .await
+        .map_err(|error| {
+            if is_timeout_error(&error) {
+                self.poison(format!("{label} timeout: {error}"));
+            }
+            error
+        })?;
+        Ok(())
     }
 
     #[inline]
