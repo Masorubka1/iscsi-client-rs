@@ -3,19 +3,13 @@
 
 use std::{fmt, fmt::Debug};
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use bytes::Bytes;
 use tokio::io::AsyncWriteExt;
 use tracing::debug;
 
 use super::ClientConnection;
-use crate::{
-    client::{
-        common::{io_with_timeout, is_timeout_error},
-        pdu_connection::ToBytes,
-    },
-    models::common::HEADER_LEN,
-};
+use crate::{client::pdu_connection::ToBytes, models::common::HEADER_LEN};
 
 impl ClientConnection {
     /// Optionally half-close the write side (send FIN). This is irreversible.
@@ -31,12 +25,7 @@ impl ClientConnection {
         &self,
         mut request: impl ToBytes<Header = [u8; HEADER_LEN], Body = Bytes> + fmt::Debug,
     ) -> Result<()> {
-        if self.is_poisoned() {
-            bail!("connection poisoned",);
-        }
-        if self.cancel.is_cancelled() {
-            bail!("cancelled");
-        }
+        self.ensure_writable()?;
 
         let mut writer = self.writer.lock().await;
         let (header, data) = request
@@ -44,34 +33,12 @@ impl ClientConnection {
         debug!("SEND {request:?}");
         debug!("Size_header: {} Size_data: {}", header.len(), data.len());
 
-        io_with_timeout(
-            "write header (write_all)",
-            writer.write_all(&header),
-            self.cfg.runtime.timeout_connection,
-            &self.cancel,
-        )
-        .await
-        .map_err(|error| {
-            if is_timeout_error(&error) {
-                self.poison(format!("write header timeout: {error}"));
-            }
-            error
-        })?;
+        self.write_all_with_timeout(&mut writer, &header, "write header")
+            .await?;
 
         if !data.is_empty() {
-            io_with_timeout(
-                "write data (write_all)",
-                writer.write_all(&data),
-                self.cfg.runtime.timeout_connection,
-                &self.cancel,
-            )
-            .await
-            .map_err(|error| {
-                if is_timeout_error(&error) {
-                    self.poison(format!("write data timeout: {error}"));
-                }
-                error
-            })?;
+            self.write_all_with_timeout(&mut writer, &data, "write data")
+                .await?;
         }
 
         Ok(())
@@ -82,12 +49,7 @@ impl ClientConnection {
         initiator_task_tag: u32,
         request: impl ToBytes<Header = [u8; HEADER_LEN], Body = Bytes> + Debug,
     ) -> Result<()> {
-        if self.is_poisoned() {
-            bail!("connection poisoned");
-        }
-        if self.cancel.is_cancelled() {
-            bail!("cancelled");
-        }
+        self.ensure_writable()?;
 
         let expects_response = initiator_task_tag != u32::MAX;
         if expects_response {

@@ -5,16 +5,11 @@ use std::{any::type_name, fmt::Debug, sync::Arc};
 
 use anyhow::{Result, anyhow, bail};
 use bytes::{Bytes, BytesMut};
-use tokio::io::AsyncReadExt;
 use tracing::{debug, warn};
 
 use super::ClientConnection;
 use crate::{
-    cfg::enums::Digest,
-    client::{
-        common::{RawPdu, io_with_timeout, is_timeout_error},
-        pdu_connection::FromBytes,
-    },
+    client::{common::RawPdu, pdu_connection::FromBytes},
     models::{
         common::{BasicHeaderSegment, HEADER_LEN, SendingData},
         data_fromat::{PduResponse, ZeroCopyType},
@@ -28,9 +23,7 @@ impl ClientConnection {
         &self,
         initiator_task_tag: u32,
     ) -> Result<(PduResponse<T>, Bytes)> {
-        if self.is_poisoned() {
-            bail!("connection poisoned");
-        }
+        self.ensure_active()?;
         let mut receiver = self.pending.take_receiver(initiator_task_tag)?;
 
         let RawPdu {
@@ -67,7 +60,10 @@ impl ClientConnection {
         initiator_task_tag: u32,
     ) -> Result<PduResponse<T>> {
         let (mut pdu, data) = self.read_response_raw(initiator_task_tag).await?;
-        pdu.parse_with_buff(&data)?;
+        if let Err(error) = pdu.parse_with_buff(&data) {
+            self.poison(format!("invalid response PDU: {error}"));
+            return Err(error);
+        }
         Ok(pdu)
     }
 
@@ -99,34 +95,24 @@ impl ClientConnection {
     }
 
     async fn read_pdu(&self, scratch: &mut BytesMut) -> Result<(u32, bool, RawPdu)> {
-        if self.is_poisoned() {
-            bail!("connection poisoned");
-        }
+        self.ensure_active()?;
         scratch.clear();
         scratch.resize(HEADER_LEN, 0);
 
         let mut reader = self.reader.lock().await;
-        io_with_timeout(
+        self.read_exact_with_timeout(
+            &mut reader,
+            &mut scratch[..HEADER_LEN],
             "read header",
-            reader.read_exact(&mut scratch[..HEADER_LEN]),
-            self.cfg.runtime.timeout_connection,
-            &self.cancel,
         )
-        .await
-        .map_err(|error| {
-            if is_timeout_error(&error) {
-                self.poison(format!("read header timeout: {error}"));
-            }
-            error
-        })?;
+        .await?;
 
         let header = Pdu::from_bhs_bytes(&mut scratch[..HEADER_LEN])?;
         debug!("RECV BHS: {header:?}");
 
         let itt = header.get_initiator_task_tag();
         let is_final = header.get_final_bit();
-        let header_digest = self.cfg.login.integrity.header_digest == Digest::CRC32C;
-        let data_digest = self.cfg.login.integrity.data_digest == Digest::CRC32C;
+        let (header_digest, data_digest) = self.digest_flags();
         let data_length = header.total_length_bytes();
         let data_digest_length = if data_length > HEADER_LEN {
             header.get_data_diggest(data_digest)
@@ -138,19 +124,12 @@ impl ClientConnection {
 
         scratch.resize(total_length, 0);
         if total_length > HEADER_LEN {
-            io_with_timeout(
+            self.read_exact_with_timeout(
+                &mut reader,
+                &mut scratch[HEADER_LEN..],
                 "read payload",
-                reader.read_exact(&mut scratch[HEADER_LEN..]),
-                self.cfg.runtime.timeout_connection,
-                &self.cancel,
             )
-            .await
-            .map_err(|error| {
-                if is_timeout_error(&error) {
-                    self.poison(format!("read payload timeout: {error}"));
-                }
-                error
-            })?;
+            .await?;
         }
         drop(reader);
 

@@ -219,21 +219,34 @@ impl Pool {
         let target_name = sess.target_name.clone();
         let isid = sess.isid;
         let cfg = expected.conn.cfg.clone();
+        let mut removed = None;
 
         if let Some(current) = sess.conns.get(&cid).map(|entry| entry.clone()) {
             if Arc::ptr_eq(&current, &expected) || current.conn.is_poisoned() {
-                sess.conns.remove(&cid);
+                removed = sess.conns.remove(&cid).map(|(_, conn)| conn);
             } else {
                 return Ok(());
             }
         }
 
         let child = self.cancel.child_token();
-        let conn = ClientConnection::connect(cfg, child).await?;
-        let _ = self
-            .login_one_and_insert_impl(target_name, isid, tsih, cid, conn)
-            .await?;
-        Ok(())
+        let recovery = async {
+            let conn = ClientConnection::connect(cfg, child).await?;
+            let _ = self
+                .login_one_and_insert_impl(target_name, isid, tsih, cid, conn)
+                .await?;
+            Ok(())
+        }
+        .await;
+
+        if recovery.is_err()
+            && let Some(previous) = removed
+            && sess.conns.get(&cid).is_none()
+        {
+            sess.conns.insert(cid, previous);
+        }
+
+        recovery
     }
 
     async fn login_one_and_insert_impl(
