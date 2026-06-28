@@ -198,10 +198,10 @@ jobs:
         if: always()
         run: bash ci/lio/stop-qemu.sh
 
-  test-freebsd:
-    name: Integration tests (FreeBSD/plain)
+  test-truenas:
+    name: Integration tests (TrueNAS/plain)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 90
     needs: [rustfmt, clippy, unit]
     steps:
       - uses: actions/checkout@v7
@@ -214,49 +214,49 @@ jobs:
       - *cache-cargo
       - *fetch-cargo
 
-      - name: Install QEMU and cloud-init tools
+      - name: Install QEMU and helpers
         run: |
           sudo apt-get update
-          sudo apt-get install -y qemu-system-x86 qemu-utils cloud-image-utils netcat-openbsd xz-utils
+          sudo apt-get install -y qemu-system-x86 qemu-utils netcat-openbsd curl
           test -e /dev/kvm
           sudo chmod 666 /dev/kvm
 
-      - name: Cache FreeBSD cloud image
-        id: cache-freebsd-image
+      - name: Cache TrueNAS ISO
+        id: cache-truenas-iso
         uses: actions/cache@v5
         with:
-          path: ${{ runner.temp }}/FreeBSD-14.3-RELEASE-amd64-BASIC-CLOUDINIT-ufs.qcow2.xz
-          key: freebsd-14.3-release-amd64-basic-cloudinit-ufs-qcow2-xz
+          path: ${{ runner.temp }}/TrueNAS-SCALE-25.10.4.iso
+          key: truenas-scale-25.10.4-20260628
 
-      - name: Download FreeBSD cloud image
-        if: steps.cache-freebsd-image.outputs.cache-hit != 'true'
+      - name: Download TrueNAS ISO
+        if: steps.cache-truenas-iso.outputs.cache-hit != 'true'
         run: |
           curl --fail --location --retry 3 \
-            https://download.freebsd.org/releases/VM-IMAGES/14.3-RELEASE/amd64/Latest/FreeBSD-14.3-RELEASE-amd64-BASIC-CLOUDINIT-ufs.qcow2.xz \
-            --output "${RUNNER_TEMP}/FreeBSD-14.3-RELEASE-amd64-BASIC-CLOUDINIT-ufs.qcow2.xz"
+            https://download.truenas.com/TrueNAS-SCALE-Goldeye/25.10.4/TrueNAS-SCALE-25.10.4.iso \
+            --output "${RUNNER_TEMP}/TrueNAS-SCALE-25.10.4.iso"
 
-      - name: Start FreeBSD VM
-        timeout-minutes: 10
+      - name: Start TrueNAS VM
+        timeout-minutes: 35
         env:
-          FREEBSD_QEMU_ACCEL: kvm
+          TRUENAS_QEMU_ACCEL: kvm
         run: |
-          bash ci/freebsd/start-qemu.sh \
-            "${RUNNER_TEMP}/FreeBSD-14.3-RELEASE-amd64-BASIC-CLOUDINIT-ufs.qcow2.xz" \
+          bash ci/truenas/start-qemu.sh \
+            "${RUNNER_TEMP}/TrueNAS-SCALE-25.10.4.iso" \
             "3264"
 
       - name: Run integration tests
         env:
-          TEST_CONFIG: tests/configs/freebsd/plain.yaml
+          TEST_CONFIG: tests/configs/truenas/plain.yaml
         run: cargo test --offline --test integration -- --nocapture --test-threads=1
 
-      - name: Stop FreeBSD VM
+      - name: Stop TrueNAS VM
         if: always()
-        run: bash ci/freebsd/stop-qemu.sh
+        run: bash ci/truenas/stop-qemu.sh
 
   publish:
     name: Publish to crates.io
     runs-on: ubuntu-latest
-    needs: [rustfmt, clippy, unit, test-tgt, test-lio, test-freebsd]
+    needs: [rustfmt, clippy, unit, test-tgt, test-lio, test-truenas]
     if: startsWith(github.ref, 'refs/tags/')
     steps:
       - uses: actions/checkout@v7
