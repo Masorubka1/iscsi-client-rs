@@ -4,7 +4,7 @@
 
 # iscsi-client-rs
 
-A pure‑Rust iSCSI initiator **library** (with example CLI) for interacting with iSCSI targets over TCP. Build/parse PDUs, perform login (plain or CHAP), and exchange SCSI commands asynchronously.
+A pure‑Rust iSCSI initiator **library** for interacting with iSCSI targets over TCP. Build/parse PDUs, perform login (plain or CHAP), and exchange SCSI commands asynchronously.
 
 > ⚠️ **Status**: tested against Linux `tgt/targetcli` only. Other targets may behave differently. Use with care.
 
@@ -261,9 +261,6 @@ Utility builders produce PDUs with correct fields; state machines update counter
 
 ---
 
-## CLI
-
-An example CLI demonstrates discovery/login and simple I/O using the same library APIs. See `examples/` (if enabled in this version).
 
 ---
 
@@ -321,7 +318,7 @@ A high‑level plan, tracked as **Now → Next → Later** with checkboxes. Pool
 We use **DCO** (Signed-off-by on each commit) and require a **CLA** (individual/entity) before the first PR.
 This allows us to keep the project AGPL-only today and offer a commercial license later without recontacting contributors.
 
-* See `CONTRIBUTING.md`, `CLA-INDIVIDUAL.md`, `CLA-ENTITY.md`.
+* See `CONTRIBUTING.md`, `legal/CLA-INDIVIDUAL.md`, `legal/CLA-ENTITY.md`.
 
 Issues and PRs are welcome. Please run:
 

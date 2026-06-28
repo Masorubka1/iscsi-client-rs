@@ -14,8 +14,8 @@ Add a line to each commit message:
 
 
 2. **CLA** before your first pull request:
-Individuals: sign `CLA-INDIVIDUAL.md`.
-Companies: sign `CLA-ENTITY.md`.
+Individuals: sign `legal/CLA-INDIVIDUAL.md`.
+Companies: sign `legal/CLA-ENTITY.md`.
 
 
 The CLA grants the project maintainers the right to relicense *your contributions* in addition to AGPL (e.g., to a commercial license) without re‑contacting you, while you retain full rights to your own code.
