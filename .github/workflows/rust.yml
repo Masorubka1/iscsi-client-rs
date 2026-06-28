@@ -14,8 +14,8 @@ env:
   CARGO_NET_RETRY: 10
 
 jobs:
-  lint:
-    name: Lint (clippy + rustfmt)
+  rustfmt:
+    name: Rustfmt
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -24,7 +24,7 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           toolchain: nightly
-          components: clippy, rustfmt
+          components: rustfmt
 
       - &cache-cargo
         name: Cache Cargo registry
@@ -49,11 +49,26 @@ jobs:
       - name: rustfmt check
         run: cargo +nightly fmt -- --check
 
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          components: clippy
+
+      - *cache-cargo
+      - *fetch-cargo
+
       - name: clippy check
         run: cargo clippy --offline --tests --examples --benches --no-deps --all-targets -- -D warnings
 
-  test:
-    name: Run tests
+  unit:
+    name: Unit tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -73,6 +88,7 @@ jobs:
     name: Integration tests (TGT/${{ matrix.mode }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    needs: [rustfmt, clippy, unit]
     strategy:
       fail-fast: false
       matrix:
@@ -117,6 +133,7 @@ jobs:
     name: Integration tests (LIO/${{ matrix.mode }})
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    needs: [rustfmt, clippy, unit]
     strategy:
       fail-fast: false
       matrix:
@@ -181,10 +198,65 @@ jobs:
         if: always()
         run: bash ci/lio/stop-qemu.sh
 
+  test-truenas:
+    name: Integration tests (TrueNAS/plain)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    needs: [rustfmt, clippy, unit]
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+
+      - *cache-cargo
+      - *fetch-cargo
+
+      - name: Install QEMU and helpers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 qemu-utils netcat-openbsd curl
+          test -e /dev/kvm
+          sudo chmod 666 /dev/kvm
+
+      - name: Cache TrueNAS ISO
+        id: cache-truenas-iso
+        uses: actions/cache@v5
+        with:
+          path: ${{ runner.temp }}/TrueNAS-SCALE-25.10.4.iso
+          key: truenas-scale-25.10.4-20260628
+
+      - name: Download TrueNAS ISO
+        if: steps.cache-truenas-iso.outputs.cache-hit != 'true'
+        run: |
+          curl --fail --location --retry 3 \
+            https://download.truenas.com/TrueNAS-SCALE-Goldeye/25.10.4/TrueNAS-SCALE-25.10.4.iso \
+            --output "${RUNNER_TEMP}/TrueNAS-SCALE-25.10.4.iso"
+
+      - name: Start TrueNAS VM
+        timeout-minutes: 35
+        env:
+          TRUENAS_QEMU_ACCEL: kvm
+        run: |
+          bash ci/truenas/start-qemu.sh \
+            "${RUNNER_TEMP}/TrueNAS-SCALE-25.10.4.iso" \
+            "3264"
+
+      - name: Run integration tests
+        env:
+          TEST_CONFIG: tests/configs/truenas/plain.yaml
+        run: cargo test --offline --test integration -- --nocapture --test-threads=1
+
+      - name: Stop TrueNAS VM
+        if: always()
+        run: bash ci/truenas/stop-qemu.sh
+
   publish:
     name: Publish to crates.io
     runs-on: ubuntu-latest
-    needs: [lint, test, test-tgt, test-lio]
+    needs: [rustfmt, clippy, unit, test-tgt, test-lio, test-truenas]
     if: startsWith(github.ref, 'refs/tags/')
     steps:
       - uses: actions/checkout@v7

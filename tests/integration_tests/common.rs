@@ -28,5 +28,9 @@ pub fn test_isid() -> [u8; 6] {
 }
 
 pub fn get_lun() -> u64 {
-    1u64 << 48
+    if test_path().contains("/truenas/") {
+        0
+    } else {
+        1u64 << 48
+    }
 }
