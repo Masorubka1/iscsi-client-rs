@@ -66,7 +66,9 @@ async fn io_around_negotiated_segment_boundaries() -> Result<()> {
             block_counts.insert(boundary - 1);
         }
         block_counts.insert(boundary);
-        block_counts.insert(boundary + 1);
+    }
+    if first_burst_blocks > 0 {
+        block_counts.insert(first_burst_blocks + 1);
     }
 
     let mut lba = 20_000u32;
