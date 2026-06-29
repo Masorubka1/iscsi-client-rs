@@ -28,7 +28,7 @@ jobs:
 
       - &cache-cargo
         name: Cache Cargo registry
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -167,7 +167,7 @@ jobs:
 
       - name: Cache Ubuntu cloud image
         id: cache-cloud-image
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ${{ runner.temp }}/ubuntu-24.04-server-cloudimg-amd64.img
           key: ubuntu-24.04-server-cloudimg-amd64-20260627
@@ -223,7 +223,7 @@ jobs:
 
       - name: Cache TrueNAS ISO
         id: cache-truenas-iso
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ${{ runner.temp }}/TrueNAS-SCALE-25.10.4.iso
           key: truenas-scale-25.10.4-20260628
