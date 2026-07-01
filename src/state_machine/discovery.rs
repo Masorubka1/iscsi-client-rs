@@ -5,7 +5,7 @@
 
 use std::{marker::PhantomData, pin::Pin, sync::Arc};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use rand::RngExt;
 use tokio_util::sync::CancellationToken;
 use tracing::debug;

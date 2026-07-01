@@ -3,13 +3,13 @@
 
 use std::collections::BTreeSet;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use iscsi_client_rs::{
     cfg::{
         cli::resolve_config_path,
         config::{
-            login_keys_chap_response, login_keys_operational, login_keys_security,
-            AuthConfig, Config,
+            AuthConfig, Config, login_keys_chap_response, login_keys_operational,
+            login_keys_security,
         },
     },
     models::{

@@ -20,7 +20,7 @@ use crate::{
     state_machine::{
         common::{StateMachine, Transition},
         login::common::{
-            verify_operational_negotiation, LoginCtx, LoginStates, LoginStepOut,
+            LoginCtx, LoginStates, LoginStepOut, verify_operational_negotiation,
         },
     },
 };

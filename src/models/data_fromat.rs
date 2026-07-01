@@ -3,7 +3,7 @@
 
 use std::{any::type_name, fmt, marker::PhantomData, ops::Deref};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use bytes::{Bytes, BytesMut};
 use crc32c::crc32c_append;
 use zerocopy::{
@@ -14,7 +14,7 @@ use crate::{
     cfg::{config::Config, enums::Digest},
     client::pdu_connection::FromBytes,
     models::{
-        common::{BasicHeaderSegment, Builder, SendingData, HEADER_LEN},
+        common::{BasicHeaderSegment, Builder, HEADER_LEN, SendingData},
         opcode::Opcode,
     },
 };
@@ -508,9 +508,9 @@ impl fmt::Debug for HexPreview<'_> {
 }
 
 impl<
-        T: BasicHeaderSegment + FromBytes + ZeroCopyType + fmt::Debug,
-        B: Deref<Target = [u8]>,
-    > fmt::Debug for PDUWithData<T, B>
+    T: BasicHeaderSegment + FromBytes + ZeroCopyType + fmt::Debug,
+    B: Deref<Target = [u8]>,
+> fmt::Debug for PDUWithData<T, B>
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut s = f.debug_struct(type_name::<T>());

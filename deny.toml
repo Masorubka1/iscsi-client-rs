@@ -7,39 +7,40 @@ targets = [
 ]
 
 [advisories]
-vulnerability = "deny"
-unmaintained = "warn"
-yanked = "deny"
-notice = "warn"
 ignore = []
 
 [licenses]
-unlicensed = "deny"
-allow-osi-fsf-free = "either"
-copyleft = "allow"
-default = "deny"
+allow = [
+    "AGPL-3.0-or-later",
+    "Apache-2.0",
+    "BSL-1.0",
+    "MIT",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+]
 confidence-threshold = 0.8
 exceptions = [
-    # Allow permissive + weak-copyleft licenses used by deps
-    { name = "md-5", allow = ["MIT", "Apache-2.0"] },
+    { crate = "md-5", allow = ["MIT", "Apache-2.0"] },
 ]
-clarify = []
 
 [[licenses.clarify]]
-name = "ring"
+crate = "ring"
 expression = "ISC AND MIT AND OpenSSL"
 license-files = [{ path = "LICENSE", hash = 0xbd0eed23 }]
+
+[licenses.private]
+ignore = false
 
 [bans]
 multiple-versions = "warn"
 wildcards = "allow"
-deny = [
-    # Deny specific crates if needed
-]
+deny = []
 skip = []
 skip-tree = []
 
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 allow-git = []
