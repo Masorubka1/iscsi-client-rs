@@ -66,10 +66,6 @@ pub struct Identity {
     #[serde(default, rename = "TargetName")]
     /// Required for Normal sessions; ignored during Discovery.
     pub target_name: String,
-
-    #[serde(rename = "IsX86")]
-    /// Runtime hint describing whether the initiator runs on x86.
-    pub is_x86: YesNo,
 }
 
 /// Transport hints that are stored locally but never sent over the wire.

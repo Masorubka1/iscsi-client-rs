@@ -34,7 +34,7 @@ fn test_read_capacity10_request_build() -> Result<()> {
 
     let lun_bytes = [0, 1, 0, 0, 0, 0, 0, 0];
     let lun_be = u64::from_be_bytes(lun_bytes);
-    let itt = 5;
+    let itt = 5_u32;
     let cmd_sn = 3;
     let exp_stat_sn = 5;
 
@@ -82,7 +82,7 @@ fn test_read_capacity16_request_build() -> Result<()> {
 
     let lun_bytes = [0, 1, 0, 0, 0, 0, 0, 0];
     let lun_be = u64::from_be_bytes(lun_bytes);
-    let itt = 5;
+    let itt = 5_u32;
     let cmd_sn = 3;
     let exp_stat_sn = 5;
 

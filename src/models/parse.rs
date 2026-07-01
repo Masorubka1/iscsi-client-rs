@@ -12,6 +12,7 @@ use crate::models::{
     command::{request::ScsiCommandRequest, response::ScsiCommandResponse},
     common::{BasicHeaderSegment, SendingData},
     data::{request::ScsiDataOut, response::ScsiDataIn},
+    identifiers::Itt,
     login::{request::LoginRequest, response::LoginResponse},
     logout::{request::LogoutRequest, response::LogoutResponse},
     nop::{request::NopOutRequest, response::NopInResponse},
@@ -67,6 +68,10 @@ impl<'a> Pdu<'a> {
             Opcode::TextReq => {
                 let req = TextRequest::from_bhs_bytes(bytes)?;
                 Ok(Pdu::TextRequest(req))
+            },
+            Opcode::TextResp => {
+                let rsp = TextResponse::from_bhs_bytes(bytes)?;
+                Ok(Pdu::TextResponse(rsp))
             },
             Opcode::LoginReq => {
                 let req = LoginRequest::from_bhs_bytes(bytes)?;

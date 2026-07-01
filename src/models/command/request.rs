@@ -7,18 +7,16 @@
 
 use anyhow::{Result, anyhow, bail};
 use zerocopy::{
-    BigEndian, FromBytes as ZFromBytes, Immutable, IntoBytes, KnownLayout, U32,
+    BigEndian, FromBytes as ZFromBytes, Immutable, IntoBytes, KnownLayout, U32, U64,
 };
 
 use crate::{
     client::pdu_connection::FromBytes,
     models::{
         command::{common::TaskAttribute, zero_copy::RawScsiCmdReqFlags},
-        common::{
-            BasicHeaderSegment, HEADER_LEN, InitiatorTaskTag, LogicalUnitNumber,
-            SendingData,
-        },
+        common::{BasicHeaderSegment, HEADER_LEN, SendingData},
         data_fromat::ZeroCopyType,
+        identifiers::{CmdSn, Itt, Lun, StatSn},
         opcode::{BhsOpcode, Opcode, RawBhsOpcode},
     },
 };
@@ -31,28 +29,18 @@ use crate::{
 #[repr(C)]
 #[derive(Debug, Default, PartialEq, ZFromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct ScsiCommandRequest {
-    /// PDU opcode (byte 0) - should be 0x01 for SCSI Command
-    pub opcode: RawBhsOpcode,
-    /// Command flags (byte 1) - Final, Read, Write bits and task attributes
-    pub flags: RawScsiCmdReqFlags,
-    /// Reserved bytes (2-3)
-    reserved1: [u8; 2],
-    /// Total Additional Header Segments length (byte 4)
-    pub total_ahs_length: u8,
-    /// Data Segment Length (bytes 5-7) - length of immediate data
-    pub data_segment_length: [u8; 3],
-    /// Logical Unit Number (bytes 8-15)
-    pub lun: LogicalUnitNumber,
-    /// Initiator Task Tag (bytes 16-19) - unique command identifier
-    pub initiator_task_tag: InitiatorTaskTag,
-    /// Expected Data Transfer Length (bytes 20-23) - total data expected
-    pub expected_data_transfer_length: U32<BigEndian>,
-    /// Command Sequence Number (bytes 24-27) - for ordering
-    pub cmd_sn: U32<BigEndian>,
-    /// Expected Status Sequence Number (bytes 28-31) - acknowledgment
-    pub exp_stat_sn: U32<BigEndian>,
-    /// SCSI Command Descriptor Block (bytes 32-47) - the actual SCSI command
-    pub scsi_descriptor_block: [u8; 16],
+    pub opcode: RawBhsOpcode,      // Byte 0: `Opcode::ScsiCommandReq`
+    pub flags: RawScsiCmdReqFlags, // Byte 1: Final/Read/Write/task flags
+    reserved1: [u8; 2],            // Bytes 2..4: reserved
+    pub total_ahs_length: u8,      // Byte 4: AHS length in 4-byte words
+    pub data_segment_length: [u8; 3], // Bytes 5..8: immediate data length
+    pub lun: U64<BigEndian>,       // Bytes 8..16: LUN
+    pub initiator_task_tag: U32<BigEndian>, // Bytes 16..20: ITT
+    pub expected_data_transfer_length: U32<BigEndian>, /* Bytes 20..24: expected
+                                    * transfer length */
+    pub cmd_sn: U32<BigEndian>,          // Bytes 24..28: CmdSN
+    pub exp_stat_sn: U32<BigEndian>,     // Bytes 28..32: ExpStatSN
+    pub scsi_descriptor_block: [u8; 16], // Bytes 32..48: 16-byte SCSI CDB
 }
 
 impl ScsiCommandRequest {
@@ -151,8 +139,8 @@ impl ScsiCommandRequestBuilder {
     }
 
     /// Sets the initiator task tag, a unique identifier for this command.
-    pub fn initiator_task_tag(mut self, tag: u32) -> Self {
-        self.header.initiator_task_tag.set(tag);
+    pub fn initiator_task_tag(mut self, tag: impl Into<Itt>) -> Self {
+        self.header.initiator_task_tag.set(tag.into().get());
         self
     }
 
@@ -165,20 +153,20 @@ impl ScsiCommandRequestBuilder {
     }
 
     /// Sets the command sequence number (CmdSN) for this request.
-    pub fn cmd_sn(mut self, sn: u32) -> Self {
-        self.header.cmd_sn.set(sn);
+    pub fn cmd_sn(mut self, sn: impl Into<CmdSn>) -> Self {
+        self.header.cmd_sn.set(sn.into().get());
         self
     }
 
     /// Sets the expected status sequence number (ExpStatSN) from the target.
-    pub fn exp_stat_sn(mut self, sn: u32) -> Self {
-        self.header.exp_stat_sn.set(sn);
+    pub fn exp_stat_sn(mut self, sn: impl Into<StatSn>) -> Self {
+        self.header.exp_stat_sn.set(sn.into().get());
         self
     }
 
     /// Sets the Logical Unit Number (LUN) for the command.
-    pub fn lun(mut self, lun: u64) -> Self {
-        self.header.lun.set(lun);
+    pub fn lun(mut self, lun: impl Into<Lun>) -> Self {
+        self.header.lun.set(lun.into().get());
         self
     }
 
@@ -226,8 +214,8 @@ impl BasicHeaderSegment for ScsiCommandRequest {
         BhsOpcode::try_from(self.opcode.raw())
     }
 
-    fn get_initiator_task_tag(&self) -> u32 {
-        self.initiator_task_tag.get()
+    fn get_initiator_task_tag(&self) -> Itt {
+        self.initiator_task_tag.get().into()
     }
 
     #[inline]

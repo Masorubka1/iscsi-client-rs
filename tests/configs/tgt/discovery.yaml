@@ -1,20 +1,18 @@
 login:
   identity:
-    SessionType: Normal
+    SessionType: Discovery
     InitiatorName: iqn.2004-10.com.ubuntu:01:c676ed18968f
     InitiatorAlias: ubuntu
-    TargetName: iqn.2025-08.example:disk0
+    TargetName: ""
   auth:
-    AuthMethod: CHAP
-    username: testuser
-    secret: secretpass
+    AuthMethod: None
   integrity:
     HeaderDigest: None
     DataDigest: None
   flow:
     MaxRecvDataSegmentLength: 262144
-    MaxBurstLength: 16776192
-    FirstBurstLength: 262144
+    MaxBurstLength: 262144
+    FirstBurstLength: 65536
   write_flow:
     InitialR2T: Yes
     ImmediateData: No
@@ -23,7 +21,7 @@ login:
     DataPDUInOrder: Yes
     DataSequenceInOrder: Yes
   recovery:
-    ErrorRecoveryLevel: 1
+    ErrorRecoveryLevel: 0
   timers:
     DefaultTime2Wait: 2
     DefaultTime2Retain: 0

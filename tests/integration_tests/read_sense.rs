@@ -42,17 +42,15 @@ async fn login_ua_request_sense_then_clear_with_tur_pool() -> Result<()> {
     // === Step 1: TUR — сразу после логина может быть UA (CHECK CONDITION).
     // Нам нужно лишь спровоцировать UA и не падать тестом.
     let _ = pool
-        .execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
-            TurCtx::new(c, itt, cmd_sn, exp_stat_sn, lun)
-        })
+        .execute_with_ctx(tsih, cid, |env| TurCtx::from_execute_env(env, lun))
         .await;
 
     // === Step 2: REQUEST SENSE (8 bytes header)
     let rs8 = pool
-        .execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
+        .execute_with_ctx(tsih, cid, |env| {
             let mut cdb = [0u8; 16];
             fill_request_sense_simple(&mut cdb, 8);
-            ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, 8, cdb)
+            ReadCtx::from_execute_env(env, lun, 8, cdb)
         })
         .await
         .context("REQUEST SENSE (8) failed")?;
@@ -62,10 +60,10 @@ async fn login_ua_request_sense_then_clear_with_tur_pool() -> Result<()> {
 
     // === Step 3: REQUEST SENSE (full size 8 + add_len)
     let sfull = pool
-        .execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
+        .execute_with_ctx(tsih, cid, |env| {
             let mut cdb = [0u8; 16];
             fill_request_sense_simple(&mut cdb, total_needed as u8);
-            ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, total_needed as u32, cdb)
+            ReadCtx::from_execute_env(env, lun, total_needed as u32, cdb)
         })
         .await
         .context("REQUEST SENSE (full) failed")?;
@@ -81,20 +79,18 @@ async fn login_ua_request_sense_then_clear_with_tur_pool() -> Result<()> {
     );
 
     // === Step 4: TUR retry — теперь UA должна быть очищена (ожидаем GOOD)
-    pool.execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
-        TurCtx::new(c, itt, cmd_sn, exp_stat_sn, lun)
-    })
-    .await
-    .context("TUR after sense failed")?;
+    pool.execute_with_ctx(tsih, cid, |env| TurCtx::from_execute_env(env, lun))
+        .await
+        .context("TUR after sense failed")?;
 
     // === Step 5: STANDARD INQUIRY (6), alloc=36 — ожидаем GOOD
     let inq = pool
-        .execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
+        .execute_with_ctx(tsih, cid, |env| {
             let mut cdb = [0u8; 16];
             // INQUIRY(6)
             cdb[0] = 0x12;
             cdb[4] = 36;
-            ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, 36, cdb)
+            ReadCtx::from_execute_env(env, lun, 36, cdb)
         })
         .await
         .context("INQUIRY failed")?;

@@ -20,7 +20,7 @@ use crate::{
         common::{StateMachine, StateMachineCtx, Transition},
         login::{
             login_chap::{ChapA, ChapAnswer, ChapOpToFull, ChapSecurity},
-            login_plain::PlainStart,
+            login_plain::{PlainOpToFull, PlainStart},
         },
     },
 };
@@ -38,8 +38,6 @@ pub struct LoginCtx<'a> {
     pub cid: u16,
     /// The Target Session Identifying Handle.
     pub tsih: u16,
-    /// The Initiator Task Tag.
-    pub itt: u32,
     /// A buffer for the BHS.
     pub buf: [u8; HEADER_LEN],
 
@@ -57,7 +55,6 @@ impl<'a> LoginCtx<'a> {
             isid,
             cid,
             tsih,
-            itt: 0,
             buf: [0u8; HEADER_LEN],
             last_response: None,
             state: None,
@@ -103,6 +100,9 @@ pub type LoginStepOut = Transition<LoginStates, Result<()>>;
 pub enum LoginStates {
     /// The initial state for plain authentication.
     PlainStart(PlainStart),
+    /// The follow-up state for targets that require a second Operational step
+    /// before entering Full Feature phase.
+    PlainOpToFull(PlainOpToFull),
     /// The initial state for CHAP authentication.
     ChapSecurity(ChapSecurity),
     /// The state for sending the CHAP algorithm.
@@ -125,6 +125,7 @@ impl<'ctx> StateMachineCtx<LoginCtx<'ctx>, PduResponse<LoginResponse>>
             let state = self.state.take().context("state must be set LoginCtx")?;
             let tr = match state {
                 LoginStates::PlainStart(s) => s.step(self).await,
+                LoginStates::PlainOpToFull(s) => s.step(self).await,
                 LoginStates::ChapSecurity(s) => s.step(self).await,
                 LoginStates::ChapA(s) => s.step(self).await,
                 LoginStates::ChapAnswer(s) => s.step(self).await,

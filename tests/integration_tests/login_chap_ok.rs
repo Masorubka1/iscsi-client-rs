@@ -39,6 +39,7 @@ async fn login_chap_ok() -> Result<()> {
     let target_name: Arc<str> = Arc::from(cfg.login.identity.target_name.clone());
     let isid = test_isid();
     let cid: u16 = 0;
+    let ttt = NopOutRequest::DEFAULT_TAG;
 
     // ---- Login via pool (CHAP path selected by cfg) ----
     let tsih = pool
@@ -48,18 +49,9 @@ async fn login_chap_ok() -> Result<()> {
 
     // ---- NOP keep-alive via pool ----
     let lun = get_lun();
-    pool.execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
-        NopCtx::new(
-            c,
-            lun,
-            itt,         // Arc<AtomicU32>
-            cmd_sn,      // Arc<AtomicU32>
-            exp_stat_sn, // Arc<AtomicU32>
-            NopOutRequest::DEFAULT_TAG,
-        )
-    })
-    .await
-    .context("NOP failed")?;
+    pool.execute_with_ctx(tsih, cid, |env| NopCtx::from_execute_env(env, lun, ttt))
+        .await
+        .context("NOP failed")?;
 
     pool.shutdown_gracefully(Duration::from_secs(10)).await?;
 

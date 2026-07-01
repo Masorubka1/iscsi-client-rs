@@ -12,8 +12,9 @@ use zerocopy::{
 use crate::{
     client::pdu_connection::FromBytes,
     models::{
-        common::{BasicHeaderSegment, HEADER_LEN, InitiatorTaskTag, SendingData},
+        common::{BasicHeaderSegment, HEADER_LEN, SendingData},
         data_fromat::ZeroCopyType,
+        identifiers::{CmdSn, Itt, StatSn},
         login::common::{RawLoginFlags, Stage},
         opcode::{BhsOpcode, Opcode, RawBhsOpcode},
     },
@@ -28,34 +29,20 @@ use crate::{
 #[repr(C)]
 #[derive(Debug, Default, PartialEq, ZFromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct LoginRequest {
-    /// PDU opcode (byte 0) - should be 0x43 for Login Request
-    pub opcode: RawBhsOpcode,
-    /// Login flags (byte 1) - Transit, Continue bits and stage information
-    pub flags: RawLoginFlags,
-    /// Maximum version supported by initiator (byte 2)
-    pub version_max: u8,
-    /// Minimum version supported by initiator (byte 3)
-    pub version_min: u8,
-    /// Total Additional Header Segments length (byte 4)
-    pub total_ahs_length: u8,
-    /// Data Segment Length (bytes 5-7) - length of login parameters
-    pub data_segment_length: [u8; 3],
-    /// Initiator Session ID (bytes 8-13) - unique session identifier
-    pub isid: [u8; 6],
-    /// Target Session Identifying Handle (bytes 14-15) - 0 for new sessions
-    pub tsih: U16<BigEndian>,
-    /// Initiator Task Tag (bytes 16-19) - unique request identifier
-    pub initiator_task_tag: InitiatorTaskTag,
-    /// Connection ID (bytes 20-21) - connection identifier within session
-    pub cid: U16<BigEndian>,
-    /// Reserved bytes (22-23)
-    reserved1: [u8; 2],
-    /// Command Sequence Number (bytes 24-27) - for login phase ordering
-    pub cmd_sn: U32<BigEndian>,
-    /// Expected Status Sequence Number (bytes 28-31) - acknowledgment
-    pub exp_stat_sn: U32<BigEndian>,
-    /// Reserved bytes (32-47)
-    reserved2: [u8; 16],
+    pub opcode: RawBhsOpcode, // Byte 0: I flag + `Opcode::LoginReq`
+    pub flags: RawLoginFlags, // Byte 1: login transit/continue/stage flags
+    pub version_max: u8,      // Byte 2: maximum supported iSCSI version
+    pub version_min: u8,      // Byte 3: minimum supported iSCSI version
+    pub total_ahs_length: u8, // Byte 4: AHS length in 4-byte words
+    pub data_segment_length: [u8; 3], // Bytes 5..8: login text payload length
+    pub isid: [u8; 6],        // Bytes 8..14: ISID
+    pub tsih: U16<BigEndian>, // Bytes 14..16: TSIH (0 for new session)
+    pub initiator_task_tag: U32<BigEndian>, // Bytes 16..20: ITT
+    pub cid: U16<BigEndian>,  // Bytes 20..22: CID
+    reserved1: [u8; 2],       // Bytes 22..24: reserved
+    pub cmd_sn: U32<BigEndian>, // Bytes 24..28: CmdSN
+    pub exp_stat_sn: U32<BigEndian>, // Bytes 28..32: ExpStatSN
+    reserved2: [u8; 16],      // Bytes 32..48: reserved
 }
 
 impl LoginRequest {
@@ -157,8 +144,8 @@ impl LoginRequestBuilder {
     }
 
     /// Sets the initiator task tag, a unique identifier for this command.
-    pub fn initiator_task_tag(mut self, tag: u32) -> Self {
-        self.header.initiator_task_tag.set(tag);
+    pub fn initiator_task_tag(mut self, tag: impl Into<Itt>) -> Self {
+        self.header.initiator_task_tag.set(tag.into().get());
         self
     }
 
@@ -169,14 +156,14 @@ impl LoginRequestBuilder {
     }
 
     /// Sets the command sequence number (CmdSN) for this request.
-    pub fn cmd_sn(mut self, cmd_sn: u32) -> Self {
-        self.header.cmd_sn.set(cmd_sn);
+    pub fn cmd_sn(mut self, cmd_sn: impl Into<CmdSn>) -> Self {
+        self.header.cmd_sn.set(cmd_sn.into().get());
         self
     }
 
     /// Sets the expected status sequence number (ExpStatSN) from the target.
-    pub fn exp_stat_sn(mut self, exp_stat_sn: u32) -> Self {
-        self.header.exp_stat_sn.set(exp_stat_sn);
+    pub fn exp_stat_sn(mut self, exp_stat_sn: impl Into<StatSn>) -> Self {
+        self.header.exp_stat_sn.set(exp_stat_sn.into().get());
         self
     }
 
@@ -222,8 +209,8 @@ impl BasicHeaderSegment for LoginRequest {
         BhsOpcode::try_from(self.opcode.raw())
     }
 
-    fn get_initiator_task_tag(&self) -> u32 {
-        self.initiator_task_tag.get()
+    fn get_initiator_task_tag(&self) -> Itt {
+        self.initiator_task_tag.get().into()
     }
 
     fn get_ahs_length_bytes(&self) -> usize {

@@ -5,6 +5,8 @@
 
 /// Common structures and traits for state machines.
 pub mod common;
+/// State machine for SendTargets discovery.
+pub mod discovery;
 /// State machine for the Login phase.
 pub mod login;
 /// State machine for the Logout command.

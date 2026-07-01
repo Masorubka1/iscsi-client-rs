@@ -36,21 +36,17 @@ async fn io_around_negotiated_segment_boundaries() -> Result<()> {
         .context("pool login failed")?;
     let lun = get_lun();
     let _ = pool
-        .execute_with(tsih, 0, |c, itt, cmd_sn, exp_stat_sn| {
-            TurCtx::new(c, itt, cmd_sn, exp_stat_sn, lun)
-        })
+        .execute_with_ctx(tsih, 0, |env| TurCtx::from_execute_env(env, lun))
         .await;
-    pool.execute_with(tsih, 0, |c, itt, cmd_sn, exp_stat_sn| {
-        TurCtx::new(c, itt, cmd_sn, exp_stat_sn, lun)
-    })
-    .await
-    .context("TUR failed")?;
+    pool.execute_with_ctx(tsih, 0, |env| TurCtx::from_execute_env(env, lun))
+        .await
+        .context("TUR failed")?;
 
     let capacity = pool
-        .execute_with(tsih, 0, |c, itt, cmd_sn, exp_stat_sn| {
+        .execute_with_ctx(tsih, 0, |env| {
             let mut cdb = [0u8; 16];
             build_read_capacity10(&mut cdb, 0, false, 0);
-            ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, 8, cdb)
+            ReadCtx::from_execute_env(env, lun, 8, cdb)
         })
         .await?;
     let block_size = parse_read_capacity10_zerocopy(&capacity.data)?
@@ -79,19 +75,19 @@ async fn io_around_negotiated_segment_boundaries() -> Result<()> {
             .map(|offset| (offset as u8).wrapping_add(blocks as u8))
             .collect::<Vec<_>>();
 
-        pool.execute_with(tsih, 0, |c, itt, cmd_sn, exp_stat_sn| {
+        pool.execute_with_ctx(tsih, 0, |env| {
             let mut cdb = [0u8; 16];
             build_write10(&mut cdb, lba, blocks as u16, 0, 0);
-            WriteCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, cdb, payload.clone())
+            WriteCtx::from_execute_env(env, lun, cdb, payload.clone())
         })
         .await
         .with_context(|| format!("WRITE boundary blocks={blocks}"))?;
 
         let read = pool
-            .execute_with(tsih, 0, |c, itt, cmd_sn, exp_stat_sn| {
+            .execute_with_ctx(tsih, 0, |env| {
                 let mut cdb = [0u8; 16];
                 build_read10(&mut cdb, lba, blocks as u16, 0, 0);
-                ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, byte_len as u32, cdb)
+                ReadCtx::from_execute_env(env, lun, byte_len as u32, cdb)
             })
             .await
             .with_context(|| format!("READ boundary blocks={blocks}"))?;

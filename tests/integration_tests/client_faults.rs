@@ -163,7 +163,7 @@ async fn invalid_header_digest_poisons_connection() -> Result<()> {
     cfg.runtime.timeout_connection = Duration::from_millis(200);
     let conn = ClientConnection::connect(cfg.clone(), CancellationToken::new()).await?;
 
-    let itt = 42;
+    let itt = 42.into();
     let header = NopOutRequestBuilder::new()
         .initiator_task_tag(itt)
         .target_task_tag(NopOutRequest::DEFAULT_TAG)
@@ -216,7 +216,7 @@ async fn invalid_data_digest_poisons_connection() -> Result<()> {
     cfg.runtime.timeout_connection = Duration::from_millis(200);
     let conn = ClientConnection::connect(cfg.clone(), CancellationToken::new()).await?;
 
-    let itt = 43;
+    let itt: iscsi_client_rs::models::identifiers::Itt = 43_u32.into();
     let header = NopOutRequestBuilder::new()
         .initiator_task_tag(itt)
         .target_task_tag(NopOutRequest::DEFAULT_TAG)

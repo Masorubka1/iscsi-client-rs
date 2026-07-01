@@ -4,6 +4,7 @@
 #![allow(clippy::all)]
 
 mod integration_tests {
+
     pub mod common;
 
     pub mod check_tur;
@@ -18,6 +19,7 @@ mod integration_tests {
     pub mod read_sense;
     pub mod recovery;
     pub mod report_luns;
+    pub mod send_targets_discovery;
 
     //inquiry
     pub mod inquiry;

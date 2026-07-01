@@ -1,9 +1,8 @@
-//! This module defines the state machine for the iSCSI Test Unit Ready (TUR)
-//! command. It includes the states, context, and transitions for handling the
-//! TUR operation.
-
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
+
+//! This module defines the state machine for the iSCSI Test Unit Ready (TUR)
+//! command.
 
 use std::{
     marker::PhantomData,
@@ -19,7 +18,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::debug;
 
 use crate::{
-    client::client::ClientConnection,
+    client::{client::ClientConnection, pool_sessions::ExecuteEnv},
     control_block::test_unit_ready::build_test_unit_ready,
     models::{
         command::{
@@ -29,6 +28,7 @@ use crate::{
         },
         common::HEADER_LEN,
         data_fromat::{PduRequest, PduResponse},
+        identifiers::{Itt, IttGen, Lun},
     },
     state_machine::common::{StateMachine, StateMachineCtx, Transition},
 };
@@ -41,15 +41,11 @@ pub struct TurCtx<'a> {
 
     /// The client connection.
     pub conn: Arc<ClientConnection>,
-    /// The Initiator Task Tag.
-    pub itt: u32,
-    /// The Command Sequence Number.
+    pub itt: Itt,
     pub cmd_sn: Arc<AtomicU32>,
     /// The Expected Status Sequence Number.
     pub exp_stat_sn: Arc<AtomicU32>,
-    /// The Logical Unit Number.
-    pub lun: u64,
-    /// A buffer for the BHS.
+    pub lun: Lun,
     pub buf: [u8; HEADER_LEN],
     /// The SCSI Command Descriptor Block.
     pub cbd: [u8; 16],
@@ -60,17 +56,27 @@ pub struct TurCtx<'a> {
 }
 
 impl<'a> TurCtx<'a> {
+    pub fn from_execute_env(env: ExecuteEnv, lun: Lun) -> Self {
+        Self::new(
+            env.conn,
+            env.itt_gen.as_ref(),
+            env.cmd_sn,
+            env.exp_stat_sn,
+            lun,
+        )
+    }
+
     /// Creates a new `TurCtx` for a TUR operation.
     pub fn new(
         conn: Arc<ClientConnection>,
-        itt: Arc<AtomicU32>,
+        itt_gen: &IttGen,
         cmd_sn: Arc<AtomicU32>,
         exp_stat_sn: Arc<AtomicU32>,
-        lun: u64,
+        lun: Lun,
     ) -> Self {
         Self {
             conn,
-            itt: itt.fetch_add(1, Ordering::SeqCst),
+            itt: itt_gen.fetch_inc(),
             cmd_sn,
             exp_stat_sn,
             lun,
@@ -90,7 +96,7 @@ impl<'a> TurCtx<'a> {
 
         let header = ScsiCommandRequestBuilder::new()
             .initiator_task_tag(self.itt)
-            .lun(self.lun)
+            .lun(self.lun.get())
             .cmd_sn(cmd_sn)
             .exp_stat_sn(esn)
             .task_attribute(TaskAttribute::Simple)

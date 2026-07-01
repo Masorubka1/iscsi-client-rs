@@ -6,18 +6,16 @@
 
 use anyhow::{Result, bail};
 use zerocopy::{
-    BigEndian, FromBytes as ZFromBytes, Immutable, IntoBytes, KnownLayout, U32,
+    BigEndian, FromBytes as ZFromBytes, Immutable, IntoBytes, KnownLayout, U32, U64,
 };
 
 use crate::{
     client::pdu_connection::FromBytes,
     models::{
-        common::{
-            BasicHeaderSegment, HEADER_LEN, InitiatorTaskTag, LogicalUnitNumber,
-            SendingData,
-        },
+        common::{BasicHeaderSegment, HEADER_LEN, SendingData},
         data::common::RawDataOutFlags,
         data_fromat::ZeroCopyType,
+        identifiers::{Itt, Lun, StatSn, Ttt},
         opcode::{BhsOpcode, Opcode, RawBhsOpcode},
     },
 };
@@ -26,19 +24,19 @@ use crate::{
 #[repr(C)]
 #[derive(Debug, Default, PartialEq, ZFromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct ScsiDataOut {
-    pub opcode: RawBhsOpcode,                 // 0 (0x26)
-    pub flags: RawDataOutFlags,               // 1 (F, rest 0)
-    pub reserved2: [u8; 2],                   // 2..4
-    pub total_ahs_length: u8,                 // 4
-    pub data_segment_length: [u8; 3],         // 5..8
-    pub lun: LogicalUnitNumber,               // 8..16
-    pub initiator_task_tag: InitiatorTaskTag, // 16..20
-    pub target_transfer_tag: U32<BigEndian>,  // 20..23
-    pub exp_stat_sn: U32<BigEndian>,          // 24..28
-    pub reserved3: [u8; 8],                   // 28..36
-    pub data_sn: U32<BigEndian>,              // 36..40
-    pub buffer_offset: U32<BigEndian>,        // 40..44
-    pub reserved4: u32,                       // 44..48
+    pub opcode: RawBhsOpcode,         // Byte 0: `Opcode::ScsiDataOut`
+    pub flags: RawDataOutFlags,       // Byte 1: Data-Out flags (Final, etc.)
+    pub reserved2: [u8; 2],           // Bytes 2..4: reserved
+    pub total_ahs_length: u8,         // Byte 4: AHS length in 4-byte words
+    pub data_segment_length: [u8; 3], // Bytes 5..8: data payload length
+    pub lun: U64<BigEndian>,          // Bytes 8..16: LUN
+    pub initiator_task_tag: U32<BigEndian>, // Bytes 16..20: ITT
+    pub target_transfer_tag: U32<BigEndian>, // Bytes 20..24: TTT
+    pub exp_stat_sn: U32<BigEndian>,  // Bytes 24..28: ExpStatSN
+    pub reserved3: [u8; 8],           // Bytes 28..36: reserved
+    pub data_sn: U32<BigEndian>,      // Bytes 36..40: DataSN
+    pub buffer_offset: U32<BigEndian>, // Bytes 40..44: data buffer offset
+    pub reserved4: u32,               // Bytes 44..48: reserved
 }
 
 impl ScsiDataOut {
@@ -101,8 +99,8 @@ impl BasicHeaderSegment for ScsiDataOut {
         BhsOpcode::try_from(self.opcode.raw())
     }
 
-    fn get_initiator_task_tag(&self) -> u32 {
-        self.initiator_task_tag.get()
+    fn get_initiator_task_tag(&self) -> Itt {
+        self.initiator_task_tag.get().into()
     }
 
     #[inline]
@@ -183,26 +181,26 @@ impl ScsiDataOutBuilder {
     }
 
     /// Sets the Logical Unit Number (LUN) for the data transfer.
-    pub fn lun(mut self, lun: u64) -> Self {
-        self.header.lun.set(lun);
+    pub fn lun(mut self, lun: impl Into<Lun>) -> Self {
+        self.header.lun.set(lun.into().get());
         self
     }
 
     /// Sets the Initiator Task Tag (ITT) for the command.
-    pub fn initiator_task_tag(mut self, itt: u32) -> Self {
-        self.header.initiator_task_tag.set(itt);
+    pub fn initiator_task_tag(mut self, tag: impl Into<Itt>) -> Self {
+        self.header.initiator_task_tag.set(tag.into().get());
         self
     }
 
     /// Sets the Target Transfer Tag (TTT) for the data transfer.
-    pub fn target_transfer_tag(mut self, ttt: u32) -> Self {
-        self.header.target_transfer_tag.set(ttt);
+    pub fn target_transfer_tag(mut self, tag: impl Into<Ttt>) -> Self {
+        self.header.target_transfer_tag.set(tag.into().get());
         self
     }
 
     /// Sets the expected status sequence number (ExpStatSN).
-    pub fn exp_stat_sn(mut self, sn: u32) -> Self {
-        self.header.exp_stat_sn.set(sn);
+    pub fn exp_stat_sn(mut self, sn: impl Into<StatSn>) -> Self {
+        self.header.exp_stat_sn.set(sn.into().get());
         self
     }
 

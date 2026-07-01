@@ -13,6 +13,7 @@ use crate::{
     models::{
         common::{BasicHeaderSegment, HEADER_LEN, SendingData},
         data_fromat::{PduResponse, ZeroCopyType},
+        identifiers::Itt,
         nop::response::NopInResponse,
         parse::Pdu,
     },
@@ -21,10 +22,12 @@ use crate::{
 impl ClientConnection {
     pub async fn read_response_raw<T: BasicHeaderSegment + Debug>(
         &self,
-        initiator_task_tag: u32,
+        itt: Itt,
     ) -> Result<(PduResponse<T>, Bytes)> {
+        #[cfg(feature = "profiling-puffin")]
+        profiling::function_scope!();
         self.ensure_active()?;
-        let mut receiver = self.pending.take_receiver(initiator_task_tag)?;
+        let mut receiver = self.pending.take_receiver(itt)?;
 
         let RawPdu {
             mut header,
@@ -44,7 +47,7 @@ impl ClientConnection {
             pdu_header.get_final_bit()
         );
         if !pdu_header.get_final_bit() {
-            self.pending.restore_receiver(initiator_task_tag, receiver);
+            self.pending.restore_receiver(itt, receiver);
         }
 
         Ok((
@@ -57,9 +60,11 @@ impl ClientConnection {
         T: BasicHeaderSegment + FromBytes + Debug + ZeroCopyType,
     >(
         &self,
-        initiator_task_tag: u32,
+        itt: Itt,
     ) -> Result<PduResponse<T>> {
-        let (mut pdu, data) = self.read_response_raw(initiator_task_tag).await?;
+        #[cfg(feature = "profiling-puffin")]
+        profiling::function_scope!();
+        let (mut pdu, data) = self.read_response_raw(itt).await?;
         if let Err(error) = pdu.parse_with_buff(&data) {
             self.poison(format!("invalid response PDU: {error}"));
             return Err(error);
@@ -68,10 +73,14 @@ impl ClientConnection {
     }
 
     pub(super) async fn read_loop(self: Arc<Self>) -> Result<()> {
+        #[cfg(feature = "profiling-puffin")]
+        profiling::function_scope!();
         let mut scratch =
             BytesMut::with_capacity(self.cfg.login.flow.first_burst_length as usize);
 
         loop {
+            #[cfg(feature = "profiling-puffin")]
+            profiling::finish_frame!();
             let (raw_itt, is_final, pdu) = self.read_pdu(&mut scratch).await?;
 
             if self
@@ -90,11 +99,23 @@ impl ClientConnection {
                 continue;
             }
 
+            // When not bound to a Pool (e.g. during SendTargets discovery),
+            // silently discard unsolicited PDUs that we cannot route.
+            if self.session_ref.get().is_none() {
+                debug!(
+                    "discarding unsolicited PDU itt={} (no pool binding)",
+                    raw_itt
+                );
+                continue;
+            }
+
             bail!("no pending request for itt={raw_itt}");
         }
     }
 
-    async fn read_pdu(&self, scratch: &mut BytesMut) -> Result<(u32, bool, RawPdu)> {
+    async fn read_pdu(&self, scratch: &mut BytesMut) -> Result<(Itt, bool, RawPdu)> {
+        #[cfg(feature = "profiling-puffin")]
+        profiling::scope!("read_pdu");
         self.ensure_active()?;
         scratch.clear();
         scratch.resize(HEADER_LEN, 0);
@@ -151,6 +172,8 @@ impl ClientConnection {
         header: [u8; HEADER_LEN],
         payload: Bytes,
     ) -> bool {
+        #[cfg(feature = "profiling-puffin")]
+        profiling::scope!("try_handle_unsolicited_nop_in");
         let mut pdu = PduResponse::<NopInResponse>::from_header_slice(header, &self.cfg);
 
         let target_task_tag = {

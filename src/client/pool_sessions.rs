@@ -15,9 +15,15 @@ use tracing::{debug, info, warn};
 use crate::{
     cfg::config::{AuthConfig, Config},
     client::client::ClientConnection,
-    models::{data_fromat, logout::common::LogoutReason, nop::response::NopInResponse},
+    models::{
+        common::BasicHeaderSegment, data_fromat, identifiers::IttGen,
+        logout::common::LogoutReason, nop::response::NopInResponse,
+    },
     state_machine::{
-        common::StateMachineCtx, login::common::LoginCtx, logout_states::LogoutCtx,
+        common::StateMachineCtx,
+        discovery::{DiscoveredTarget, DiscoveryCtx},
+        login::common::LoginCtx,
+        logout_states::LogoutCtx,
         nop_states::NopCtx,
     },
     utils::generate_isid,
@@ -62,7 +68,7 @@ pub struct Session {
     cmd_sn: Arc<AtomicU32>,
     /// ITT (Initiator Task Tag) generator - unique within a session.
     /// Used to match requests with responses.
-    itt_gen: Arc<AtomicU32>,
+    itt_gen: Arc<IttGen>,
 }
 
 /// Pool of iSCSI sessions and connections
@@ -87,6 +93,15 @@ pub struct Pool {
 }
 
 const MAX_CONNECTION_RECOVERY_ATTEMPTS: usize = 3;
+
+/// Injected session/connection state used to build a state-machine context.
+#[derive(Clone)]
+pub struct ExecuteEnv {
+    pub conn: Arc<ClientConnection>,
+    pub itt_gen: Arc<IttGen>,
+    pub cmd_sn: Arc<AtomicU32>,
+    pub exp_stat_sn: Arc<AtomicU32>,
+}
 
 impl Pool {
     /// Create a pool with its own root cancellation token.
@@ -124,6 +139,8 @@ impl Pool {
 
     /// Login all sessions sequentially.
     pub async fn login_sessions_from_cfg(&self, cfg: &Config) -> Result<Vec<u16>> {
+        #[cfg(feature = "profiling-puffin")]
+        profiling::function_scope!();
         ensure!(self.max_sessions > 0, "max_sessions must be > 0");
 
         let target_name: Arc<str> = Arc::from(cfg.login.identity.target_name.clone());
@@ -153,6 +170,8 @@ impl Pool {
         cid: u16,
         conn: Arc<ClientConnection>,
     ) -> Result<u16> {
+        #[cfg(feature = "profiling-puffin")]
+        profiling::function_scope!();
         self.login_one_and_insert_impl(
             target_name,
             isid,
@@ -170,7 +189,8 @@ impl Pool {
         cid: u16,
         conn: Arc<ClientConnection>,
     ) -> Result<()> {
-        // Read immutable bits upfront (don't hold DashMap guards across await)
+        #[cfg(feature = "profiling-puffin")]
+        profiling::function_scope!();
         let (target_name, isid) = {
             let sess = self
                 .sessions
@@ -203,6 +223,8 @@ impl Pool {
         cid: u16,
         expected: Arc<Connection>,
     ) -> Result<()> {
+        #[cfg(feature = "profiling-puffin")]
+        profiling::function_scope!();
         let sess = self
             .sessions
             .get(&tsih)
@@ -257,6 +279,8 @@ impl Pool {
         cid: u16,
         conn: Arc<ClientConnection>,
     ) -> Result<u16> {
+        #[cfg(feature = "profiling-puffin")]
+        profiling::function_scope!();
         let mut l = LoginCtx::new(conn.clone(), isid, cid, tsih_hint);
         match &conn.cfg.login.auth {
             AuthConfig::Chap(_) => l.set_chap_login(),
@@ -279,8 +303,8 @@ impl Pool {
                     target_name: target_name.clone(),
                     conns: DashMap::with_capacity(self.max_connections as usize),
                     cmd_sn: Arc::new(AtomicU32::new(hdr.exp_cmd_sn.get())),
-                    itt_gen: Arc::new(AtomicU32::new(
-                        hdr.initiator_task_tag.get().wrapping_add(1),
+                    itt_gen: Arc::new(IttGen::new(
+                        hdr.get_initiator_task_tag().get().wrapping_add(1).into(),
                     )),
                 })
             })
@@ -318,6 +342,8 @@ impl Pool {
         cid: u16,
         reason: LogoutReason,
     ) -> Result<()> {
+        #[cfg(feature = "profiling-puffin")]
+        profiling::function_scope!();
         let sess = self
             .sessions
             .get(&tsih)
@@ -329,15 +355,15 @@ impl Pool {
             .with_context(|| format!("CID={cid} not found in TSIH={tsih}"))?
             .clone();
 
-        let mut lo = LogoutCtx::new(
+        let mut ctx = LogoutCtx::new(
             conn.conn.clone(),
-            sess.itt_gen.clone(),
+            &sess.itt_gen,
             sess.cmd_sn.clone(),
             conn.exp_stat_sn.clone(),
             cid,
             reason.clone(),
         );
-        lo.execute(&conn.conn.stop_writes)
+        ctx.execute(&conn.conn.stop_writes)
             .await
             .context("logout (CloseConnection) failed")?;
 
@@ -351,8 +377,10 @@ impl Pool {
         Ok(())
     }
 
-    /// Logout the entire session by TSIH and purge local state.
+    /// Logout all connections and remove the session from the pool.
     pub async fn logout_session(&self, tsih: u16) -> Result<()> {
+        #[cfg(feature = "profiling-puffin")]
+        profiling::function_scope!();
         let sess = self
             .sessions
             .get(&tsih)
@@ -368,7 +396,7 @@ impl Pool {
 
             let mut lo = LogoutCtx::new(
                 conn.conn.clone(),
-                sess.itt_gen.clone(),
+                &sess.itt_gen,
                 sess.cmd_sn.clone(),
                 conn.exp_stat_sn.clone(),
                 cid0,
@@ -401,13 +429,17 @@ impl Pool {
         &self,
         tsih: u16,
         reason: LogoutReason,
-        cid: Option<u16>,
+        cid_opt: Option<u16>,
     ) -> Result<()> {
         match reason {
             LogoutReason::CloseSession => self.logout_session(tsih).await,
             LogoutReason::CloseConnection | LogoutReason::RemoveConnectionForRecovery => {
-                self.logout_connection(tsih, cid.context("failed to get cid")?, reason)
-                    .await
+                self.logout_connection(
+                    tsih,
+                    cid_opt.context("failed to get cid")?,
+                    reason,
+                )
+                .await
             },
         }
     }
@@ -420,6 +452,8 @@ impl Pool {
     /// 4) Half-close the write side (TCP FIN) on all connections.
     /// 5) Cancel the root token to stop remaining I/O.
     pub async fn shutdown_gracefully(&self, max_wait_per_conn: Duration) -> Result<()> {
+        #[cfg(feature = "profiling-puffin")]
+        profiling::function_scope!();
         let all_connections: Vec<Arc<Connection>> = self
             .sessions
             .iter()
@@ -434,11 +468,11 @@ impl Pool {
         debug!("notify state machines to stop writing ti socket");
         for c in &all_connections {
             if let Err(e) = c.conn.graceful_quiesce(max_wait_per_conn).await {
-                warn!("drain failed on TSIH={}?, CID={}: {}", c.cid, c.cid, e);
+                warn!("drain failed on TSIH=? CID={}: {}", c.cid, e);
             }
         }
 
-        debug!("call logout session for 1 connectionf of all sessions");
+        debug!("call logout session for 1 connection of all sessions");
         let tsihs = self.sessions.iter().map(|e| *e.key()).collect::<Vec<_>>();
         for tsih in tsihs {
             if let Err(e) = self.logout_session(tsih).await {
@@ -473,24 +507,23 @@ impl Pool {
     /// it.
     ///
     /// Usage:
-    /// pool.execute_with(tsih, cid, |conn, itt, cmd_sn, exp_stat_sn| {
-    ///     NopCtx::new(conn, lun, itt, cmd_sn, exp_stat_sn, ttt)
+    /// ```ignore
+    /// pool.execute_with_ctx(tsih, cid, |env| {
+    ///     NopCtx::from_execute_env(env, lun, ttt)
     /// }).await?;
-    pub async fn execute_with<Ctx, Res, Build>(
+    /// ```
+    pub async fn execute_with_ctx<Ctx, Res, Build>(
         &self,
         tsih: u16,
         cid: u16,
         build: Build,
     ) -> Result<Res>
     where
-        Build: for<'a> Fn(
-            Arc<ClientConnection>,
-            Arc<AtomicU32>, // ITT
-            Arc<AtomicU32>, // CmdSN
-            Arc<AtomicU32>, // ExpStatSN
-        ) -> Ctx,
+        Build: Fn(ExecuteEnv) -> Ctx,
         Ctx: StateMachineCtx<Ctx, Res>,
     {
+        #[cfg(feature = "profiling-puffin")]
+        profiling::function_scope!();
         for attempt in 0..=MAX_CONNECTION_RECOVERY_ATTEMPTS {
             let sess = self
                 .sessions
@@ -511,12 +544,12 @@ impl Pool {
                     attempt + 1,
                 );
             } else {
-                let mut ctx = build(
-                    conn.conn.clone(),
-                    sess.itt_gen.clone(),
-                    sess.cmd_sn.clone(),
-                    conn.exp_stat_sn.clone(),
-                );
+                let mut ctx = build(ExecuteEnv {
+                    conn: conn.conn.clone(),
+                    itt_gen: sess.itt_gen.clone(),
+                    cmd_sn: sess.cmd_sn.clone(),
+                    exp_stat_sn: conn.exp_stat_sn.clone(),
+                });
                 match ctx.execute(&conn.conn.stop_writes).await {
                     Ok(res) => return Ok(res),
                     Err(error) if conn.conn.is_poisoned() => {
@@ -567,12 +600,34 @@ impl Pool {
         ))
     }
 
+    /// Run SendTargets discovery against a portal using the provided config.
+    ///
+    /// Opens a Discovery-session to the target portal, issues
+    /// `SendTargets=All`, and returns a list of discovered iSCSI target names
+    /// along with their portal addresses.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let cfg = Config::load_from_file("./discovery.yaml")?;
+    /// let targets = Pool::discover_targets(cfg).await?;
+    /// for t in &targets {
+    ///     println!("Target: {} -> {:?}", t.target_name, t.target_addresses);
+    /// }
+    /// ```
+    pub async fn discover_targets(cfg: &Config) -> Result<Vec<DiscoveredTarget>> {
+        let cancel = CancellationToken::new();
+        DiscoveryCtx::discover(cfg.clone(), cancel).await
+    }
+
     pub(crate) async fn execute_nop_reply(
         &self,
         tsih: u16,
         cid: u16,
         pdu: data_fromat::PduResponse<NopInResponse>,
     ) -> Result<()> {
+        #[cfg(feature = "profiling-puffin")]
+        profiling::function_scope!();
         let sess = self
             .sessions
             .get(&tsih)
@@ -586,26 +641,23 @@ impl Pool {
 
         let mut ctx = NopCtx::for_reply(
             conn.conn.clone(),
-            sess.itt_gen.clone(),
+            &sess.itt_gen,
             sess.cmd_sn.clone(),
             conn.exp_stat_sn.clone(),
             pdu,
-        )
-        .expect("failed to build NopCtx::for_reply");
-        ctx.execute(&conn.conn.stop_writes).await.map(|_| ())
+        )?;
+        ctx.execute(&conn.conn.stop_writes).await?;
+        Ok(())
     }
 }
 
 impl Drop for Pool {
     fn drop(&mut self) {
-        // Keep Drop short and non-blocking. We don't spawn long tasks here:
-        // the runtime may already be shutting down and spawned tasks might never run.
-        for sess in self.sessions.iter() {
-            for c in sess.conns.iter() {
-                c.value().conn.stop_writes.cancel();
+        self.cancel.cancel();
+        for entry in self.sessions.iter() {
+            for conn in entry.value().conns.iter() {
+                conn.value().conn.kill_now();
             }
         }
-        // Abort remaining I/O at the nearest await.
-        self.cancel.cancel();
     }
 }

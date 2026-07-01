@@ -37,7 +37,7 @@ fn test_write_pdu_build() -> Result<()> {
 
     let lun_bytes = [0, 1, 0, 0, 0, 0, 0, 0];
     let lun_be = u64::from_be_bytes(lun_bytes);
-    let itt = 2;
+    let itt = 2_u32;
     let cmd_sn = 0;
     let exp_stat_sn = 2;
 

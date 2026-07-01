@@ -4,52 +4,31 @@
 
 # iscsi-client-rs
 
-A pure‑Rust iSCSI initiator **library** for interacting with iSCSI targets over TCP. Build/parse PDUs, perform login (plain or CHAP), and exchange SCSI commands asynchronously.
+Pure-Rust iSCSI initiator library for TCP targets. It builds/parses PDUs, performs login, and runs SCSI commands asynchronously.
 
-> ⚠️ **Status**: tested against Linux `tgt/targetcli` only. Other targets may behave differently. Use with care.
+> Status: tested in CI against `tgt`, `LIO/targetcli`, and `TrueNAS SCALE`.
 
----
+## What is here
 
-## Features
+* Login: plain and CHAP
+* Pool-based session/connection management
+* State machines for login, NOP, READ, WRITE, TUR, MODE SENSE, REPORT LUNS, REQUEST SENSE, INQUIRY, logout
+* CRC32C header/data digests
+* Multi-connection sessions and connection recovery
+* No C dependencies
 
-* iSCSI Login across **Security → Operational → Full‑Feature** phases
-* **CHAP** (MD5) authentication (challenge parsing + response building)
-* Plain login (no authentication)
-* Async networking via **Tokio**
-* Support CancellationToken and Graceful shutdown
-* High‑level state machines for:
-  * **Login** (plain & CHAP)
-  * **NOP** (Nop-Out / Nop-In)
-  * **SCSI READ(10/16)** (Data-In)
-  * **SCSI WRITE(10/16)** (Data-Out; ImmediateData path)
-  * **SCSI READ CAPACITY(16)**
-  * **SCSI TEST UNIT READY(6)**
-  * **SCSI MODE SENSE(6/10)**
-  * **SCSI REPORT LUNS(12)**
-  * **SCSI REQUEST SENSE(6)**
-  * **SCSI INQUIRY EVPD/VPD (6)**
-  * **Logout**
-* Zero C dependencies
+## Important
 
----
+All SCSI I/O must go through `Pool::execute_with_ctx(...)`.
 
-## ⚠️ IMPORTANT: Always use the **Pool**
+Do not call `ClientConnection::send_request` or `read_response*` directly from application code. The pool owns:
 
-All SCSI commands **must** be executed via the session **Pool**.
+* `ITT`, `CmdSN`, `ExpStatSN`
+* per-ITT response channels
+* unsolicited `NOP-In` auto-replies
+* graceful shutdown and poisoned-connection recovery
 
-Why this matters:
-
-* **Correct counters & ordering.** Pool allocates and wires `ITT`, `CmdSN`, `ExpStatSN` for each task and binds them to the right connection (CID) in a session (TSIH).
-* **Channel lifecycle.** Pool creates and removes per‑ITT channels exactly once, avoiding stuck in‑flight requests.
-* **Keep‑alive & unsolicited NOP‑In.** Pool auto‑replies and manages background plumbing; direct use can break this.
-* **Graceful shutdown.** Pool can quiesce writers and drain in‑flight tasks cleanly.
-
-> Do **not** call `ClientConnection::send_request` / `read_response*` directly in application code.
-> Always wrap your state machine into `pool.execute_with(tsih, cid, |conn, itt, cmd_sn, exp_stat_sn| { … })`.
-
----
-
-## Quick start (via Pool)
+## Quick Start
 
 ```rust
 use anyhow::Result;
@@ -58,35 +37,32 @@ use tokio_util::sync::CancellationToken;
 
 use iscsi_client_rs::{
     cfg::config::Config,
-    client::pool_sessions::Pool,
+    client::{client::ClientConnection, pool_sessions::Pool},
+    utils::generate_isid,
 };
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let cfg = Config::load_from_file("./config.yaml")?;
     let cancel = CancellationToken::new();
+    let pool = Arc::new(Pool::with_cancel(&cfg, cancel.clone()));
+    pool.attach_self();
 
-    // Create a Pool (session manager): owns connections and read loops.
-    let pool: Arc<Pool> = Pool::new(cfg.clone(), cancel.clone()).await?;
+    let (isid, _) = generate_isid();
+    let cid = 0u16;
+    let conn = ClientConnection::connect(cfg.clone(), pool.cancel_token().child_token()).await?;
+    let target_name: Arc<str> = Arc::from(cfg.login.identity.target_name.clone());
+    let tsih = pool.login_and_insert(target_name, isid, cid, conn).await?;
 
-    // Open a session (TSIH) + first connection (CID). Auth is taken from cfg.
-    let isid: [u8; 6] = [0x0d, 0x70, 0xbc, 0x71, 0xa1, 0x22];
-    let (tsih, cid) = pool.open_session_and_login(isid).await?;
-
-    // From now on, always use pool.execute_with(tsih, cid, …) to run I/O.
+    let _ = (tsih, cid);
     Ok(())
 }
 ```
 
-> If you build sessions by hand, ensure the connection is **bound**:
-> `ClientConnection::bind_pool_session(pool_weak, tsih, cid)` before any I/O.
-> This enables unsolicited NOP‑In auto‑replies and other internals.
+If you assemble sessions manually, bind the connection to the pool before I/O:
+`ClientConnection::bind_pool_session(pool_weak, tsih, cid)`.
 
----
-
-## Examples (Pool‑first)
-
-### NOP (keep‑alive)
+## Usage
 
 ```rust
 use iscsi_client_rs::{
@@ -95,25 +71,15 @@ use iscsi_client_rs::{
 };
 
 let lun = 1u64 << 48;
-pool.execute_with(tsih, cid, move |conn, itt, cmd_sn, exp_stat_sn| {
-    NopCtx::new(
-        conn,
-        lun,
-        itt,
-        cmd_sn,
-        exp_stat_sn,
-        NopOutRequest::DEFAULT_TAG,
-    )
+pool.execute_with_ctx(tsih, cid, move |env| {
+    NopCtx::from_execute_env(env, lun, NopOutRequest::DEFAULT_TAG)
 })
 .await?;
 ```
 
-### READ(10)
-
 ```rust
 use iscsi_client_rs::{
     control_block::read::build_read10,
-    // adjust the path to your crate's ReadCtx
     state_machine::read_states::ReadCtx,
 };
 
@@ -123,204 +89,91 @@ let block_size = 4096u32;
 let read_len = blocks * block_size;
 
 let mut cdb = [0u8; 16];
-build_read10(&mut cdb, /*lba=*/0, /*blocks=*/blocks, /*flags=*/0, /*control=*/0);
+build_read10(&mut cdb, 0, blocks, 0, 0);
 
-let read_outcome = pool.execute_with(tsih, cid, move |conn, itt, cmd_sn, exp_stat_sn| {
-    ReadCtx::new(
-        conn,
-        lun,
-        itt,
-        cmd_sn,
-        exp_stat_sn,
-        read_len,
-        cdb,
-    )
+let out = pool.execute_with_ctx(tsih, cid, move |env| {
+    ReadCtx::from_execute_env(env, lun, read_len, cdb)
 })
 .await?;
 
-// println!("read {} bytes", read_outcome.data.len());
+let _data = out.data;
 ```
-
-### WRITE(10) — R2T path
 
 ```rust
 use iscsi_client_rs::{
     control_block::write::build_write10,
-    // adjust the path to your crate's WriteCtx
     state_machine::write_states::WriteCtx,
 };
 
 let lun = 1u64 << 48;
 let blocks = 64u32;
 let block_size = 4096u32;
-let bytes = (blocks * block_size) as usize;
-
-let mut payload = vec![0u8; bytes];
-// fill payload …
+let mut payload = vec![0u8; (blocks * block_size) as usize];
 
 let mut cdb = [0u8; 16];
-build_write10(&mut cdb, /*lba=*/0, /*blocks=*/blocks, /*flags=*/0, /*control=*/0);
+build_write10(&mut cdb, 0, blocks, 0, 0);
 
-pool.execute_with(tsih, cid, move |conn, itt, cmd_sn, exp_stat_sn| {
-    WriteCtx::new(
-        conn,
-        lun,
-        itt,
-        cmd_sn,
-        exp_stat_sn,
-        cdb,
-        payload,
-    )
-})
-.await?;
-
-// println!("write ok");
-```
-
-**Notes:**
-
-* If `ImmediateData=Yes` **and** `len ≤ FirstBurstLength`, `WriteCtx` may send the payload in the initial `ScsiCommandRequest`. Otherwise it honors **R2T** windows and segments `Data‑Out` by `min(MRDSL, remaining_in_burst)`; the last PDU in a burst has `F=1`.
-* `ReadyToTransfer` PDUs are **never** final; the Pool keeps the ITT open until the final `ScsiCommandResponse`.
-
----
-
-## Anti‑pattern (don’t do this)
-
-```rust
-// ❌ Bypassing the Pool: sending requests and reading replies manually.
-// This will desynchronize per‑ITT channels and leak in‑flight tasks.
-let conn = /* … */;
-conn.send_request(itt, pdu).await?;
-let rsp = conn.read_response::<…>(itt).await?;
-```
-
-Always route through the Pool:
-
-```rust
-// ✅ Correct
-pool.execute_with(tsih, cid, |conn, itt, cmd_sn, exp_stat_sn| {
-    /* build your state machine here */
+pool.execute_with_ctx(tsih, cid, move |env| {
+    WriteCtx::from_execute_env(env, lun, cdb, payload)
 })
 .await?;
 ```
 
----
+## Concurrency
 
-## Concurrency pattern
-
-Want to parallelize I/O? Launch several `execute_with` calls (different ITTs or LBAs). The Pool handles sequencing and counters.
+Parallel I/O is just parallel `execute_with_ctx` calls. The pool wires sequence numbers and per-request routing.
 
 ```rust
 use futures::future::try_join_all;
 
-let tasks = (0..8).map(|k| {
+let jobs = (0..8).map(|_| {
     let pool = pool.clone();
     async move {
-        pool.execute_with(tsih, cid, move |conn, itt, cmd_sn, exp_stat_sn| {
-            /* e.g., ReadCtx::new(... different LBA/len per k ...) */
+        pool.execute_with_ctx(tsih, cid, move |env| {
+            /* build state machine */
         })
         .await
     }
 });
 
-try_join_all(tasks).await?;
+try_join_all(jobs).await?;
 ```
-
----
 
 ## Troubleshooting
 
-* **Stuck ITTs (e.g., `left [ … ]`).** Ensure finality semantics are consistent in both the low‑level parser and `SendingData` impls:
+* Stuck ITTs usually mean broken finality rules. `ScsiDataIn` is final only when `F=1 && S=1`; `ScsiCommandResponse` is always final; `R2T` is never final.
+* Unsolicited `NOP-In` requires a pool-bound connection.
+* `WRITE` may use ImmediateData for small payloads and R2T windows for the rest.
 
-  * **ScsiDataIn**: channel is final **only** when `F=1 && S=1` (status carried in Data‑In). If `S=0`, expect a separate `ScsiCommandResponse` and keep the channel open.
-  * **ScsiCommandResponse**: always final.
-  * **ReadyToTransfer (R2T)**: never final.
-    These rules must match in *both* `parse::Pdu::get_final_bit()` and `ScsiDataIn`’s `SendingData::get_final_bit()`.
+## CI
 
-* **Unsolicited NOP‑In (TTT ≠ 0xffffffff) needs auto‑reply.** Make sure the connection is bound to the Pool (done automatically by `open_session_and_login`).
-
----
-
-## Architecture overview
-
-### Connection & PDU framing
-
-`Connection` wraps a Tokio TCP stream and frames iSCSI PDUs by their 48‑byte BHS. It:
-
-* writes PDUs via `ToBytes`
-* reads headers + payload with a timeout
-* coalesces multi‑segment payloads using `Continue`/`Final` bits
-* completes a pending request by **Initiator Task Tag (ITT)** and delivers a fully reconstructed `PDUWithData<T>` to the caller
-
-### Sequence & task numbers
-
-* **ITT** (Initiator Task Tag): request correlation per command/flow
-* **CmdSN** / **ExpStatSN**: maintained by caller; on responses we bump `ExpStatSN = stat_sn + 1`
-
-Utility builders produce PDUs with correct fields; state machines update counters for you at the right moments.
-
----
-
-
----
+* Unit tests
+* Integration matrix for `tgt`, `LIO/targetcli`, and `TrueNAS SCALE`
+* Integration test binary is built once and reused across target jobs
 
 ## Roadmap
 
-A high‑level plan, tracked as **Now → Next → Later** with checkboxes. Pool‑first API is the baseline assumption.
+Done:
 
-### Now
+* CRC32C digests
+* Pool-first API
+* SendTargets discovery
+* REPORT LUNS, INQUIRY VPD, MODE SENSE
+* MC/S and basic connection recovery
 
-* **Core protocol & plumbing**
+Next:
 
-  * [x] CRC32C digests (Header/Data; opt‑in)
-  * [x] Unified state machines (Login, NOP, READ/WRITE)
-  * [x] Opcode‑aware finality semantics (Data‑In: final iff **F=1 && S=1**; R2T: never final; ScsiCommandResponse: always final)
-  * [x] **Pool‑first execution path** (per‑ITT channels; auto NOP‑In reply)
-  * [ ] Discovery: **SendTargets** (Text)
-
-* **Reliability & ergonomics**
-
-  * [x] Structured errors with retry hints
-  * [x] Timeouts & cancellation tokens per I/O and login
-  * [x] Back‑pressure & graceful shutdown (quiesce writers, drain in‑flights)
-
-* **Testing & CI**
-
-  * [x] Multi‑target matrix: **tgt**, **LIO/targetcli**, **SCST**
-  * [x] Byte‑exact fixtures for login/PDUs
-  * [ ] Fuzzing (cargo‑fuzz / proptest) for PDUs & text keys
-
-### Next
-
-* **Sessions & recovery**
-  * [x] Multi‑connection sessions (MC/S)
-  * [ ] Reinstatement & session recovery
-  * [ ] ERL1/ERL2: SNACKs, retransmit, CmdSN/StatSN windowing
-* **Security**
-  * [ ] Mutual CHAP (bi‑dir), strict key parsing/normalization
-  * [ ] Optional TLS/TCP (when target supports it)
-* **SCSI coverage**
-  * [x] REPORT LUNS, INQUIRY VPD, MODE SENSE/SELECT
-  * [ ] UNMAP, WRITE SAME, COMPARE‑AND‑WRITE
-  * [ ] TMFs: ABORT TASK, LUN RESET, CLEAR TASK SET
-  * [ ] AEN / Unit Attention flow
-* **Performance**
-  * [x] Zero‑copy build/parse; fewer allocs
-  * [ ] Pipelining & outstanding‑cmd windows
-  * [ ] Auto‑tune: MaxBurstLength, FirstBurstLength
-  * [ ] Scatter‑gather for large Data‑Out
-  * [ ] Benchmarks (throughput/latency) with reproducible profiles
-
-**How we track:** create issues with labels `epic`, `proto`, `perf`, `api`, `testing`, `docs`. Link them here under the matching section.
+* ERL1/ERL2 and SNACKs
+* Mutual CHAP
+* TLS/TCP when target supports it
+* UNMAP / WRITE SAME / TMFs
+* Fuzzing and benchmarks
 
 ## Contributing
 
-We use **DCO** (Signed-off-by on each commit) and require a **CLA** (individual/entity) before the first PR.
-This allows us to keep the project AGPL-only today and offer a commercial license later without recontacting contributors.
+We use DCO and require a CLA before the first PR. See `CONTRIBUTING.md`, `legal/CLA-INDIVIDUAL.md`, and `legal/CLA-ENTITY.md`.
 
-* See `CONTRIBUTING.md`, `legal/CLA-INDIVIDUAL.md`, `legal/CLA-ENTITY.md`.
-
-Issues and PRs are welcome. Please run:
+Before sending changes:
 
 ```bash
 cargo fmt --all
@@ -328,12 +181,8 @@ cargo clippy --tests --benches -- -D warnings
 cargo test
 ```
 
----
-
 ## License
 
 AGPL-3.0-or-later. See [LICENSE-AGPL-3.0.md](./LICENSE-AGPL-3.0.md).
 
-© 2012-2025 Andrei Maltsev
-
-**Commercial licensing:** not available yet; if you need a proprietary license, contact [u7743837492@gmail.com](mailto:u7743837492@gmail.com) to be notified when dual licensing launches.
+Commercial licensing is not available yet. For future proprietary licensing, contact [u7743837492@gmail.com](mailto:u7743837492@gmail.com).

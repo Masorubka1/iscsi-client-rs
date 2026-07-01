@@ -48,6 +48,7 @@ mod unit_tests {
     }
 
     pub mod test_config;
+    pub mod test_discovery;
     pub mod test_login;
     pub mod test_nop;
     pub mod test_read;

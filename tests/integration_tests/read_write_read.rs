@@ -61,10 +61,10 @@ async fn read10_write10_read10_plain_pool() -> Result<()> {
 
     // --- READ CAPACITY: узнаём реальный размер логического блока ---
     let blk_len: usize = match pool
-        .execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
+        .execute_with_ctx(tsih, cid, |env| {
             let mut cdb = [0u8; 16];
             build_read_capacity16(&mut cdb, 0, false, 32, 0);
-            ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, 32, cdb)
+            ReadCtx::from_execute_env(env, lun, 32, cdb)
         })
         .await
     {
@@ -75,10 +75,10 @@ async fn read10_write10_read10_plain_pool() -> Result<()> {
         },
         Err(_) => {
             let rc10 = pool
-                .execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
+                .execute_with_ctx(tsih, cid, |env| {
                     let mut cdb = [0u8; 16];
                     build_read_capacity10(&mut cdb, 0, false, 0);
-                    ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, 8, cdb)
+                    ReadCtx::from_execute_env(env, lun, 8, cdb)
                 })
                 .await
                 .context("READ CAPACITY(10) failed")?;
@@ -92,19 +92,19 @@ async fn read10_write10_read10_plain_pool() -> Result<()> {
 
     // --- READ(10) #1 (прогрев) ---
     let _ = pool
-        .execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
+        .execute_with_ctx(tsih, cid, |env| {
             let mut cdb = [0u8; 16];
             build_read10(&mut cdb, lba, blocks, 0, 0);
-            ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, expected_len, cdb)
+            ReadCtx::from_execute_env(env, lun, expected_len, cdb)
         })
         .await;
 
     // --- READ(10) #1.2 ---
     let rd1 = pool
-        .execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
+        .execute_with_ctx(tsih, cid, |env| {
             let mut cdb = [0u8; 16];
             build_read10(&mut cdb, lba, blocks, 0, 0);
-            ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, expected_len, cdb)
+            ReadCtx::from_execute_env(env, lun, expected_len, cdb)
         })
         .await
         .context("READ(10) #1.2 failed")?;
@@ -117,10 +117,10 @@ async fn read10_write10_read10_plain_pool() -> Result<()> {
     // --- WRITE(10) ---
     let payload = vec![0xA5u8; blk_len];
     let write_once = || {
-        pool.execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
+        pool.execute_with_ctx(tsih, cid, |env| {
             let mut cdb = [0u8; 16];
             build_write10(&mut cdb, lba, blocks, 0, 0);
-            WriteCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, cdb, payload.clone())
+            WriteCtx::from_execute_env(env, lun, cdb, payload.clone())
         })
     };
 
@@ -132,10 +132,10 @@ async fn read10_write10_read10_plain_pool() -> Result<()> {
 
     // --- READ(10) #2 ---
     let rd2 = pool
-        .execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
+        .execute_with_ctx(tsih, cid, |env| {
             let mut cdb = [0u8; 16];
             build_read10(&mut cdb, lba, blocks, 0, 0);
-            ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, expected_len, cdb)
+            ReadCtx::from_execute_env(env, lun, expected_len, cdb)
         })
         .await
         .context("READ(10) #2 failed")?;

@@ -33,7 +33,7 @@ fn test_text_request() -> Result<()> {
     let mut parsed_fixture = PduRequest::<TextRequest>::new_request(header_buf, &cfg);
     parsed_fixture.parse_with_buff_mut(BytesMut::from(&bytes[HEADER_LEN..]))?;
 
-    let itt = 1;
+    let itt = 1_u32;
     let ttt = NopOutRequest::DEFAULT_TAG;
     let cmd_sn = 1;
     let exp_sn = 1939077135;

@@ -9,13 +9,18 @@ use tokio::io::AsyncWriteExt;
 use tracing::debug;
 
 use super::ClientConnection;
-use crate::{client::pdu_connection::ToBytes, models::common::HEADER_LEN};
+use crate::{
+    client::pdu_connection::ToBytes,
+    models::{common::HEADER_LEN, identifiers::Itt},
+};
 
 impl ClientConnection {
     /// Optionally half-close the write side (send FIN). This is irreversible.
     /// Useful for full shutdown after draining. The reader will still consume
     /// any remaining inbound PDUs until EOF.
     pub async fn half_close_writes(&self) -> Result<()> {
+        #[cfg(feature = "profiling-puffin")]
+        profiling::function_scope!();
         let mut writer = self.writer.lock().await;
         let _ = writer.shutdown().await;
         Ok(())
@@ -25,6 +30,8 @@ impl ClientConnection {
         &self,
         mut request: impl ToBytes<Header = [u8; HEADER_LEN], Body = Bytes> + fmt::Debug,
     ) -> Result<()> {
+        #[cfg(feature = "profiling-puffin")]
+        profiling::function_scope!();
         self.ensure_writable()?;
 
         let mut writer = self.writer.lock().await;
@@ -46,19 +53,21 @@ impl ClientConnection {
 
     pub async fn send_request(
         &self,
-        initiator_task_tag: u32,
+        itt: Itt,
         request: impl ToBytes<Header = [u8; HEADER_LEN], Body = Bytes> + Debug,
     ) -> Result<()> {
+        #[cfg(feature = "profiling-puffin")]
+        profiling::function_scope!();
         self.ensure_writable()?;
 
-        let expects_response = initiator_task_tag != u32::MAX;
+        let expects_response = itt.get() != u32::MAX;
         if expects_response {
-            self.pending.register(initiator_task_tag);
+            self.pending.register(itt);
         }
 
         if let Err(error) = self.write(request).await {
             if expects_response {
-                self.pending.remove(initiator_task_tag);
+                self.pending.remove(itt);
             }
             return Err(error);
         }

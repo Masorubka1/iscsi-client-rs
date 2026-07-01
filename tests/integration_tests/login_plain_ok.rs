@@ -28,6 +28,7 @@ async fn login_and_nop() -> Result<()> {
     let target_name: Arc<str> = Arc::from(cfg.login.identity.target_name.clone());
     let isid = test_isid();
     let cid: u16 = 0;
+    let ttt = NopOutRequest::DEFAULT_TAG;
 
     let tsih = pool
         .login_and_insert(target_name, isid, cid, conn.clone())
@@ -36,19 +37,10 @@ async fn login_and_nop() -> Result<()> {
 
     let lun = get_lun();
 
-    // NOP-Out (keep-alive) via pool.execute_with
-    pool.execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
-        NopCtx::new(
-            c,
-            lun,
-            itt,         // Arc<AtomicU32>
-            cmd_sn,      // Arc<AtomicU32>
-            exp_stat_sn, // Arc<AtomicU32>
-            NopOutRequest::DEFAULT_TAG,
-        )
-    })
-    .await
-    .context("NOP failed")?;
+    // NOP-Out (keep-alive) via pool.execute_with_ctx
+    pool.execute_with_ctx(tsih, cid, |env| NopCtx::from_execute_env(env, lun, ttt))
+        .await
+        .context("NOP failed")?;
 
     pool.shutdown_gracefully(Duration::from_secs(10)).await?;
 

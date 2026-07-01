@@ -34,7 +34,7 @@ use crate::{
         pending_requests::PendingRequests,
         pool_sessions::Pool,
     },
-    models::nop::request::NopOutRequest,
+    models::{identifiers::Lun, nop::request::NopOutRequest},
     state_machine::nop_states::NopCtx,
 };
 
@@ -85,6 +85,8 @@ pub struct ClientConnection {
 impl ClientConnection {
     /// Establishes a new TCP connection to the given address.
     pub async fn connect(cfg: Config, cancel: CancellationToken) -> Result<Arc<Self>> {
+        #[cfg(feature = "profiling-puffin")]
+        profiling::function_scope!();
         let stream = io_with_timeout(
             "connect",
             TcpStream::connect(&cfg.login.transport.target_address),
@@ -100,6 +102,8 @@ impl ClientConnection {
 
         let reader = Arc::clone(&conn);
         tokio::spawn(async move {
+            #[cfg(feature = "profiling-puffin")]
+            profiling::register_thread!("iscsi-client-rs::read-loop");
             if let Err(e) = Arc::clone(&reader).read_loop().await {
                 if is_timeout_error(&e) {
                     reader.poison(format!("read loop timeout: {e}"));
@@ -151,6 +155,8 @@ impl ClientConnection {
         buf: &mut [u8],
         label: &'static str,
     ) -> Result<()> {
+        #[cfg(feature = "profiling-puffin")]
+        profiling::scope!("read_exact_with_timeout", label);
         io_with_timeout(
             label,
             reader.read_exact(buf),
@@ -173,6 +179,8 @@ impl ClientConnection {
         buf: &[u8],
         label: &'static str,
     ) -> Result<()> {
+        #[cfg(feature = "profiling-puffin")]
+        profiling::scope!("write_all_with_timeout", label);
         io_with_timeout(
             label,
             writer.write_all(buf),
@@ -273,7 +281,7 @@ impl ClientConnection {
         }
     }
 
-    pub async fn send_keepalive_via_pool_lun(self: &Arc<Self>, lun: u64) -> Result<()> {
+    pub async fn send_keepalive_via_pool_lun(self: &Arc<Self>, lun: Lun) -> Result<()> {
         let sr = self
             .session_ref
             .get()
@@ -282,22 +290,12 @@ impl ClientConnection {
             .pool
             .upgrade()
             .ok_or_else(|| anyhow!("pool has been dropped"))?;
+        let ttt = NopOutRequest::DEFAULT_TAG;
 
-        pool.execute_with(sr.tsih, sr.cid, move |conn, itt, cmd_sn, exp_stat_sn| {
-            NopCtx::new(
-                conn,
-                lun,
-                itt,
-                cmd_sn,
-                exp_stat_sn,
-                NopOutRequest::DEFAULT_TAG,
-            )
+        pool.execute_with_ctx(sr.tsih, sr.cid, move |env| {
+            NopCtx::from_execute_env(env, lun, ttt)
         })
         .await?;
         Ok(())
-    }
-
-    pub async fn send_keepalive_via_pool(self: &Arc<Self>) -> Result<()> {
-        self.send_keepalive_via_pool_lun(1u64 << 48).await
     }
 }

@@ -12,6 +12,7 @@ use iscsi_client_rs::{
     client::{client::ClientConnection, pool_sessions::Pool},
     models::{
         common::{BasicHeaderSegment, HEADER_LEN},
+        identifiers::Lun,
         login::{
             common::Stage,
             request::LoginRequest,
@@ -194,6 +195,7 @@ async fn poisoned_connection_is_recreated_after_timeout() -> Result<()> {
         .login_and_insert(target_name, test_isid(), 0, conn)
         .await
         .context("pool login failed")?;
+    let ttt = NopOutRequest::DEFAULT_TAG;
 
     let before = pool
         .sessions
@@ -205,15 +207,8 @@ async fn poisoned_connection_is_recreated_after_timeout() -> Result<()> {
         .conn
         .clone();
 
-    pool.execute_with(tsih, 0, |c, itt, cmd_sn, exp_stat_sn| {
-        NopCtx::new(
-            c,
-            1u64 << 48,
-            itt,
-            cmd_sn,
-            exp_stat_sn,
-            NopOutRequest::DEFAULT_TAG,
-        )
+    pool.execute_with_ctx(tsih, 0, |env| {
+        NopCtx::from_execute_env(env, Lun::new(1u64 << 48), ttt)
     })
     .await
     .context("NOP after recovery failed")?;

@@ -14,8 +14,9 @@ use crate::{
     client::pdu_connection::FromBytes,
     models::{
         command::zero_copy::{RawResponseCode, RawScsiCmdRespFlags, RawScsiStatus},
-        common::{BasicHeaderSegment, HEADER_LEN, InitiatorTaskTag, SendingData},
+        common::{BasicHeaderSegment, HEADER_LEN, SendingData},
         data_fromat::ZeroCopyType,
+        identifiers::Itt,
         opcode::{BhsOpcode, Opcode, RawBhsOpcode},
     },
 };
@@ -29,40 +30,22 @@ use crate::{
 #[repr(C)]
 #[derive(Debug, PartialEq, ZFromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct ScsiCommandResponse {
-    /// PDU opcode (byte 0) - should be 0x21 for SCSI Response
-    pub opcode: RawBhsOpcode,
-    /// Response flags (byte 1) - Final bit and residual overflow/underflow
-    /// indicators
-    pub flags: RawScsiCmdRespFlags,
-    /// Response code (byte 2) - indicates if command completed successfully
-    pub response: RawResponseCode,
-    /// SCSI status (byte 3) - SCSI command execution status
-    pub status: RawScsiStatus,
-    /// Total Additional Header Segments length (byte 4)
-    pub total_ahs_length: u8,
-    /// Data Segment Length (bytes 5-7) - length of sense data or other response
-    /// data
-    pub data_segment_length: [u8; 3],
-    /// Reserved bytes (8-15)
-    reserved: [u8; 8],
-    /// Initiator Task Tag (bytes 16-19) - matches the original command ITT
-    pub initiator_task_tag: InitiatorTaskTag,
-    /// SNACK Tag (bytes 20-23) - used for data recovery
-    pub snack_tag: U32<BigEndian>,
-    /// Status Sequence Number (bytes 24-27) - sequence number for this response
-    pub stat_sn: U32<BigEndian>,
-    /// Expected Command Sequence Number (bytes 28-31) - next expected command
-    pub exp_cmd_sn: U32<BigEndian>,
-    /// Maximum Command Sequence Number (bytes 32-35) - command window limit
-    pub max_cmd_sn: U32<BigEndian>,
-    /// Expected Data Sequence Number (bytes 36-39) - for data recovery
-    pub exp_data_sn: U32<BigEndian>,
-    /// Bidirectional Read Residual Count (bytes 40-43) - unused read data
-    /// length
-    pub bidirectional_read_residual_count: U32<BigEndian>,
-    /// Residual Count (bytes 44-47) - difference between expected and actual
-    /// data transfer
-    pub residual_count: U32<BigEndian>,
+    pub opcode: RawBhsOpcode, // Byte 0: `Opcode::ScsiCommandResp`
+    pub flags: RawScsiCmdRespFlags, // Byte 1: Final/residual-status flags
+    pub response: RawResponseCode, // Byte 2: iSCSI response code
+    pub status: RawScsiStatus, // Byte 3: SCSI status
+    pub total_ahs_length: u8, // Byte 4: AHS length in 4-byte words
+    pub data_segment_length: [u8; 3], // Bytes 5..8: sense/response payload length
+    reserved: [u8; 8],        // Bytes 8..16: reserved
+    pub initiator_task_tag: U32<BigEndian>, // Bytes 16..20: ITT
+    pub snack_tag: U32<BigEndian>, // Bytes 20..24: SNACK tag
+    pub stat_sn: U32<BigEndian>, // Bytes 24..28: StatSN
+    pub exp_cmd_sn: U32<BigEndian>, // Bytes 28..32: ExpCmdSN
+    pub max_cmd_sn: U32<BigEndian>, // Bytes 32..36: MaxCmdSN
+    pub exp_data_sn: U32<BigEndian>, // Bytes 36..40: ExpDataSN
+    pub bidirectional_read_residual_count: U32<BigEndian>, /* Bytes 40..44: bidi
+                               * residual count */
+    pub residual_count: U32<BigEndian>, // Bytes 44..48: residual count
 }
 
 impl ScsiCommandResponse {
@@ -160,8 +143,8 @@ impl BasicHeaderSegment for ScsiCommandResponse {
     }
 
     #[inline]
-    fn get_initiator_task_tag(&self) -> u32 {
-        self.initiator_task_tag.get()
+    fn get_initiator_task_tag(&self) -> Itt {
+        self.initiator_task_tag.get().into()
     }
 
     #[inline]

@@ -7,19 +7,17 @@
 
 use anyhow::Result;
 use enum_dispatch::enum_dispatch;
-use zerocopy::{BigEndian, U32, U64};
 
 use crate::models::opcode::BhsOpcode;
 
 /// The fixed length of the Basic Header Segment (BHS) in bytes.
 pub const HEADER_LEN: usize = 48;
 
-pub type InitiatorTaskTag = U32<BigEndian>;
-pub type TargetTaskTag = U32<BigEndian>;
-pub type LogicalUnitNumber = U64<BigEndian>;
+pub use crate::models::identifiers::Itt;
+
 
 /// Common helper-trait for PDUs that may be fragmented into several
-/// wire-frames (RFC 7143 ― “F”/“C” bits).
+/// wire-frames (RFC 7143 ― "F"/"C" bits).
 ///
 /// *Most* iSCSI PDUs are transferred in a single frame, but a few
 /// (Text, Login, SCSI Command/Data, …) allow the sender to split the
@@ -68,7 +66,7 @@ pub trait BasicHeaderSegment: Sized + SendingData {
     fn get_opcode(&self) -> Result<BhsOpcode>;
 
     /// Expose Initiator Task Tag of this PDU
-    fn get_initiator_task_tag(&self) -> u32;
+    fn get_initiator_task_tag(&self) -> Itt;
 
     /// Number of extra AHS bytes (always a multiple of 4).
     fn get_ahs_length_bytes(&self) -> usize;
@@ -142,7 +140,7 @@ impl<T: BasicHeaderSegment> BasicHeaderSegment for &mut T {
     }
 
     #[inline]
-    fn get_initiator_task_tag(&self) -> u32 {
+    fn get_initiator_task_tag(&self) -> Itt {
         (**self).get_initiator_task_tag()
     }
 

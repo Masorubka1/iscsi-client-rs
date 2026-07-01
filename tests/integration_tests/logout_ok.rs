@@ -29,6 +29,7 @@ async fn logout_close_session() -> Result<()> {
     // ---- Login via Pool ----
     let isid = test_isid();
     let cid: u16 = 0;
+    let ttt = NopOutRequest::DEFAULT_TAG;
     let target_name: Arc<str> = Arc::from(cfg.login.identity.target_name.clone());
 
     let tsih = pool
@@ -38,18 +39,9 @@ async fn logout_close_session() -> Result<()> {
 
     // ---- NOP (NOP-Out -> NOP-In) via pool ----
     let lun = get_lun();
-    pool.execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
-        NopCtx::new(
-            c,
-            lun,
-            itt,         // Arc<AtomicU32>
-            cmd_sn,      // Arc<AtomicU32>
-            exp_stat_sn, // Arc<AtomicU32>
-            NopOutRequest::DEFAULT_TAG,
-        )
-    })
-    .await
-    .context("nop failed")?;
+    pool.execute_with_ctx(tsih, cid, |env| NopCtx::from_execute_env(env, lun, ttt))
+        .await
+        .context("nop failed")?;
 
     pool.logout(tsih, LogoutReason::CloseConnection, Some(cid))
         .await?;

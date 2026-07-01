@@ -5,18 +5,18 @@ use anyhow::{Result, anyhow};
 use dashmap::DashMap;
 use tokio::sync::mpsc;
 
-use crate::client::common::RawPdu;
+use crate::{client::common::RawPdu, models::identifiers::Itt};
 
 const RESPONSE_QUEUE_CAPACITY: usize = 32;
 
 #[derive(Debug, Default)]
 pub(super) struct PendingRequests {
-    senders: DashMap<u32, mpsc::Sender<RawPdu>>,
-    receivers: DashMap<u32, mpsc::Receiver<RawPdu>>,
+    senders: DashMap<Itt, mpsc::Sender<RawPdu>>,
+    receivers: DashMap<Itt, mpsc::Receiver<RawPdu>>,
 }
 
 impl PendingRequests {
-    pub(super) fn register(&self, itt: u32) {
+    pub(super) fn register(&self, itt: Itt) {
         if self.senders.contains_key(&itt) {
             return;
         }
@@ -26,25 +26,25 @@ impl PendingRequests {
         self.receivers.insert(itt, rx);
     }
 
-    pub(super) fn remove(&self, itt: u32) {
+    pub(super) fn remove(&self, itt: Itt) {
         self.senders.remove(&itt);
         self.receivers.remove(&itt);
     }
 
-    pub(super) fn take_receiver(&self, itt: u32) -> Result<mpsc::Receiver<RawPdu>> {
+    pub(super) fn take_receiver(&self, itt: Itt) -> Result<mpsc::Receiver<RawPdu>> {
         self.receivers
             .remove(&itt)
             .map(|(_, receiver)| receiver)
             .ok_or_else(|| anyhow!("no pending request with itt={itt}"))
     }
 
-    pub(super) fn restore_receiver(&self, itt: u32, receiver: mpsc::Receiver<RawPdu>) {
+    pub(super) fn restore_receiver(&self, itt: Itt, receiver: mpsc::Receiver<RawPdu>) {
         self.receivers.insert(itt, receiver);
     }
 
     pub(super) async fn deliver(
         &self,
-        itt: u32,
+        itt: Itt,
         pdu: RawPdu,
         is_final: bool,
     ) -> Result<()> {
@@ -74,7 +74,7 @@ impl PendingRequests {
         self.senders.len()
     }
 
-    pub(super) fn inflight_tags(&self) -> Vec<u32> {
+    pub(super) fn inflight_tags(&self) -> Vec<Itt> {
         let mut tags = self
             .senders
             .iter()

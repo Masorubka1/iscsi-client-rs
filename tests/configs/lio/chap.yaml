@@ -4,7 +4,6 @@ login:
     InitiatorName: iqn.2004-10.com.ubuntu:01:c676ed18968f
     InitiatorAlias: ubuntu
     TargetName: iqn.2025-08.com.example:disk0
-    IsX86: No
   auth:
     AuthMethod: CHAP
     username: testuser
@@ -36,7 +35,7 @@ login:
     DefaultTime2Retain: 0
 
   limits:
-    MaxConnections: 2
+    MaxConnections: 1
 
   extensions:
     IFMarker: "No"
