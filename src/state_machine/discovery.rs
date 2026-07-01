@@ -218,7 +218,10 @@ impl<'ctx> StateMachine<DiscoveryCtx<'ctx>, DiscoveryStep> for Login {
             };
 
             let mut login_ctx = LoginCtx::new(Arc::clone(&conn), ctx.isid, 0, 0);
-            login_ctx.set_plain_login();
+            match &conn.cfg.login.auth {
+                crate::cfg::config::AuthConfig::Chap(_) => login_ctx.set_chap_login(),
+                crate::cfg::config::AuthConfig::None => login_ctx.set_plain_login(),
+            }
 
             let login_pdu = match login_ctx.execute(&ctx.cancel).await {
                 Ok(pdu) => pdu,

@@ -3,41 +3,38 @@
 
 use anyhow::{Context, Result};
 use iscsi_client_rs::{
-    cfg::{config::Config, logger::init_logger},
+    cfg::{config::Config, enums::SessionType, logger::init_logger},
     state_machine::discovery::DiscoveredTarget,
 };
 
 use crate::integration_tests::common::test_path;
 
-/// Verify that SendTargets discovery returns the expected target name and
-/// portal address. Always discovers against a plain (no-auth) target;
-/// the discovery port/IQN are derived from `TEST_CONFIG`.
+/// Verify that SendTargets discovery works against the current target.
+///
+/// Reuses `TEST_CONFIG` but switches `SessionType` to `Discovery`,
+/// clears `TargetName`, and overrides `AuthMethod` to `None` (the target
+/// never requires CHAP for discovery).
 #[tokio::test]
 async fn send_targets_discovery_tgt() -> Result<()> {
     let _ = init_logger(&test_path());
 
-    let test_cfg = test_path();
+    let mut cfg =
+        Config::load_from_file(&test_path()).context("failed to load test config")?;
 
-    // Pick the right discovery config and expected IQN based on which
-    // target is running.
-    let (discovery_cfg_path, expected_iqn) = if test_cfg.contains("/tgt/") {
-        // All tgt profiles share the same plain discovery config and IQN.
-        (
-            "tests/configs/tgt/discovery.yaml",
-            "iqn.2025-08.example:disk0",
-        )
-    } else if test_cfg.contains("/lio/") {
-        (
-            "tests/configs/lio/discovery.yaml",
-            "iqn.2025-08.com.example:disk0",
-        )
+    // Switch to discovery mode
+    cfg.login.identity.initiator_name.clear();
+    cfg.login.identity.session_type = SessionType::Discovery;
+    cfg.login.identity.target_name.clear();
+    // Discovery never needs auth
+    cfg.login.auth = iscsi_client_rs::cfg::config::AuthConfig::None;
+    // Single connection is enough
+    cfg.login.limits.max_connections = 1;
+
+    let expected_iqn = if test_path().contains("/lio/") {
+        "iqn.2025-08.com.example:disk0"
     } else {
-        // Fallback: vanilla config at repo root
-        ("tests/config.yaml", "iqn.2025-08.example:disk0")
+        "iqn.2025-08.example:disk0"
     };
-
-    let cfg = Config::load_from_file(discovery_cfg_path)
-        .context("failed to load discovery config")?;
 
     let targets: Vec<DiscoveredTarget> =
         iscsi_client_rs::client::pool_sessions::Pool::discover_targets(&cfg)
@@ -57,7 +54,6 @@ async fn send_targets_discovery_tgt() -> Result<()> {
         targets.iter().map(|t| &t.target_name).collect::<Vec<_>>()
     );
 
-    // Verify that the discovered target has at least one portal address.
     if let Some(t) = targets.iter().find(|t| t.target_name == expected_iqn) {
         assert!(
             !t.target_addresses.is_empty(),
