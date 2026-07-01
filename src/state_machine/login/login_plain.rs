@@ -10,6 +10,7 @@ use crate::{
     models::{
         common::{BasicHeaderSegment, Builder},
         data_fromat::PduRequest,
+        identifiers::Itt,
         login::{
             common::Stage,
             request::{LoginRequest, LoginRequestBuilder},
@@ -42,7 +43,7 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for PlainStart {
                 .csg(Stage::Operational)
                 .nsg(Stage::FullFeature)
                 .versions(0, 0)
-                .initiator_task_tag(ctx.itt)
+                .initiator_task_tag(Itt::default())
                 .connection_id(ctx.cid);
 
             if let Err(e) = header.header.to_bhs_bytes(ctx.buf.as_mut_slice()) {
@@ -54,9 +55,13 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for PlainStart {
             sec_bytes.extend_from_slice(&login_keys_operational(&ctx.conn.cfg));
             pdu.append_data(&sec_bytes);
 
-            match ctx.conn.send_request(ctx.itt, pdu).await {
+            match ctx.conn.send_request(Itt::default(), pdu).await {
                 Err(e) => Transition::Done(Err(e)),
-                Ok(()) => match ctx.conn.read_response::<LoginResponse>(ctx.itt).await {
+                Ok(()) => match ctx
+                    .conn
+                    .read_response::<LoginResponse>(Itt::default())
+                    .await
+                {
                     Ok(rsp) => {
                         let nsg = match rsp.header_view() {
                             Ok(header) => header.flags.nsg(),

@@ -14,6 +14,7 @@ use crate::{
     models::{
         common::{BasicHeaderSegment, Builder},
         data_fromat::PduRequest,
+        identifiers::Itt,
         login::{
             common::Stage,
             request::{LoginRequest, LoginRequestBuilder},
@@ -98,7 +99,7 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for ChapSecurity {
             let header = LoginRequestBuilder::new(ctx.isid, ctx.tsih)
                 .csg(Stage::Security)
                 .nsg(Stage::Security)
-                .initiator_task_tag(ctx.itt)
+                .initiator_task_tag(Itt::default())
                 .connection_id(ctx.cid)
                 .cmd_sn(0)
                 .exp_stat_sn(0);
@@ -110,9 +111,13 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for ChapSecurity {
             let mut pdu = PduRequest::<LoginRequest>::new_request(ctx.buf, &ctx.conn.cfg);
             pdu.append_data(login_keys_security(&ctx.conn.cfg).as_slice());
 
-            match ctx.conn.send_request(ctx.itt, pdu).await {
+            match ctx.conn.send_request(Itt::default(), pdu).await {
                 Err(e) => Transition::Done(Err(e)),
-                Ok(()) => match ctx.conn.read_response::<LoginResponse>(ctx.itt).await {
+                Ok(()) => match ctx
+                    .conn
+                    .read_response::<LoginResponse>(Itt::default())
+                    .await
+                {
                     Ok(rsp) => {
                         ctx.last_response = Some(rsp);
                         Transition::Next(LoginStates::ChapA(ChapA), Ok(()))
