@@ -16,7 +16,7 @@ use crate::{
     models::{
         common::{Builder, HEADER_LEN},
         data_fromat::PduRequest,
-        identifiers::Itt,
+        identifiers::{Cid, Isid, Itt, Tsih},
         logout::{
             common::LogoutReason,
             request::{LogoutRequest, LogoutRequestBuilder},
@@ -55,7 +55,8 @@ pub struct DiscoveryCtx<'a> {
     pub cmd_sn: u32,
     pub exp_stat_sn: u32,
     pub buf: [u8; HEADER_LEN],
-    pub isid: [u8; 6],
+    /// Initiator-selected identifier for the discovery session.
+    pub isid: Isid,
 
     state: Option<DiscoveryStates>,
 }
@@ -79,7 +80,7 @@ impl<'a> DiscoveryCtx<'a> {
             cmd_sn: 0,
             exp_stat_sn: 0,
             buf: [0u8; HEADER_LEN],
-            isid,
+            isid: Isid::new(isid),
             state: Some(DiscoveryStates::Connect(Connect)),
             _lt: PhantomData,
         }
@@ -217,7 +218,8 @@ impl<'ctx> StateMachine<DiscoveryCtx<'ctx>, DiscoveryStep> for Login {
                 None => return Transition::Done(Err(anyhow!("no connection"))),
             };
 
-            let mut login_ctx = LoginCtx::new(Arc::clone(&conn), ctx.isid, 0, 0);
+            let mut login_ctx =
+                LoginCtx::new(Arc::clone(&conn), ctx.isid, Cid::ZERO, Tsih::NONE);
             match &conn.cfg.login.auth {
                 AuthConfig::Chap(_) => login_ctx.set_chap_login(),
                 AuthConfig::None => login_ctx.set_plain_login(),
@@ -371,7 +373,7 @@ impl<'ctx> StateMachine<DiscoveryCtx<'ctx>, DiscoveryStep> for Logout {
             };
 
             let header =
-                LogoutRequestBuilder::new(LogoutReason::CloseSession, ctx.itt, 0)
+                LogoutRequestBuilder::new(LogoutReason::CloseSession, ctx.itt, Cid::ZERO)
                     .cmd_sn(ctx.cmd_sn)
                     .exp_stat_sn(ctx.exp_stat_sn);
 

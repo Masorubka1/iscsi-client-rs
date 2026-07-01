@@ -17,6 +17,11 @@ fn integration_configs_are_valid() -> Result<()> {
 
     let plain = Config::load_from_file("tests/configs/lio/plain.yaml")?;
     assert!(matches!(plain.login.auth, AuthConfig::None));
+    assert_eq!(plain.runtime.response_queue_capacity, 256);
+    assert_eq!(plain.runtime.max_connection_recovery_attempts, 3);
+    let mut invalid = plain;
+    invalid.runtime.response_queue_capacity = 0;
+    assert!(invalid.validate_and_normalize().is_err());
 
     let chap = Config::load_from_file("tests/configs/lio/chap.yaml")?;
     let AuthConfig::Chap(chap) = chap.login.auth else {

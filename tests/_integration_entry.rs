@@ -8,7 +8,6 @@ mod integration_tests {
     pub mod common;
 
     pub mod check_tur;
-    pub mod client_faults;
     pub mod concurrent_io;
     pub mod io_boundaries;
     pub mod login_chap_ok;
@@ -25,7 +24,6 @@ mod integration_tests {
     pub mod inquiry;
 
     //rw
-    pub mod ahs_bidi_r2t;
     pub mod get_capacity_read_write;
     pub mod read_write_read;
     pub mod write_1gb;

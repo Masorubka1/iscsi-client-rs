@@ -18,7 +18,7 @@ impl ClientConnection {
     /// Optionally half-close the write side (send FIN). This is irreversible.
     /// Useful for full shutdown after draining. The reader will still consume
     /// any remaining inbound PDUs until EOF.
-    pub async fn half_close_writes(&self) -> Result<()> {
+    pub(crate) async fn half_close_writes(&self) -> Result<()> {
         #[cfg(feature = "profiling-puffin")]
         profiling::function_scope!();
         let mut writer = self.writer.lock().await;
@@ -51,7 +51,7 @@ impl ClientConnection {
         Ok(())
     }
 
-    pub async fn send_request(
+    pub(crate) async fn send_request(
         &self,
         itt: Itt,
         request: impl ToBytes<Header = [u8; HEADER_LEN], Body = Bytes> + Debug,

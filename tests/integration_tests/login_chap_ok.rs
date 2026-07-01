@@ -31,14 +31,13 @@ async fn login_chap_ok() -> Result<()> {
     }
 
     // Pool setup (needed for counters + auto NOP handling)
-    let pool = Arc::new(Pool::new(&cfg));
-    pool.attach_self();
+    let pool = Pool::new(&cfg);
 
     // Pre-connected TCP (helper) and attach into a new session as CID=0
     let conn = connect_cfg(&cfg).await?;
     let target_name: Arc<str> = Arc::from(cfg.login.identity.target_name.clone());
     let isid = test_isid();
-    let cid: u16 = 0;
+    let cid = iscsi_client_rs::models::identifiers::Cid::ZERO;
     let ttt = NopOutRequest::DEFAULT_TAG;
 
     // ---- Login via pool (CHAP path selected by cfg) ----

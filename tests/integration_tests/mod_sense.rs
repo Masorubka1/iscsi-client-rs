@@ -24,13 +24,12 @@ async fn login_tur_mode_sense_pool() -> Result<()> {
     // --- Pool + connect + login ---
     let cfg: Arc<Config> = Arc::new(load_config()?);
 
-    let pool = Arc::new(Pool::new(&cfg));
-    pool.attach_self();
+    let pool = Pool::new(&cfg);
 
     let conn = connect_cfg(&cfg).await?;
     let target_name: Arc<str> = Arc::from(cfg.login.identity.target_name.clone());
     let isid = test_isid();
-    let cid: u16 = 0;
+    let cid = iscsi_client_rs::models::identifiers::Cid::ZERO;
 
     let tsih = pool
         .login_and_insert(target_name, isid, cid, conn.clone())

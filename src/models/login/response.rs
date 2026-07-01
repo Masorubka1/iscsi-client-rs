@@ -34,16 +34,18 @@ pub struct LoginResponse {
     pub version_active: u8,           // Byte 3: negotiated active iSCSI version
     pub total_ahs_length: u8,         // Byte 4: AHS length in 4-byte words
     pub data_segment_length: [u8; 3], // Bytes 5..8: login text payload length
-    pub isid: [u8; 6],                // Bytes 8..14: ISID echoed from initiator
-    pub tsih: U16<BigEndian>,         // Bytes 14..16: assigned TSIH
+    /// Initiator Session Identifier echoed from the login request.
+    pub isid: [u8; 6],
+    /// Target Session Identifying Handle assigned by the target.
+    pub tsih: U16<BigEndian>,
     pub initiator_task_tag: U32<BigEndian>, // Bytes 16..20: ITT
-    reserved1: [u8; 4],               // Bytes 20..24: reserved
-    pub stat_sn: U32<BigEndian>,      // Bytes 24..28: StatSN
-    pub exp_cmd_sn: U32<BigEndian>,   // Bytes 28..32: ExpCmdSN
-    pub max_cmd_sn: U32<BigEndian>,   // Bytes 32..36: MaxCmdSN
-    pub status_class: RawStatusClass, // Byte 36: login status class
-    pub status_detail: RawStatusDetail, // Byte 37: login status detail
-    reserved2: [u8; 10],              // Bytes 38..48: reserved
+    reserved1: [u8; 4],                     // Bytes 20..24: reserved
+    pub stat_sn: U32<BigEndian>,            // Bytes 24..28: StatSN
+    pub exp_cmd_sn: U32<BigEndian>,         // Bytes 28..32: ExpCmdSN
+    pub max_cmd_sn: U32<BigEndian>,         // Bytes 32..36: MaxCmdSN
+    pub status_class: RawStatusClass,       // Byte 36: login status class
+    pub status_detail: RawStatusDetail,     // Byte 37: login status detail
+    reserved2: [u8; 10],                    // Bytes 38..48: reserved
 }
 
 impl LoginResponse {

@@ -6,8 +6,9 @@
 #![allow(clippy::module_inception)]
 /// The main iSCSI client implementation.
 pub mod client;
-/// Common structures and functions for the client.
-pub mod common;
+#[cfg(test)]
+mod client_faults_tests;
+mod common;
 /// Traits for handling PDU serialization and deserialization.
 pub mod pdu_connection;
 mod pending_requests;

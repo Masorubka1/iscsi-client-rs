@@ -10,19 +10,21 @@ use iscsi_client_rs::{
         logger::init_logger,
     },
     client::pool_sessions::Pool,
+    models::identifiers::Cid,
 };
 
 use crate::integration_tests::common::{connect_cfg, load_config, test_isid, test_path};
 
 async fn assert_login_rejected(cfg: Config, isid_suffix: u8) -> Result<()> {
-    let pool = Arc::new(Pool::new(&cfg));
-    pool.attach_self();
+    let pool = Pool::new(&cfg);
     let conn = connect_cfg(&cfg).await?;
     let target_name: Arc<str> = Arc::from(cfg.login.identity.target_name.clone());
-    let mut isid = test_isid();
+    let mut isid = test_isid().get();
     isid[5] = isid_suffix;
 
-    let result = pool.login_and_insert(target_name, isid, 0, conn).await;
+    let result = pool
+        .login_and_insert(target_name, isid.into(), Cid::ZERO, conn)
+        .await;
     assert!(
         result.is_err(),
         "invalid authentication unexpectedly succeeded"

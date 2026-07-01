@@ -8,7 +8,6 @@ use std::{
 
 use anyhow::{Context, Result, ensure};
 use dashmap::DashMap;
-use once_cell::sync::OnceCell;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
@@ -16,8 +15,11 @@ use crate::{
     cfg::config::{AuthConfig, Config},
     client::client::ClientConnection,
     models::{
-        common::BasicHeaderSegment, data_fromat, identifiers::IttGen,
-        logout::common::LogoutReason, nop::response::NopInResponse,
+        common::BasicHeaderSegment,
+        data_fromat,
+        identifiers::{Cid, Isid, IttGen, Tsih},
+        logout::common::LogoutReason,
+        nop::response::NopInResponse,
     },
     state_machine::{
         common::StateMachineCtx,
@@ -26,7 +28,6 @@ use crate::{
         logout_states::LogoutCtx,
         nop_states::NopCtx,
     },
-    utils::generate_isid,
 };
 
 /// Per-connection state within an iSCSI session
@@ -37,7 +38,8 @@ use crate::{
 #[derive(Debug)]
 pub struct Connection {
     /// Connection ID - unique identifier for this connection within the session
-    pub cid: u16,
+    /// Identifier of this connection within its session.
+    pub cid: Cid,
     /// Reference to the underlying client connection handling TCP communication
     pub conn: Arc<ClientConnection>,
     /// Next Expected StatSN (ACK). Bumped when we accept a reply from target.
@@ -54,14 +56,16 @@ pub struct Connection {
 #[derive(Debug)]
 pub struct Session {
     /// Target Session Identifying Handle - assigned by target during login
-    pub tsih: u16,
+    /// Handle assigned by the target to this session.
+    pub tsih: Tsih,
     /// Initiator Session ID - 6 bytes identifying the session from initiator
     /// side
-    pub isid: [u8; 6],
+    /// Identifier selected by the initiator for this session.
+    pub isid: Isid,
     /// Name of the target this session is connected to
     pub target_name: Arc<str>,
     /// Map of connection ID to connection objects within this session
-    pub conns: DashMap<u16, Arc<Connection>>,
+    pub conns: DashMap<Cid, Arc<Connection>>,
 
     /// CmdSN generator for numbered commands (incremented on every
     /// non-immediate command). Ensures proper command ordering.
@@ -78,21 +82,21 @@ pub struct Session {
 /// Acts as the main orchestrator for all iSCSI communication.
 pub struct Pool {
     /// Map of TSIH to session objects - all active sessions
-    pub sessions: DashMap<u16, Arc<Session>>,
+    pub sessions: DashMap<Tsih, Arc<Session>>,
     /// Maximum number of sessions allowed in this pool
     max_sessions: u32,
     /// Maximum number of connections per session
     max_connections: u16,
+    /// Retries allowed after the initial connection failure.
+    max_connection_recovery_attempts: usize,
     /// Weak self-reference to avoid circular dependencies
-    self_weak: OnceCell<Weak<Pool>>,
+    self_weak: Weak<Pool>,
 
     /// Root cancellation token for the entire pool.
     /// Child tokens are passed to connections so we can abort all I/O on full
     /// shutdown.
     cancel: CancellationToken,
 }
-
-const MAX_CONNECTION_RECOVERY_ATTEMPTS: usize = 3;
 
 /// Injected session/connection state used to build a state-machine context.
 #[derive(Clone)]
@@ -105,25 +109,22 @@ pub struct ExecuteEnv {
 
 impl Pool {
     /// Create a pool with its own root cancellation token.
-    pub fn new(cfg: &Config) -> Self {
-        Self {
-            sessions: DashMap::with_capacity(cfg.runtime.max_sessions as usize),
-            max_sessions: cfg.runtime.max_sessions,
-            max_connections: cfg.login.limits.max_connections,
-            self_weak: OnceCell::new(),
-            cancel: CancellationToken::new(),
-        }
+    pub fn new(cfg: &Config) -> Arc<Self> {
+        Self::with_cancel(cfg, CancellationToken::new())
     }
 
     /// Optionally construct with an external root cancellation token.
-    pub fn with_cancel(cfg: &Config, cancel: CancellationToken) -> Self {
-        Self {
+    pub fn with_cancel(cfg: &Config, cancel: CancellationToken) -> Arc<Self> {
+        Arc::new_cyclic(|self_weak| Self {
             sessions: DashMap::with_capacity(cfg.runtime.max_sessions as usize),
             max_sessions: cfg.runtime.max_sessions,
             max_connections: cfg.login.limits.max_connections,
-            self_weak: OnceCell::new(),
+            max_connection_recovery_attempts: cfg
+                .runtime
+                .max_connection_recovery_attempts,
+            self_weak: self_weak.clone(),
             cancel,
-        }
+        })
     }
 
     /// Expose the root token (e.g., if callers want to create siblings).
@@ -132,13 +133,8 @@ impl Pool {
         self.cancel.clone()
     }
 
-    /// Must be called once after creating Arc<Pool>.
-    pub fn attach_self(self: &Arc<Self>) {
-        let _ = self.self_weak.set(Arc::downgrade(self));
-    }
-
     /// Login all sessions sequentially.
-    pub async fn login_sessions_from_cfg(&self, cfg: &Config) -> Result<Vec<u16>> {
+    pub async fn login_sessions_from_cfg(&self, cfg: &Config) -> Result<Vec<Tsih>> {
         #[cfg(feature = "profiling-puffin")]
         profiling::function_scope!();
         ensure!(self.max_sessions > 0, "max_sessions must be > 0");
@@ -149,10 +145,10 @@ impl Pool {
         for _ in 0..self.max_sessions {
             let child = self.cancel.child_token();
             let conn = ClientConnection::connect(cfg.clone(), child).await?;
-            let (isid, _) = generate_isid();
+            let (isid, _) = Isid::generate();
 
             let tsih = self
-                .login_and_insert(target_name.clone(), isid, 0u16, conn)
+                .login_and_insert(target_name.clone(), isid, Cid::ZERO, conn)
                 .await?;
 
             tsihs.push(tsih);
@@ -166,27 +162,21 @@ impl Pool {
     pub async fn login_and_insert(
         &self,
         target_name: Arc<str>,
-        isid: [u8; 6],
-        cid: u16,
+        isid: Isid,
+        cid: Cid,
         conn: Arc<ClientConnection>,
-    ) -> Result<u16> {
+    ) -> Result<Tsih> {
         #[cfg(feature = "profiling-puffin")]
         profiling::function_scope!();
-        self.login_one_and_insert_impl(
-            target_name,
-            isid,
-            /* tsih_hint */ 0,
-            cid,
-            conn,
-        )
-        .await
+        self.login_one_and_insert_impl(target_name, isid, Tsih::NONE, cid, conn)
+            .await
     }
 
     /// Add one more TCP connection into an existing session (known TSIH).
     pub async fn add_connection_to_session(
         &self,
-        tsih: u16,
-        cid: u16,
+        tsih: Tsih,
+        cid: Cid,
         conn: Arc<ClientConnection>,
     ) -> Result<()> {
         #[cfg(feature = "profiling-puffin")]
@@ -204,7 +194,7 @@ impl Pool {
         Ok(())
     }
 
-    fn drop_connection_local(&self, tsih: u16, cid: u16) {
+    fn drop_connection_local(&self, tsih: Tsih, cid: Cid) {
         let should_remove_session = if let Some(sess) = self.sessions.get(&tsih) {
             sess.conns.remove(&cid);
             sess.conns.is_empty()
@@ -219,8 +209,8 @@ impl Pool {
 
     async fn recover_connection(
         &self,
-        tsih: u16,
-        cid: u16,
+        tsih: Tsih,
+        cid: Cid,
         expected: Arc<Connection>,
     ) -> Result<()> {
         #[cfg(feature = "profiling-puffin")]
@@ -274,11 +264,11 @@ impl Pool {
     async fn login_one_and_insert_impl(
         &self,
         target_name: Arc<str>,
-        isid: [u8; 6],
-        tsih_hint: u16,
-        cid: u16,
+        isid: Isid,
+        tsih_hint: Tsih,
+        cid: Cid,
         conn: Arc<ClientConnection>,
-    ) -> Result<u16> {
+    ) -> Result<Tsih> {
         #[cfg(feature = "profiling-puffin")]
         profiling::function_scope!();
         let mut l = LoginCtx::new(conn.clone(), isid, cid, tsih_hint);
@@ -290,8 +280,8 @@ impl Pool {
         let login_pdu = l.execute(&self.cancel).await.context("login failed")?;
         let hdr = login_pdu.header_view()?;
 
-        let tsih = hdr.tsih.get();
-        ensure!(tsih != 0, "TSIH=0 in final Login Response");
+        let tsih = Tsih::new(hdr.tsih.get());
+        ensure!(!tsih.is_none(), "TSIH=0 in final Login Response");
 
         let sess = self
             .sessions
@@ -323,14 +313,7 @@ impl Pool {
             "CID={cid} already exists in TSIH={tsih}"
         );
 
-        if let Some(w) = self.self_weak.get().cloned() {
-            conn.bind_pool_session(w, tsih, cid);
-        } else {
-            warn!(
-                "Pool::attach_self() was not called; unsolicited NOP auto-reply will be \
-                 disabled"
-            );
-        }
+        conn.bind_pool_session(self.self_weak.clone(), tsih, cid);
 
         Ok(tsih)
     }
@@ -338,8 +321,8 @@ impl Pool {
     /// Logout a single TCP connection (CID). Removes the entry on success.
     async fn logout_connection(
         &self,
-        tsih: u16,
-        cid: u16,
+        tsih: Tsih,
+        cid: Cid,
         reason: LogoutReason,
     ) -> Result<()> {
         #[cfg(feature = "profiling-puffin")]
@@ -378,7 +361,7 @@ impl Pool {
     }
 
     /// Logout all connections and remove the session from the pool.
-    pub async fn logout_session(&self, tsih: u16) -> Result<()> {
+    pub async fn logout_session(&self, tsih: Tsih) -> Result<()> {
         #[cfg(feature = "profiling-puffin")]
         profiling::function_scope!();
         let sess = self
@@ -427,9 +410,9 @@ impl Pool {
     ///   (used for recovery).
     pub async fn logout(
         &self,
-        tsih: u16,
+        tsih: Tsih,
         reason: LogoutReason,
-        cid_opt: Option<u16>,
+        cid_opt: Option<Cid>,
     ) -> Result<()> {
         match reason {
             LogoutReason::CloseSession => self.logout_session(tsih).await,
@@ -514,8 +497,8 @@ impl Pool {
     /// ```
     pub async fn execute_with_ctx<Ctx, Res, Build>(
         &self,
-        tsih: u16,
-        cid: u16,
+        tsih: Tsih,
+        cid: Cid,
         build: Build,
     ) -> Result<Res>
     where
@@ -524,7 +507,7 @@ impl Pool {
     {
         #[cfg(feature = "profiling-puffin")]
         profiling::function_scope!();
-        for attempt in 0..=MAX_CONNECTION_RECOVERY_ATTEMPTS {
+        for attempt in 0..=self.max_connection_recovery_attempts {
             let sess = self
                 .sessions
                 .get(&tsih)
@@ -565,7 +548,7 @@ impl Pool {
                 }
             }
 
-            if attempt == MAX_CONNECTION_RECOVERY_ATTEMPTS {
+            if attempt == self.max_connection_recovery_attempts {
                 self.drop_connection_local(tsih, cid);
                 return Err(anyhow::anyhow!(
                     "connection recovery attempts exhausted for TSIH={}, CID={}",
@@ -622,8 +605,8 @@ impl Pool {
 
     pub(crate) async fn execute_nop_reply(
         &self,
-        tsih: u16,
-        cid: u16,
+        tsih: Tsih,
+        cid: Cid,
         pdu: data_fromat::PduResponse<NopInResponse>,
     ) -> Result<()> {
         #[cfg(feature = "profiling-puffin")]

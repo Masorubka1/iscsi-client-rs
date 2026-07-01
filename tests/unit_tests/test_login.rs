@@ -15,6 +15,7 @@ use iscsi_client_rs::{
     models::{
         common::{BasicHeaderSegment, Builder, HEADER_LEN},
         data_fromat::{PduRequest, PduResponse},
+        identifiers::{Cid, Isid, Tsih},
         login::{
             common::Stage,
             request::{LoginRequest, LoginRequestBuilder},
@@ -25,7 +26,7 @@ use iscsi_client_rs::{
 
 use crate::unit_tests::{load_fixture, parse_imm, parse_mut};
 
-const ISID: [u8; 6] = [0, 2, 61, 0, 0, 14];
+const ISID: Isid = Isid::new([0, 2, 61, 0, 0, 14]);
 
 fn parse_chap_challenge_tlv(tlv: &[u8]) -> Result<(u8, Vec<u8>)> {
     let s = String::from_utf8_lossy(tlv);
@@ -92,7 +93,7 @@ fn test_login_request() -> Result<()> {
     assert!(parsed.header_digest.is_none());
     assert!(parsed.data_digest.is_none());
 
-    let header_builder = LoginRequestBuilder::new(ISID, 0)
+    let header_builder = LoginRequestBuilder::new(ISID, Tsih::NONE)
         .transit()
         .csg(Stage::Operational)
         .nsg(Stage::FullFeature)
@@ -133,11 +134,11 @@ fn test_login_response_echo() -> Result<()> {
     assert!(parsed.header_digest.is_none());
     assert!(parsed.data_digest.is_none());
 
-    let builder = LoginRequestBuilder::new(ISID, 0)
+    let builder = LoginRequestBuilder::new(ISID, Tsih::NONE)
         .transit()
         .csg(Stage::Operational)
         .nsg(Stage::FullFeature)
-        .connection_id(1)
+        .connection_id(Cid::new(1))
         .versions(0, 0);
 
     assert_eq!(
@@ -164,7 +165,7 @@ fn chap_step1_security_only() -> Result<()> {
     let resp_bytes = load_fixture("tests/unit_tests/fixtures/login/step1_resp.hex")?;
     let _r1: PduResponse<LoginResponse> = parse_imm(&resp_bytes, &cfg)?;
 
-    let s1_hdr = LoginRequestBuilder::new(ISID, 0)
+    let s1_hdr = LoginRequestBuilder::new(ISID, Tsih::NONE)
         .csg(Stage::Security)
         .nsg(Stage::Security)
         .initiator_task_tag(0_u32)
@@ -210,7 +211,7 @@ fn chap_step2_chap_a() -> Result<()> {
 
     let r1_header = r1.header_view()?;
 
-    let s2_hdr = LoginRequestBuilder::new(ISID, r1_header.tsih.get())
+    let s2_hdr = LoginRequestBuilder::new(ISID, r1_header.tsih.get().into())
         .csg(Stage::Security)
         .nsg(Stage::Security)
         .initiator_task_tag(r1_header.get_initiator_task_tag())
@@ -253,7 +254,7 @@ fn chap_step3_chap_response() -> Result<()> {
 
     let r2_header = r2.header_view()?;
 
-    let s3_hdr = LoginRequestBuilder::new(ISID, r2_header.tsih.get())
+    let s3_hdr = LoginRequestBuilder::new(ISID, r2_header.tsih.get().into())
         .transit()
         .csg(Stage::Security)
         .nsg(Stage::Operational)
@@ -297,7 +298,7 @@ fn chap_step4_oper_to_ff_with_ops() -> Result<()> {
 
     let r2_header = r2.header_view()?;
 
-    let s4_hdr = LoginRequestBuilder::new(ISID, r2_header.tsih.get())
+    let s4_hdr = LoginRequestBuilder::new(ISID, r2_header.tsih.get().into())
         .transit()
         .csg(Stage::Operational)
         .nsg(Stage::FullFeature)

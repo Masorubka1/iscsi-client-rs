@@ -5,7 +5,9 @@ use std::{path::PathBuf, sync::Arc};
 
 use anyhow::{Context, Result};
 use iscsi_client_rs::{
-    cfg::config::Config, client::client::ClientConnection, models::identifiers::Lun,
+    cfg::config::Config,
+    client::client::ClientConnection,
+    models::identifiers::{Isid, Lun},
 };
 use tokio_util::sync::CancellationToken;
 
@@ -25,8 +27,8 @@ pub async fn connect_cfg(cfg: &Config) -> Result<Arc<ClientConnection>> {
     ClientConnection::connect(cfg.clone(), CancellationToken::new()).await
 }
 
-pub fn test_isid() -> [u8; 6] {
-    [0, 2, 61, 0, 0, 14]
+pub fn test_isid() -> Isid {
+    Isid::new([0, 2, 61, 0, 0, 14])
 }
 
 pub fn get_lun() -> Lun {

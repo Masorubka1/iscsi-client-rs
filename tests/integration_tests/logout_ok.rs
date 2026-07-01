@@ -23,12 +23,11 @@ async fn logout_close_session() -> Result<()> {
     let conn = connect_cfg(&cfg).await?;
 
     // ---- Pool setup ----
-    let pool = Arc::new(Pool::new(&cfg));
-    pool.attach_self();
+    let pool = Pool::new(&cfg);
 
     // ---- Login via Pool ----
     let isid = test_isid();
-    let cid: u16 = 0;
+    let cid = iscsi_client_rs::models::identifiers::Cid::ZERO;
     let ttt = NopOutRequest::DEFAULT_TAG;
     let target_name: Arc<str> = Arc::from(cfg.login.identity.target_name.clone());
 

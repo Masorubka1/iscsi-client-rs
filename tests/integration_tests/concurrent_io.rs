@@ -12,6 +12,7 @@ use iscsi_client_rs::{
         read_capacity::{build_read_capacity10, parse_read_capacity10_zerocopy},
         write::build_write10,
     },
+    models::identifiers::Cid,
     state_machine::{read_states::ReadCtx, tur_states::TurCtx, write_states::WriteCtx},
 };
 use serial_test::serial;
@@ -28,25 +29,24 @@ const START_LBA: u32 = 16_384;
 async fn concurrent_writes_and_reads_share_one_connection() -> Result<()> {
     let _ = init_logger(&test_path());
     let cfg = Arc::new(load_config()?);
-    let pool = Arc::new(Pool::new(&cfg));
-    pool.attach_self();
+    let pool = Pool::new(&cfg);
 
     let conn = connect_cfg(&cfg).await?;
     let target_name: Arc<str> = Arc::from(cfg.login.identity.target_name.clone());
     let tsih = pool
-        .login_and_insert(target_name, test_isid(), 0, conn)
+        .login_and_insert(target_name, test_isid(), Cid::ZERO, conn)
         .await
         .context("pool login failed")?;
     let lun = get_lun();
     let _ = pool
-        .execute_with_ctx(tsih, 0, |env| TurCtx::from_execute_env(env, lun))
+        .execute_with_ctx(tsih, Cid::ZERO, |env| TurCtx::from_execute_env(env, lun))
         .await;
-    pool.execute_with_ctx(tsih, 0, |env| TurCtx::from_execute_env(env, lun))
+    pool.execute_with_ctx(tsih, Cid::ZERO, |env| TurCtx::from_execute_env(env, lun))
         .await
         .context("TUR failed")?;
 
     let capacity = pool
-        .execute_with_ctx(tsih, 0, |env| {
+        .execute_with_ctx(tsih, Cid::ZERO, |env| {
             let mut cdb = [0u8; 16];
             build_read_capacity10(&mut cdb, 0, false, 0);
             ReadCtx::from_execute_env(env, lun, 8, cdb)
@@ -61,7 +61,7 @@ async fn concurrent_writes_and_reads_share_one_connection() -> Result<()> {
         let pool = Arc::clone(&pool);
         let payload = vec![(index as u8).wrapping_mul(17); block_size];
         writes.push(tokio::spawn(async move {
-            pool.execute_with_ctx(tsih, 0, |env| {
+            pool.execute_with_ctx(tsih, Cid::ZERO, |env| {
                 let mut cdb = [0u8; 16];
                 build_write10(&mut cdb, START_LBA + index, 1, 0, 0);
                 WriteCtx::from_execute_env(env, lun, cdb, payload.clone())
@@ -78,7 +78,7 @@ async fn concurrent_writes_and_reads_share_one_connection() -> Result<()> {
         let pool = Arc::clone(&pool);
         reads.push(tokio::spawn(async move {
             let result = pool
-                .execute_with_ctx(tsih, 0, |env| {
+                .execute_with_ctx(tsih, Cid::ZERO, |env| {
                     let mut cdb = [0u8; 16];
                     build_read10(&mut cdb, START_LBA + index, 1, 0, 0);
                     ReadCtx::from_execute_env(env, lun, block_size as u32, cdb)

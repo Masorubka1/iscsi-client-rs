@@ -34,7 +34,10 @@ use crate::{
         pending_requests::PendingRequests,
         pool_sessions::Pool,
     },
-    models::{identifiers::Lun, nop::request::NopOutRequest},
+    models::{
+        identifiers::{Cid, Lun, Tsih},
+        nop::request::NopOutRequest,
+    },
     state_machine::nop_states::NopCtx,
 };
 
@@ -48,9 +51,9 @@ struct SessionRef {
     /// Weak reference to the session pool to avoid circular references
     pool: Weak<Pool>,
     /// Target Session Identifying Handle
-    tsih: u16,
+    tsih: Tsih,
     /// Connection ID within the session
-    cid: u16,
+    cid: Cid,
 }
 
 /// Represents a single iSCSI connection over a TCP stream.
@@ -62,11 +65,11 @@ struct SessionRef {
 #[derive(Debug)]
 pub struct ClientConnection {
     /// TCP read half protected by mutex for concurrent access
-    pub reader: Mutex<OwnedReadHalf>,
+    pub(crate) reader: Mutex<OwnedReadHalf>,
     /// TCP write half protected by mutex for concurrent access
-    pub writer: Mutex<OwnedWriteHalf>,
+    pub(crate) writer: Mutex<OwnedWriteHalf>,
     /// Configuration parameters for this connection
-    pub cfg: Config,
+    pub(crate) cfg: Config,
     /// Routes responses from the read loop to the request that owns the ITT.
     pending: PendingRequests,
 
@@ -117,7 +120,7 @@ impl ClientConnection {
         Ok(conn)
     }
 
-    pub fn bind_pool_session(&self, pool: Weak<Pool>, tsih: u16, cid: u16) {
+    pub(crate) fn bind_pool_session(&self, pool: Weak<Pool>, tsih: Tsih, cid: Cid) {
         let _ = self.session_ref.set(SessionRef { pool, tsih, cid });
     }
 
@@ -198,21 +201,22 @@ impl ClientConnection {
     }
 
     #[inline]
-    pub fn cancel_now(&self) {
+    fn cancel_now(&self) {
         self.cancel.cancel();
     }
 
-    pub fn from_split_no_reader(
+    pub(crate) fn from_split_no_reader(
         r: OwnedReadHalf,
         w: OwnedWriteHalf,
         cfg: Config,
         cancel: CancellationToken,
     ) -> Arc<Self> {
+        let pending = PendingRequests::new(cfg.runtime.response_queue_capacity);
         Arc::new(Self {
             reader: Mutex::new(r),
             writer: Mutex::new(w),
             cfg,
-            pending: PendingRequests::default(),
+            pending,
             session_ref: OnceCell::new(),
             cancel,
             stop_writes: CancellationToken::new(),
@@ -269,7 +273,7 @@ impl ClientConnection {
         self.poisoned.load(Ordering::SeqCst)
     }
 
-    pub fn poison(&self, reason: impl Into<String>) {
+    pub(crate) fn poison(&self, reason: impl Into<String>) {
         let reason = reason.into();
         let first_poison = !self.poisoned.swap(true, Ordering::SeqCst);
         self.stop_writes.cancel();

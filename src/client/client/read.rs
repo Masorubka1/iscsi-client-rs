@@ -20,7 +20,7 @@ use crate::{
 };
 
 impl ClientConnection {
-    pub async fn read_response_raw<T: BasicHeaderSegment + Debug>(
+    pub(crate) async fn read_response_raw<T: BasicHeaderSegment + Debug>(
         &self,
         itt: Itt,
     ) -> Result<(PduResponse<T>, Bytes)> {
@@ -56,7 +56,7 @@ impl ClientConnection {
         ))
     }
 
-    pub async fn read_response<
+    pub(crate) async fn read_response<
         T: BasicHeaderSegment + FromBytes + Debug + ZeroCopyType,
     >(
         &self,

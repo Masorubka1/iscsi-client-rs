@@ -19,14 +19,19 @@ Pure-Rust iSCSI initiator library for TCP targets. It builds/parses PDUs, perfor
 
 ## Important
 
-All SCSI I/O must go through `Pool::execute_with_ctx(...)`.
-
-Do not call `ClientConnection::send_request` or `read_response*` directly from application code. The pool owns:
+All SCSI I/O must go through `Pool::execute_with_ctx(...)`. The raw
+`ClientConnection` send/receive methods are internal because the pool owns:
 
 * `ITT`, `CmdSN`, `ExpStatSN`
 * per-ITT response channels
 * unsolicited `NOP-In` auto-replies
 * graceful shutdown and poisoned-connection recovery
+
+`runtime.ResponseQueueCapacity` controls the buffered response PDUs per
+in-flight command. It defaults to `256`.
+
+`runtime.MaxConnectionRecoveryAttempts` controls retries after a poisoned
+connection fails. It defaults to `3`; `0` disables retries.
 
 ## Quick Start
 
@@ -38,18 +43,17 @@ use tokio_util::sync::CancellationToken;
 use iscsi_client_rs::{
     cfg::config::Config,
     client::{client::ClientConnection, pool_sessions::Pool},
-    utils::generate_isid,
+    models::identifiers::{Cid, Isid},
 };
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let cfg = Config::load_from_file("./config.yaml")?;
     let cancel = CancellationToken::new();
-    let pool = Arc::new(Pool::with_cancel(&cfg, cancel.clone()));
-    pool.attach_self();
+    let pool = Pool::with_cancel(&cfg, cancel.clone());
 
-    let (isid, _) = generate_isid();
-    let cid = 0u16;
+    let (isid, _) = Isid::generate();
+    let cid = Cid::ZERO;
     let conn = ClientConnection::connect(cfg.clone(), pool.cancel_token().child_token()).await?;
     let target_name: Arc<str> = Arc::from(cfg.login.identity.target_name.clone());
     let tsih = pool.login_and_insert(target_name, isid, cid, conn).await?;
@@ -58,9 +62,6 @@ async fn main() -> Result<()> {
     Ok(())
 }
 ```
-
-If you assemble sessions manually, bind the connection to the pool before I/O:
-`ClientConnection::bind_pool_session(pool_weak, tsih, cid)`.
 
 ## Usage
 

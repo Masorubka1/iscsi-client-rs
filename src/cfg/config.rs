@@ -8,6 +8,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::cfg::enums::{Digest, SessionType, YesNo};
 
+const DEFAULT_RESPONSE_QUEUE_CAPACITY: usize = 256;
+const DEFAULT_MAX_CONNECTION_RECOVERY_ATTEMPTS: usize = 3;
+
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct Config {
     /// Parameters that travel over the wire during Login(Security) and
@@ -213,6 +216,28 @@ pub struct RuntimeConfig {
     #[serde(rename = "TimeoutConnection", with = "serde_secs")]
     /// Timeout for TCP connect and per-I/O read/write operations.
     pub timeout_connection: Duration,
+
+    #[serde(
+        default = "default_response_queue_capacity",
+        rename = "ResponseQueueCapacity"
+    )]
+    /// Buffered response PDUs allowed per in-flight command.
+    pub response_queue_capacity: usize,
+
+    #[serde(
+        default = "default_max_connection_recovery_attempts",
+        rename = "MaxConnectionRecoveryAttempts"
+    )]
+    /// Number of retries after a poisoned connection's initial failure.
+    pub max_connection_recovery_attempts: usize,
+}
+
+const fn default_response_queue_capacity() -> usize {
+    DEFAULT_RESPONSE_QUEUE_CAPACITY
+}
+
+const fn default_max_connection_recovery_attempts() -> usize {
+    DEFAULT_MAX_CONNECTION_RECOVERY_ATTEMPTS
 }
 
 impl Config {
@@ -260,6 +285,10 @@ impl Config {
             "MaxConnections must be >= 1"
         );
         ensure!(self.runtime.max_sessions >= 1, "MaxSessions must be >= 1");
+        ensure!(
+            self.runtime.response_queue_capacity >= 1,
+            "ResponseQueueCapacity must be >= 1"
+        );
 
         Ok(())
     }
