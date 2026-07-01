@@ -229,13 +229,19 @@ jobs:
         if: always()
         run: bash ci/lio/stop-qemu.sh
 
-  prepare-truenas-image:
-    name: Prepare TrueNAS image
+  test-truenas:
+    name: Integration tests (TrueNAS/plain)
     runs-on: ubuntu-latest
     timeout-minutes: 90
-    needs: [rustfmt, clippy, unit]
+    needs: [build-integration]
     steps:
       - uses: actions/checkout@v7
+
+      - name: Download integration test binary
+        uses: actions/download-artifact@v4
+        with:
+          name: integration-test-bin
+          path: ci-artifacts
 
       - name: Install QEMU and helpers
         run: |
@@ -258,65 +264,14 @@ jobs:
             https://download.truenas.com/TrueNAS-SCALE-Goldeye/25.10.4/TrueNAS-SCALE-25.10.4.iso \
             --output "${RUNNER_TEMP}/TrueNAS-SCALE-25.10.4.iso"
 
-      - name: Prepare TrueNAS disks
+      - name: Start TrueNAS VM
         timeout-minutes: 35
         env:
           TRUENAS_QEMU_ACCEL: kvm
         run: |
           bash ci/truenas/start-qemu.sh \
             "${RUNNER_TEMP}/TrueNAS-SCALE-25.10.4.iso" \
-            "3264" \
-            full
-
-      - name: Stop TrueNAS VM
-        if: always()
-        run: bash ci/truenas/stop-qemu.sh
-
-      - name: Upload prepared TrueNAS disks
-        uses: actions/upload-artifact@v4
-        with:
-          name: truenas-prepared-disks
-          path: |
-            ${{ runner.temp }}/iscsi-truenas-qemu/system.qcow2
-            ${{ runner.temp }}/iscsi-truenas-qemu/data.qcow2
-          if-no-files-found: error
-
-  test-truenas:
-    name: Integration tests (TrueNAS/plain)
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
-    needs: [build-integration, prepare-truenas-image]
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Download integration test binary
-        uses: actions/download-artifact@v4
-        with:
-          name: integration-test-bin
-          path: ci-artifacts
-
-      - name: Install QEMU and helpers
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y qemu-system-x86 qemu-utils netcat-openbsd
-          test -e /dev/kvm
-          sudo chmod 666 /dev/kvm
-
-      - name: Download prepared TrueNAS disks
-        uses: actions/download-artifact@v4
-        with:
-          name: truenas-prepared-disks
-          path: ${{ runner.temp }}/iscsi-truenas-qemu
-
-      - name: Start TrueNAS VM
-        timeout-minutes: 15
-        env:
-          TRUENAS_QEMU_ACCEL: kvm
-        run: |
-          bash ci/truenas/start-qemu.sh \
-            "_" \
-            "3264" \
-            prepared
+            "3264"
 
       - name: Run integration tests
         env:
