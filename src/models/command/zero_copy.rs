@@ -501,7 +501,7 @@ impl fmt::Debug for RawScsiCmdRespFlags {
         if self.u_big() {
             write!(f, "U_BIG|")?;
         }
-        write!(f, "valid:{} }}", &valid)
+        write!(f, "valid:{} }}", valid)
     }
 }
 

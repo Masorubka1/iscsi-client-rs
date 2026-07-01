@@ -74,7 +74,7 @@ impl TryFrom<u8> for SuccessDetail {
     fn try_from(raw: u8) -> Result<Self> {
         match raw {
             0x00 => Ok(SuccessDetail::CmdCompletedNormally),
-            other => Err(anyhow!("unknown Success detail code: {:#02x}", other)),
+            other => Err(anyhow!("unknown Success detail code: {:#04x}", other)),
         }
     }
 }
@@ -93,7 +93,7 @@ impl TryFrom<u8> for RedirectionDetail {
     fn try_from(raw: u8) -> Result<Self> {
         match raw {
             0x01 => Ok(RedirectionDetail::TargetRedirected),
-            other => Err(anyhow!("unknown Redirection detail code: {:#02x}", other)),
+            other => Err(anyhow!("unknown Redirection detail code: {:#04x}", other)),
         }
     }
 }
