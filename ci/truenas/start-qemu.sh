@@ -11,6 +11,7 @@ readonly SYSTEM_DISK="${WORK_DIR}/system.qcow2"
 readonly DATA_DISK="${WORK_DIR}/data.qcow2"
 readonly QEMU_LOG="${WORK_DIR}/qemu.log"
 readonly PID_FILE="${WORK_DIR}/qemu.pid"
+readonly MONITOR_SOCKET="${WORK_DIR}/monitor.sock"
 readonly API_PORT="${TRUENAS_API_PORT:-8084}"
 readonly ROOT_PASSWORD="${TRUENAS_ROOT_PASSWORD:-truenasRoot123}"
 readonly QEMU_ACCEL="${TRUENAS_QEMU_ACCEL:-tcg}"
@@ -121,6 +122,7 @@ start_vm() {
 
   : > "${QEMU_LOG}"
   rm -f "${PID_FILE}"
+  rm -f "${MONITOR_SOCKET}"
 
   local cdrom_args=()
   if [[ "${mode}" == "installer" ]]; then
@@ -137,6 +139,7 @@ start_vm() {
     -display none \
     -daemonize \
     -pidfile "${PID_FILE}" \
+    -monitor "unix:${MONITOR_SOCKET},server,nowait" \
     -serial "file:${QEMU_LOG}" \
     -drive "if=virtio,format=qcow2,file=${SYSTEM_DISK}" \
     -drive "if=virtio,format=qcow2,file=${DATA_DISK}" \
