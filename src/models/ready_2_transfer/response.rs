@@ -38,7 +38,7 @@ pub struct ReadyToTransfer {
     pub r2t_sn: U32<BigEndian>, // Bytes 36..40: R2TSN
     pub buffer_offset: U32<BigEndian>, // Bytes 40..44: requested buffer offset
     pub desired_data_transfer_length: U32<BigEndian>, /* Bytes 44..48: requested
-                                                       * transfer length */
+                               * transfer length */
 }
 
 impl ReadyToTransfer {

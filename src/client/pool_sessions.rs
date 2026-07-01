@@ -600,28 +600,6 @@ impl Pool {
         ))
     }
 
-    /// Backward-compatible adapter over [`Pool::execute_with_ctx`].
-    pub async fn execute_with<Ctx, Res, Build>(
-        &self,
-        tsih: u16,
-        cid: u16,
-        build: Build,
-    ) -> Result<Res>
-    where
-        Build: for<'a> Fn(
-            Arc<ClientConnection>,
-            &'a IttGen,
-            Arc<AtomicU32>,
-            Arc<AtomicU32>,
-        ) -> Ctx,
-        Ctx: StateMachineCtx<Ctx, Res>,
-    {
-        self.execute_with_ctx(tsih, cid, |env| {
-            build(env.conn, env.itt_gen.as_ref(), env.cmd_sn, env.exp_stat_sn)
-        })
-        .await
-    }
-
     /// Run SendTargets discovery against a portal using the provided config.
     ///
     /// Opens a Discovery-session to the target portal, issues

@@ -44,7 +44,7 @@ pub struct ScsiCommandResponse {
     pub max_cmd_sn: U32<BigEndian>, // Bytes 32..36: MaxCmdSN
     pub exp_data_sn: U32<BigEndian>, // Bytes 36..40: ExpDataSN
     pub bidirectional_read_residual_count: U32<BigEndian>, /* Bytes 40..44: bidi
-                                                            * residual count */
+                               * residual count */
     pub residual_count: U32<BigEndian>, // Bytes 44..48: residual count
 }
 

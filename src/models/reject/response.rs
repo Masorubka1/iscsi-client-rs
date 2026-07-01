@@ -26,13 +26,13 @@ use crate::{
 #[repr(C)]
 #[derive(Debug, Default, PartialEq, ZFromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct RejectPdu {
-    pub opcode: RawBhsOpcode,               // Byte 0: `Opcode::Reject`
-    reserved1: u8,                          // Byte 1: reserved
-    pub reason: RawRejectReason,            // Byte 2: reject reason
-    pub reserved2: u8,                      // Byte 3: reserved
-    pub total_ahs_length: u8,               // Byte 4: AHS length in 4-byte words
-    pub data_segment_length: [u8; 3],       /* Bytes 5..8: rejected header+payload
-                                             * snapshot length */
+    pub opcode: RawBhsOpcode,    // Byte 0: `Opcode::Reject`
+    reserved1: u8,               // Byte 1: reserved
+    pub reason: RawRejectReason, // Byte 2: reject reason
+    pub reserved2: u8,           // Byte 3: reserved
+    pub total_ahs_length: u8,    // Byte 4: AHS length in 4-byte words
+    pub data_segment_length: [u8; 3], /* Bytes 5..8: rejected header+payload
+                                  * snapshot length */
     pub reserved3: U64<BigEndian>, // Bytes 8..16: reserved
     pub initiator_task_tag: U32<BigEndian>, // Bytes 16..20: ITT
     pub reserved4: U32<BigEndian>, // Bytes 20..24: reserved

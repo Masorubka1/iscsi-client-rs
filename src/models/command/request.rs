@@ -37,7 +37,7 @@ pub struct ScsiCommandRequest {
     pub lun: U64<BigEndian>,       // Bytes 8..16: LUN
     pub initiator_task_tag: U32<BigEndian>, // Bytes 16..20: ITT
     pub expected_data_transfer_length: U32<BigEndian>, /* Bytes 20..24: expected
-                                                        * transfer length */
+                                    * transfer length */
     pub cmd_sn: U32<BigEndian>,          // Bytes 24..28: CmdSN
     pub exp_stat_sn: U32<BigEndian>,     // Bytes 28..32: ExpStatSN
     pub scsi_descriptor_block: [u8; 16], // Bytes 32..48: 16-byte SCSI CDB

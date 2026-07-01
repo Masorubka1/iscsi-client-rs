@@ -45,7 +45,7 @@ Why this matters:
 * **Graceful shutdown.** Pool can quiesce writers and drain in‑flight tasks cleanly.
 
 > Do **not** call `ClientConnection::send_request` / `read_response*` directly in application code.
-> Always wrap your state machine into `pool.execute_with(tsih, cid, |conn, itt, cmd_sn, exp_stat_sn| { … })`.
+> Always wrap your state machine into `pool.execute_with_ctx(tsih, cid, |env| { … })`.
 
 ---
 
@@ -73,7 +73,7 @@ async fn main() -> Result<()> {
     let isid: [u8; 6] = [0x0d, 0x70, 0xbc, 0x71, 0xa1, 0x22];
     let (tsih, cid) = pool.open_session_and_login(isid).await?;
 
-    // From now on, always use pool.execute_with(tsih, cid, …) to run I/O.
+    // From now on, always use pool.execute_with_ctx(tsih, cid, …) to run I/O.
     Ok(())
 }
 ```
@@ -95,15 +95,8 @@ use iscsi_client_rs::{
 };
 
 let lun = 1u64 << 48;
-pool.execute_with(tsih, cid, move |conn, itt, cmd_sn, exp_stat_sn| {
-    NopCtx::new(
-        conn,
-        lun,
-        itt,
-        cmd_sn,
-        exp_stat_sn,
-        NopOutRequest::DEFAULT_TAG,
-    )
+pool.execute_with_ctx(tsih, cid, move |env| {
+    NopCtx::from_execute_env(env, lun, NopOutRequest::DEFAULT_TAG)
 })
 .await?;
 ```
@@ -125,16 +118,8 @@ let read_len = blocks * block_size;
 let mut cdb = [0u8; 16];
 build_read10(&mut cdb, /*lba=*/0, /*blocks=*/blocks, /*flags=*/0, /*control=*/0);
 
-let read_outcome = pool.execute_with(tsih, cid, move |conn, itt, cmd_sn, exp_stat_sn| {
-    ReadCtx::new(
-        conn,
-        lun,
-        itt,
-        cmd_sn,
-        exp_stat_sn,
-        read_len,
-        cdb,
-    )
+let read_outcome = pool.execute_with_ctx(tsih, cid, move |env| {
+    ReadCtx::from_execute_env(env, lun, read_len, cdb)
 })
 .await?;
 
@@ -161,16 +146,8 @@ let mut payload = vec![0u8; bytes];
 let mut cdb = [0u8; 16];
 build_write10(&mut cdb, /*lba=*/0, /*blocks=*/blocks, /*flags=*/0, /*control=*/0);
 
-pool.execute_with(tsih, cid, move |conn, itt, cmd_sn, exp_stat_sn| {
-    WriteCtx::new(
-        conn,
-        lun,
-        itt,
-        cmd_sn,
-        exp_stat_sn,
-        cdb,
-        payload,
-    )
+pool.execute_with_ctx(tsih, cid, move |env| {
+    WriteCtx::from_execute_env(env, lun, cdb, payload)
 })
 .await?;
 
@@ -198,7 +175,7 @@ Always route through the Pool:
 
 ```rust
 // ✅ Correct
-pool.execute_with(tsih, cid, |conn, itt, cmd_sn, exp_stat_sn| {
+pool.execute_with_ctx(tsih, cid, |env| {
     /* build your state machine here */
 })
 .await?;
@@ -208,7 +185,7 @@ pool.execute_with(tsih, cid, |conn, itt, cmd_sn, exp_stat_sn| {
 
 ## Concurrency pattern
 
-Want to parallelize I/O? Launch several `execute_with` calls (different ITTs or LBAs). The Pool handles sequencing and counters.
+Want to parallelize I/O? Launch several `execute_with_ctx` calls (different ITTs or LBAs). The Pool handles sequencing and counters.
 
 ```rust
 use futures::future::try_join_all;
@@ -216,8 +193,8 @@ use futures::future::try_join_all;
 let tasks = (0..8).map(|k| {
     let pool = pool.clone();
     async move {
-        pool.execute_with(tsih, cid, move |conn, itt, cmd_sn, exp_stat_sn| {
-            /* e.g., ReadCtx::new(... different LBA/len per k ...) */
+        pool.execute_with_ctx(tsih, cid, move |env| {
+            /* e.g., ReadCtx::from_execute_env(env, ... different LBA/len per k ...) */
         })
         .await
     }
