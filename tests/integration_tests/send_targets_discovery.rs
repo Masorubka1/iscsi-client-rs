@@ -3,7 +3,11 @@
 
 use anyhow::{Context, Result};
 use iscsi_client_rs::{
-    cfg::{config::Config, enums::SessionType, logger::init_logger},
+    cfg::{
+        config::{AuthConfig, Config},
+        enums::{Digest, SessionType},
+        logger::init_logger,
+    },
     state_machine::discovery::DiscoveredTarget,
 };
 
@@ -12,7 +16,7 @@ use crate::integration_tests::common::test_path;
 /// Verify that SendTargets discovery works against the current target.
 ///
 /// Reuses `TEST_CONFIG` but switches to `SessionType: Discovery`, clears
-/// `TargetName`, resets auth and digests (discovery is always plain, no CRC).
+/// `TargetName`, and forces plain discovery with no digests.
 #[tokio::test]
 async fn send_targets_discovery() -> Result<()> {
     let _ = init_logger(&test_path());
@@ -23,7 +27,6 @@ async fn send_targets_discovery() -> Result<()> {
     // Switch to discovery mode — no TargetName
     cfg.login.identity.session_type = SessionType::Discovery;
     cfg.login.identity.target_name.clear();
-    cfg.login.identity.initiator_name.clear();
 
     let expected_iqn =
         if test_path().contains("/lio/") || test_path().contains("/truenas/") {
