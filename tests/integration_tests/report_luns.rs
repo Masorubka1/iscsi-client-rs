@@ -42,23 +42,11 @@ async fn login_tur_report_luns_pool() -> Result<()> {
     // --- TEST UNIT READY ---
     let _ = pool
         .execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
-            TurCtx::new(
-                c,
-                itt,
-                cmd_sn,
-                exp_stat_sn,
-                lun_for_tur,
-            )
+            TurCtx::new(c, itt, cmd_sn, exp_stat_sn, lun_for_tur)
         })
         .await;
     pool.execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
-        TurCtx::new(
-            c,
-            itt,
-            cmd_sn,
-            exp_stat_sn,
-            lun_for_tur,
-        )
+        TurCtx::new(c, itt, cmd_sn, exp_stat_sn, lun_for_tur)
     })
     .await
     .context("TUR failed")?;

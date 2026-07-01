@@ -43,13 +43,7 @@ async fn login_ua_request_sense_then_clear_with_tur_pool() -> Result<()> {
     // Нам нужно лишь спровоцировать UA и не падать тестом.
     let _ = pool
         .execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
-            TurCtx::new(
-                c,
-                itt,
-                cmd_sn,
-                exp_stat_sn,
-                lun,
-            )
+            TurCtx::new(c, itt, cmd_sn, exp_stat_sn, lun)
         })
         .await;
 
@@ -58,15 +52,7 @@ async fn login_ua_request_sense_then_clear_with_tur_pool() -> Result<()> {
         .execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
             let mut cdb = [0u8; 16];
             fill_request_sense_simple(&mut cdb, 8);
-            ReadCtx::new(
-                c,
-                lun,
-                itt,
-                cmd_sn,
-                exp_stat_sn,
-                8,
-                cdb,
-            )
+            ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, 8, cdb)
         })
         .await
         .context("REQUEST SENSE (8) failed")?;
@@ -79,15 +65,7 @@ async fn login_ua_request_sense_then_clear_with_tur_pool() -> Result<()> {
         .execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
             let mut cdb = [0u8; 16];
             fill_request_sense_simple(&mut cdb, total_needed as u8);
-            ReadCtx::new(
-                c,
-                lun,
-                itt,
-                cmd_sn,
-                exp_stat_sn,
-                total_needed as u32,
-                cdb,
-            )
+            ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, total_needed as u32, cdb)
         })
         .await
         .context("REQUEST SENSE (full) failed")?;
@@ -104,13 +82,7 @@ async fn login_ua_request_sense_then_clear_with_tur_pool() -> Result<()> {
 
     // === Step 4: TUR retry — теперь UA должна быть очищена (ожидаем GOOD)
     pool.execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
-        TurCtx::new(
-            c,
-            itt,
-            cmd_sn,
-            exp_stat_sn,
-            lun,
-        )
+        TurCtx::new(c, itt, cmd_sn, exp_stat_sn, lun)
     })
     .await
     .context("TUR after sense failed")?;
@@ -122,15 +94,7 @@ async fn login_ua_request_sense_then_clear_with_tur_pool() -> Result<()> {
             // INQUIRY(6)
             cdb[0] = 0x12;
             cdb[4] = 36;
-            ReadCtx::new(
-                c,
-                lun,
-                itt,
-                cmd_sn,
-                exp_stat_sn,
-                36,
-                cdb,
-            )
+            ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, 36, cdb)
         })
         .await
         .context("INQUIRY failed")?;

@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use tracing::{debug, warn};
 use zerocopy::{
     BigEndian, FromBytes as ZFromBytes, Immutable, IntoBytes, KnownLayout, U32, U64,
@@ -13,7 +13,7 @@ use zerocopy::{
 use crate::{
     client::pdu_connection::FromBytes,
     models::{
-        common::{BasicHeaderSegment, SendingData, HEADER_LEN},
+        common::{BasicHeaderSegment, HEADER_LEN, SendingData},
         data_fromat::ZeroCopyType,
         identifiers::{Itt, Lun, Ttt},
         opcode::{BhsOpcode, Opcode, RawBhsOpcode},

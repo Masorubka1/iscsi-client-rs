@@ -34,10 +34,7 @@ use crate::{
         pending_requests::PendingRequests,
         pool_sessions::Pool,
     },
-    models::{
-        identifiers::Lun,
-        nop::request::NopOutRequest,
-    },
+    models::{identifiers::Lun, nop::request::NopOutRequest},
     state_machine::nop_states::NopCtx,
 };
 

@@ -94,15 +94,7 @@ async fn write10_read10_1_gib_plain_pool_multi_tsih_mcs() -> Result<()> {
             .execute_with(*tsih, *cid, |c, itt, cmd_sn, exp_stat_sn| {
                 let mut cdb = [0u8; 16];
                 build_read_capacity10(&mut cdb, 0, false, 0);
-                ReadCtx::new(
-                    c,
-                    lun,
-                    itt,
-                    cmd_sn,
-                    exp_stat_sn,
-                    8,
-                    cdb,
-                )
+                ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, 8, cdb)
             })
             .await;
     }
@@ -112,15 +104,7 @@ async fn write10_read10_1_gib_plain_pool_multi_tsih_mcs() -> Result<()> {
         .execute_with(tsih0, cid0, |c, itt, cmd_sn, exp_stat_sn| {
             let mut cdb = [0u8; 16];
             build_read_capacity10(&mut cdb, 0, false, 0);
-            ReadCtx::new(
-                c,
-                lun,
-                itt,
-                cmd_sn,
-                exp_stat_sn,
-                8,
-                cdb,
-            )
+            ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, 8, cdb)
         })
         .await
         .context("READ CAPACITY(10) failed")?;
@@ -134,15 +118,7 @@ async fn write10_read10_1_gib_plain_pool_multi_tsih_mcs() -> Result<()> {
             .execute_with(tsih0, cid0, |c, itt, cmd_sn, exp_stat_sn| {
                 let mut cdb = [0u8; 16];
                 build_read_capacity16(&mut cdb, 0, false, 32, 0);
-                ReadCtx::new(
-                    c,
-                    lun,
-                    itt,
-                    cmd_sn,
-                    exp_stat_sn,
-                    32,
-                    cdb,
-                )
+                ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, 32, cdb)
             })
             .await;
 

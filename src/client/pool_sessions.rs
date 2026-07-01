@@ -16,11 +16,8 @@ use crate::{
     cfg::config::{AuthConfig, Config},
     client::client::ClientConnection,
     models::{
-        common::BasicHeaderSegment,
-        data_fromat,
-        identifiers::IttGen,
-        logout::common::LogoutReason,
-        nop::response::NopInResponse,
+        common::BasicHeaderSegment, data_fromat, identifiers::IttGen,
+        logout::common::LogoutReason, nop::response::NopInResponse,
     },
     state_machine::{
         common::StateMachineCtx,

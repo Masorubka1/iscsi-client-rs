@@ -7,12 +7,12 @@ use std::{
     marker::PhantomData,
     pin::Pin,
     sync::{
-        atomic::{AtomicU32, Ordering},
         Arc,
+        atomic::{AtomicU32, Ordering},
     },
 };
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
 use tokio_util::sync::CancellationToken;
 use tracing::debug;
 

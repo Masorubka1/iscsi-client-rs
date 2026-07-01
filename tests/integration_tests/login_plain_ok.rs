@@ -7,9 +7,7 @@ use anyhow::{Context, Result};
 use iscsi_client_rs::{
     cfg::{config::Config, logger::init_logger},
     client::pool_sessions::Pool,
-    models::{
-        nop::request::NopOutRequest,
-    },
+    models::nop::request::NopOutRequest,
     state_machine::nop_states::NopCtx,
 };
 

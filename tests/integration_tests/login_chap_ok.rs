@@ -10,9 +10,7 @@ use iscsi_client_rs::{
         logger::init_logger,
     },
     client::pool_sessions::Pool,
-    models::{
-        nop::request::NopOutRequest,
-    },
+    models::nop::request::NopOutRequest,
     state_machine::nop_states::NopCtx,
 };
 

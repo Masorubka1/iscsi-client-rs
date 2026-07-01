@@ -37,23 +37,11 @@ async fn io_around_negotiated_segment_boundaries() -> Result<()> {
     let lun = get_lun();
     let _ = pool
         .execute_with(tsih, 0, |c, itt, cmd_sn, exp_stat_sn| {
-            TurCtx::new(
-                c,
-                itt,
-                cmd_sn,
-                exp_stat_sn,
-                lun,
-            )
+            TurCtx::new(c, itt, cmd_sn, exp_stat_sn, lun)
         })
         .await;
     pool.execute_with(tsih, 0, |c, itt, cmd_sn, exp_stat_sn| {
-        TurCtx::new(
-            c,
-            itt,
-            cmd_sn,
-            exp_stat_sn,
-            lun,
-        )
+        TurCtx::new(c, itt, cmd_sn, exp_stat_sn, lun)
     })
     .await
     .context("TUR failed")?;
@@ -62,15 +50,7 @@ async fn io_around_negotiated_segment_boundaries() -> Result<()> {
         .execute_with(tsih, 0, |c, itt, cmd_sn, exp_stat_sn| {
             let mut cdb = [0u8; 16];
             build_read_capacity10(&mut cdb, 0, false, 0);
-            ReadCtx::new(
-                c,
-                lun,
-                itt,
-                cmd_sn,
-                exp_stat_sn,
-                8,
-                cdb,
-            )
+            ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, 8, cdb)
         })
         .await?;
     let block_size = parse_read_capacity10_zerocopy(&capacity.data)?
@@ -102,15 +82,7 @@ async fn io_around_negotiated_segment_boundaries() -> Result<()> {
         pool.execute_with(tsih, 0, |c, itt, cmd_sn, exp_stat_sn| {
             let mut cdb = [0u8; 16];
             build_write10(&mut cdb, lba, blocks as u16, 0, 0);
-            WriteCtx::new(
-                c,
-                lun,
-                itt,
-                cmd_sn,
-                exp_stat_sn,
-                cdb,
-                payload.clone(),
-            )
+            WriteCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, cdb, payload.clone())
         })
         .await
         .with_context(|| format!("WRITE boundary blocks={blocks}"))?;
@@ -119,15 +91,7 @@ async fn io_around_negotiated_segment_boundaries() -> Result<()> {
             .execute_with(tsih, 0, |c, itt, cmd_sn, exp_stat_sn| {
                 let mut cdb = [0u8; 16];
                 build_read10(&mut cdb, lba, blocks as u16, 0, 0);
-                ReadCtx::new(
-                    c,
-                    lun,
-                    itt,
-                    cmd_sn,
-                    exp_stat_sn,
-                    byte_len as u32,
-                    cdb,
-                )
+                ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, byte_len as u32, cdb)
             })
             .await
             .with_context(|| format!("READ boundary blocks={blocks}"))?;
