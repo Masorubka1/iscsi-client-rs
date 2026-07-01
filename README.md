@@ -28,10 +28,8 @@ All SCSI I/O must go through `Pool::execute_with_ctx(...)`. The raw
 * graceful shutdown and poisoned-connection recovery
 
 `runtime.ResponseQueueCapacity` controls the buffered response PDUs per
-in-flight command. It defaults to `256`.
-
-`runtime.MaxConnectionRecoveryAttempts` controls retries after a poisoned
-connection fails. It defaults to `3`; `0` disables retries.
+in-flight command. `runtime.MaxConnectionRecoveryAttempts` controls retries
+after a poisoned connection fails; `0` disables retries. Both are required.
 
 ## Quick Start
 
