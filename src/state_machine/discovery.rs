@@ -13,17 +13,18 @@
 
 use std::{marker::PhantomData, pin::Pin, sync::Arc};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use rand::RngExt;
 use tokio_util::sync::CancellationToken;
 use tracing::debug;
 
 use crate::{
-    cfg::config::{login_keys_security, Config},
+    cfg::config::{Config, login_keys_security},
     client::client::ClientConnection,
     models::{
         common::{BasicHeaderSegment, Builder, HEADER_LEN},
         data_fromat::{PduRequest, PduResponse},
+        identifiers::Itt,
         login::{
             common::Stage,
             request::{LoginRequest, LoginRequestBuilder},
@@ -86,7 +87,7 @@ pub struct DiscoveryCtx<'a> {
     /// Accumulated list of discovered targets.
     pub results: Vec<DiscoveredTarget>,
     /// Initiator Task Tag (ITT), incremented per request.
-    pub itt: u32,
+    pub itt: Itt,
     /// Command Sequence Number (bumped after login, used for Text/Logout).
     pub cmd_sn: u32,
     /// Expected Status Sequence Number (from target's StatSN + 1).
@@ -121,7 +122,7 @@ impl<'a> DiscoveryCtx<'a> {
             cfg,
             cancel,
             results: Vec::new(),
-            itt: 0,
+            itt: Itt::new_unchecked(0),
             cmd_sn: 0,
             exp_stat_sn: 0,
             buf: [0u8; HEADER_LEN],
@@ -178,11 +179,6 @@ impl<'a> DiscoveryCtx<'a> {
         }
 
         if let Some(addrs) = map.remove("TargetAddress") {
-            // RFC 3720 § 4.2: TargetAddress entries are listed in the order
-            // of TargetName entries. If a target has multiple portals they
-            // appear as separate TargetAddress keys. Match them
-            // positionally; extra addresses beyond the last TargetName
-            // belong to the last target.
             for (i, addr_str) in addrs.iter().enumerate() {
                 let idx = i.min(targets.len().saturating_sub(1));
                 if let Some(t) = targets.get_mut(idx) {
@@ -201,31 +197,24 @@ impl<'a> DiscoveryCtx<'a> {
 // States
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// TCP connect state.
 #[derive(Debug)]
 pub struct Connect;
 
-/// Login (Discovery session) state.
 #[derive(Debug)]
 pub struct Login;
 
-/// Send `SendTargets=All` Text Request.
 #[derive(Debug)]
 pub struct SendTargets;
 
-/// Collect all Text Response PDUs (loop until F=1).
 #[derive(Debug)]
 pub struct Collect;
 
-/// Session logout state.
 #[derive(Debug)]
 pub struct Logout;
 
-/// Final state — machine terminates.
 #[derive(Debug)]
 pub struct Finish;
 
-/// All possible states of the discovery state machine.
 #[derive(Debug)]
 pub enum DiscoveryStates {
     Connect(Connect),
@@ -265,7 +254,7 @@ impl<'ctx> StateMachine<DiscoveryCtx<'ctx>, DiscoveryStep> for Connect {
                 Err(e) => {
                     return Transition::Done(Err(anyhow!(
                         "discovery connect failed: {e}"
-                    )))
+                    )));
                 },
             };
             ctx.conn = Some(conn);
@@ -292,13 +281,10 @@ impl<'ctx> StateMachine<DiscoveryCtx<'ctx>, DiscoveryStep> for Login {
                 None => {
                     return Transition::Done(Err(anyhow!(
                         "no connection in discovery ctx"
-                    )))
+                    )));
                 },
             };
 
-            // Discovery session login:
-            //   CSG=Security, NSG=FullFeature, Transit=1
-            //   Data segment: SessionType=Discovery + InitiatorName + AuthMethod=None
             let header = LoginRequestBuilder::new(ctx.isid, /* tsih hint */ 0)
                 .transit()
                 .csg(Stage::Security)
@@ -349,7 +335,8 @@ impl<'ctx> StateMachine<DiscoveryCtx<'ctx>, DiscoveryStep> for Login {
             // during login.  CmdSN=0 and ExpStatSN=0 for all subsequent PDUs.
             ctx.cmd_sn = 0;
             ctx.exp_stat_sn = 0;
-            ctx.itt = ctx.itt.wrapping_add(1);
+            let next = ctx.itt.get().wrapping_add(1);
+            ctx.itt = Itt::new_unchecked(next);
             ctx.last_login_response = Some(rsp);
 
             Transition::Next(DiscoveryStates::SendTargets(SendTargets), Ok(()))
@@ -375,7 +362,6 @@ impl<'ctx> StateMachine<DiscoveryCtx<'ctx>, DiscoveryStep> for SendTargets {
                 None => return Transition::Done(Err(anyhow!("no connection"))),
             };
 
-            // Build Text Request with SendTargets=All
             let header = TextRequestBuilder::new()
                 .immediate()
                 .lun(0)
@@ -423,9 +409,6 @@ impl<'ctx> StateMachine<DiscoveryCtx<'ctx>, DiscoveryStep> for Collect {
 
             let mut all_data: Vec<u8> = Vec::new();
 
-            // Read TextResponse PDUs until Final bit is set.
-            // The client read-loop multiplexes per-ITT via channels; calling
-            // `read_response_raw` restores the receiver when the PDU is not final.
             loop {
                 let (mut pdu, data) =
                     match conn.read_response_raw::<TextResponse>(ctx.itt).await {
@@ -442,7 +425,6 @@ impl<'ctx> StateMachine<DiscoveryCtx<'ctx>, DiscoveryStep> for Collect {
                     .map(|h| h.flags.get_final_bit())
                     .unwrap_or(false);
 
-                // Parse digests so data() works properly.
                 let _ = pdu.parse_with_buff(&data);
 
                 if let Ok(view) = pdu.header_view() {
@@ -470,7 +452,8 @@ impl<'ctx> StateMachine<DiscoveryCtx<'ctx>, DiscoveryStep> for Collect {
 
             debug!("Discovery: parsed {} target(s)", ctx.results.len());
 
-            ctx.itt = ctx.itt.wrapping_add(1);
+            let next = ctx.itt.get().wrapping_add(1);
+            ctx.itt = Itt::new_unchecked(next);
 
             Transition::Next(DiscoveryStates::Logout(Logout), Ok(()))
         })
@@ -515,13 +498,10 @@ impl<'ctx> StateMachine<DiscoveryCtx<'ctx>, DiscoveryStep> for Logout {
                     debug!("Discovery logout complete");
                 },
                 Err(e) => {
-                    // Logout failures during discovery are non-fatal — the
-                    // target might have already torn down the session.
                     debug!("Discovery logout response: {e} (ignored)");
                 },
             }
 
-            // Signal the read-loop to shut down.
             conn.kill_now();
 
             Transition::Next(DiscoveryStates::Finish(Finish), Ok(()))

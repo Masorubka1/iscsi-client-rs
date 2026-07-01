@@ -1,9 +1,7 @@
-//! This module defines the state machine for the iSCSI NOP-Out/NOP-In exchange.
-//! It includes the states, context, and transitions for handling ping-like
-//! messages.
-
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
+
+//! This module defines the state machine for the iSCSI NOP-Out/NOP-In exchange.
 
 use std::{
     marker::PhantomData,
@@ -23,6 +21,7 @@ use crate::{
     models::{
         common::HEADER_LEN,
         data_fromat::{PduRequest, PduResponse},
+        identifiers::{Itt, IttGen, Lun, Ttt},
         nop::{
             request::{NopOutRequest, NopOutRequestBuilder},
             response::NopInResponse,
@@ -31,21 +30,16 @@ use crate::{
     state_machine::common::{StateMachine, StateMachineCtx, Transition},
 };
 
-/// This structure represents the context for a NOP-Out/NOP-In exchange.
-///
-/// It holds all the necessary information to manage the state of a
-/// NOP-Out/NOP-In operation, including connection details and command
-/// parameters.
 #[derive(Debug)]
 pub struct NopCtx<'a> {
     _lt: PhantomData<&'a ()>,
 
     pub conn: Arc<ClientConnection>,
-    pub lun: u64,
-    pub itt: u32,
+    pub lun: Lun,
+    pub itt: Itt,
     pub cmd_sn: u32,
     pub exp_stat_sn: Arc<AtomicU32>,
-    pub ttt: u32,
+    pub ttt: Ttt,
     pub buf: [u8; HEADER_LEN],
 
     last_response: Option<PduResponse<NopInResponse>>,
@@ -56,16 +50,16 @@ impl<'a> NopCtx<'a> {
     /// Creates a new `NopCtx` for initiating a NOP-Out exchange.
     pub fn new(
         conn: Arc<ClientConnection>,
-        lun: u64,
-        itt: Arc<AtomicU32>,
+        lun: Lun,
+        itt_gen: &IttGen,
         cmd_sn: Arc<AtomicU32>,
         exp_stat_sn: Arc<AtomicU32>,
-        ttt: u32,
+        ttt: Ttt,
     ) -> Self {
         Self {
             conn,
             lun,
-            itt: itt.fetch_add(1, Ordering::SeqCst),
+            itt: itt_gen.fetch_inc(),
             cmd_sn: cmd_sn.load(Ordering::SeqCst),
             exp_stat_sn,
             ttt,
@@ -99,7 +93,7 @@ impl<'a> NopCtx<'a> {
     /// Creates a new `NopCtx` for replying to a NOP-In.
     pub fn for_reply(
         conn: Arc<ClientConnection>,
-        _itt: Arc<AtomicU32>,
+        _itt_gen: &IttGen,
         cmd_sn: Arc<AtomicU32>,
         exp_stat_sn: Arc<AtomicU32>,
         response: PduResponse<NopInResponse>,
@@ -107,11 +101,11 @@ impl<'a> NopCtx<'a> {
         let header = response.header_view()?;
         Ok(Self {
             conn,
-            lun: 0,
-            itt: 0,
+            lun: Lun::ZERO,
+            itt: Itt::new_unchecked(0),
             cmd_sn: cmd_sn.load(Ordering::SeqCst),
             exp_stat_sn,
-            ttt: header.target_task_tag.get(),
+            ttt: Ttt::new_unchecked(header.target_task_tag.get()),
             buf: [0u8; HEADER_LEN],
             last_response: Some(response),
             state: Some(NopStates::Reply(Reply)),
@@ -124,9 +118,9 @@ impl<'a> NopCtx<'a> {
 
         let header = NopOutRequestBuilder::new()
             .cmd_sn(self.cmd_sn)
-            .lun(self.lun)
-            .initiator_task_tag(self.itt)
-            .target_task_tag(self.ttt)
+            .lun(self.lun.get())
+            .initiator_task_tag(self.itt.get())
+            .target_task_tag(self.ttt.get())
             .exp_stat_sn(exp_stat_sn)
             .immediate();
 
@@ -217,13 +211,12 @@ impl<'ctx> StateMachine<NopCtx<'ctx>, NopStepOut> for Reply {
                 return Transition::Done(Err(e));
             }
 
-            // ITT for response NOP-In = 0xFFFF_FFFF
-            // TTT — copy from NOP-In (ctx.ttt)
+            // ITT for response NOP-In = 0xFFFF_FFFF (RESERVED)
             let hdr = NopOutRequestBuilder::new()
                 .immediate()
                 .lun(0)
-                .initiator_task_tag(u32::MAX)
-                .target_task_tag(ctx.ttt)
+                .initiator_task_tag(Itt::RESERVED)
+                .target_task_tag(ctx.ttt.get())
                 .cmd_sn(ctx.cmd_sn)
                 .exp_stat_sn(ctx.exp_stat_sn.load(Ordering::SeqCst))
                 .header;
@@ -233,8 +226,12 @@ impl<'ctx> StateMachine<NopCtx<'ctx>, NopStepOut> for Reply {
             }
             let pdu = PduRequest::<NopOutRequest>::new_request(ctx.buf, &ctx.conn.cfg);
 
-            // Response — fire-and-forget
-            if let Err(e) = ctx.conn.send_request(u32::MAX, pdu).await {
+            // Response — fire-and-forget (ITT = RESERVED)
+            if let Err(e) = ctx
+                .conn
+                .send_request(Itt::new_unchecked(Itt::RESERVED), pdu)
+                .await
+            {
                 return Transition::Done(Err(e));
             }
 

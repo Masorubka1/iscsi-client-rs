@@ -42,11 +42,23 @@ async fn login_tur_report_luns_pool() -> Result<()> {
     // --- TEST UNIT READY ---
     let _ = pool
         .execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
-            TurCtx::new(c, itt, cmd_sn, exp_stat_sn, lun_for_tur)
+            TurCtx::new(
+                c,
+                itt,
+                cmd_sn,
+                exp_stat_sn,
+                iscsi_client_rs::models::identifiers::Lun::from_raw(lun_for_tur),
+            )
         })
         .await;
     pool.execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
-        TurCtx::new(c, itt, cmd_sn, exp_stat_sn, lun_for_tur)
+        TurCtx::new(
+            c,
+            itt,
+            cmd_sn,
+            exp_stat_sn,
+            iscsi_client_rs::models::identifiers::Lun::from_raw(lun_for_tur),
+        )
     })
     .await
     .context("TUR failed")?;
@@ -61,7 +73,15 @@ async fn login_tur_report_luns_pool() -> Result<()> {
                 /* allocation_len */ 16,
                 /* control */ 0x00,
             );
-            ReadCtx::new(c, lun_report, itt, cmd_sn, exp_stat_sn, 16, cdb)
+            ReadCtx::new(
+                c,
+                iscsi_client_rs::models::identifiers::Lun::from_raw(lun_report),
+                itt,
+                cmd_sn,
+                exp_stat_sn,
+                16,
+                cdb,
+            )
         })
         .await
         .context("REPORT LUNS header read failed")?;
@@ -84,7 +104,7 @@ async fn login_tur_report_luns_pool() -> Result<()> {
             );
             ReadCtx::new(
                 c,
-                lun_report,
+                iscsi_client_rs::models::identifiers::Lun::from_raw(lun_report),
                 itt,
                 cmd_sn,
                 exp_stat_sn,

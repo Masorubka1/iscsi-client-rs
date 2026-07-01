@@ -1,9 +1,7 @@
-//! This module defines the state machine for the iSCSI Logout process.
-//! It includes the states, context, and transitions for logging out of a
-//! session.
-
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
+
+//! This module defines the state machine for the iSCSI Logout process.
 
 use std::{
     marker::PhantomData,
@@ -23,6 +21,7 @@ use crate::{
     models::{
         common::HEADER_LEN,
         data_fromat::{PduRequest, PduResponse},
+        identifiers::{Itt, IttGen},
         logout::{
             common::{LogoutReason, LogoutResponseCode},
             request::{LogoutRequest, LogoutRequestBuilder},
@@ -32,16 +31,12 @@ use crate::{
     state_machine::common::{StateMachine, StateMachineCtx, Transition},
 };
 
-/// This structure represents the context for a Logout command.
-///
-/// It holds all the necessary information to manage the state of a Logout
-/// operation, including connection details and command parameters.
 #[derive(Debug)]
 pub struct LogoutCtx<'a> {
     _lt: PhantomData<&'a ()>,
 
     pub conn: Arc<ClientConnection>,
-    pub itt: u32,
+    pub itt: Itt,
     pub cmd_sn: Arc<AtomicU32>,
     pub exp_stat_sn: Arc<AtomicU32>,
     pub cid: u16,
@@ -56,7 +51,7 @@ impl<'a> LogoutCtx<'a> {
     /// Creates a new `LogoutCtx` with the given connection and parameters.
     pub fn new(
         conn: Arc<ClientConnection>,
-        itt: Arc<AtomicU32>,
+        itt_gen: &IttGen,
         cmd_sn: Arc<AtomicU32>,
         exp_stat_sn: Arc<AtomicU32>,
         cid: u16,
@@ -64,7 +59,7 @@ impl<'a> LogoutCtx<'a> {
     ) -> Self {
         Self {
             conn,
-            itt: itt.fetch_add(1, Ordering::SeqCst),
+            itt: itt_gen.fetch_inc(),
             cmd_sn,
             exp_stat_sn,
             cid,

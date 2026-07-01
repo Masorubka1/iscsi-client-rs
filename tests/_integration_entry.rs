@@ -4,6 +4,7 @@
 #![allow(clippy::all)]
 
 mod integration_tests {
+
     pub mod common;
 
     pub mod check_tur;

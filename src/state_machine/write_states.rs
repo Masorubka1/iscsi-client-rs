@@ -1,9 +1,7 @@
-//! This module defines the state machine for the iSCSI SCSI Write command.
-//! It includes the states, context, and transitions for handling the write
-//! operation.
-
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
+
+//! This module defines the state machine for the iSCSI SCSI Write command.
 
 use std::{
     marker::PhantomData,
@@ -33,6 +31,7 @@ use crate::{
             sense_data::SenseData,
         },
         data_fromat::{PduRequest, PduResponse},
+        identifiers::{Itt, IttGen, Lun, Ttt},
         ready_2_transfer::response::ReadyToTransfer,
     },
     state_machine::common::{StateMachine, StateMachineCtx, Transition},
@@ -43,41 +42,29 @@ use crate::{
 pub struct WriteCtx<'a> {
     _lt: PhantomData<&'a ()>,
 
-    /// The client connection.
     pub conn: Arc<ClientConnection>,
-    /// The Logical Unit Number.
-    pub lun: u64,
-    /// The Initiator Task Tag.
-    pub itt: u32,
-    /// The Command Sequence Number.
+    pub lun: Lun,
+    pub itt: Itt,
     pub cmd_sn: Arc<AtomicU32>,
-    /// The Expected Status Sequence Number.
     pub exp_stat_sn: Arc<AtomicU32>,
 
-    /// The SCSI Command Descriptor Block.
     pub cdb: [u8; 16],
-    /// The data to be written.
     pub payload: Vec<u8>,
-    /// A buffer for the BHS.
     pub buf: [u8; HEADER_LEN],
 
-    /// The number of bytes that have been sent.
     pub sent_bytes: usize,
-    /// The total number of bytes to be sent.
     pub total_bytes: usize,
 
-    /// The last received command response.
     pub last_response: Option<PduResponse<ScsiCommandResponse>>,
     state: Option<WriteStates>,
 }
 
 #[allow(clippy::too_many_arguments)]
 impl<'a> WriteCtx<'a> {
-    /// Creates a new `WriteCtx` for a SCSI Write operation.
     pub fn new(
         conn: Arc<ClientConnection>,
-        lun: u64,
-        itt: Arc<AtomicU32>,
+        lun: Lun,
+        itt_gen: &IttGen,
         cmd_sn: Arc<AtomicU32>,
         exp_stat_sn: Arc<AtomicU32>,
         cdb: [u8; 16],
@@ -86,7 +73,7 @@ impl<'a> WriteCtx<'a> {
         Self {
             conn,
             lun,
-            itt: itt.fetch_add(1, Ordering::SeqCst),
+            itt: itt_gen.fetch_inc(),
             cmd_sn,
             exp_stat_sn,
             cdb,
@@ -108,7 +95,7 @@ impl<'a> WriteCtx<'a> {
         self.total_bytes = self.payload.len();
 
         let header = ScsiCommandRequestBuilder::new()
-            .lun(self.lun)
+            .lun(self.lun.get())
             .initiator_task_tag(self.itt)
             .cmd_sn(cmd_sn)
             .exp_stat_sn(esn)
@@ -124,8 +111,7 @@ impl<'a> WriteCtx<'a> {
         Ok(())
     }
 
-    /// Receives a Ready To Transfer (R2T) PDU.
-    async fn recv_r2t(&self, itt: u32) -> Result<PduResponse<ReadyToTransfer>> {
+    async fn recv_r2t(&self, itt: Itt) -> Result<PduResponse<ReadyToTransfer>> {
         let r2t: PduResponse<ReadyToTransfer> = self.conn.read_response(itt).await?;
         let header = r2t.header_view()?;
         self.exp_stat_sn
@@ -136,8 +122,8 @@ impl<'a> WriteCtx<'a> {
     /// Sends a window of data to the target.
     async fn send_data(
         &mut self,
-        itt: u32,
-        ttt: u32,
+        itt: Itt,
+        ttt: Ttt,
         offset: usize,
         len: usize,
     ) -> Result<usize> {
@@ -168,9 +154,9 @@ impl<'a> WriteCtx<'a> {
             let last_chunk_in_window = sent + take == to_send_total;
 
             let header = ScsiDataOutBuilder::new()
-                .lun(self.lun)
-                .initiator_task_tag(itt)
-                .target_transfer_tag(ttt)
+                .lun(self.lun.get())
+                .initiator_task_tag(itt.get())
+                .target_transfer_tag(ttt.get())
                 .exp_stat_sn(self.exp_stat_sn.load(Ordering::SeqCst))
                 .buffer_offset(off as u32)
                 .data_sn(next_data_sn);
@@ -180,12 +166,13 @@ impl<'a> WriteCtx<'a> {
             let mut pdu =
                 PduRequest::<ScsiDataOut>::new_request(self.buf, &self.conn.cfg);
 
-            let header = pdu.header_view_mut()?;
-
-            if last_chunk_in_window {
-                header.set_final_bit();
-            } else {
-                header.set_continue_bit();
+            {
+                let h = pdu.header_view_mut()?;
+                if last_chunk_in_window {
+                    h.set_final_bit();
+                } else {
+                    h.set_continue_bit();
+                }
             }
 
             pdu.append_data(&self.payload[off..off + take]);
@@ -199,8 +186,7 @@ impl<'a> WriteCtx<'a> {
         Ok(sent)
     }
 
-    /// Waits for the final SCSI response and validates it.
-    async fn wait_scsi_response(&mut self, itt: u32) -> Result<()> {
+    async fn wait_scsi_response(&mut self, itt: Itt) -> Result<()> {
         let rsp: PduResponse<ScsiCommandResponse> = self.conn.read_response(itt).await?;
         let header = rsp.header_view()?;
         self.exp_stat_sn
@@ -256,7 +242,7 @@ impl<'a> WriteCtx<'a> {
         self.total_bytes = self.payload.len();
 
         let header = ScsiCommandRequestBuilder::new()
-            .lun(self.lun)
+            .lun(self.lun.get())
             .initiator_task_tag(self.itt)
             .cmd_sn(cmd_sn)
             .exp_stat_sn(esn)
@@ -304,9 +290,9 @@ impl<'a> WriteCtx<'a> {
             let last = sent + take == len;
 
             let header = ScsiDataOutBuilder::new()
-                .lun(self.lun)
-                .initiator_task_tag(self.itt)
-                .target_transfer_tag(u32::MAX)
+                .lun(self.lun.get())
+                .initiator_task_tag(self.itt.get())
+                .target_transfer_tag(Ttt::NONE)
                 .exp_stat_sn(self.exp_stat_sn.load(Ordering::SeqCst))
                 .buffer_offset(off as u32)
                 .data_sn(next_data_sn);
@@ -441,7 +427,7 @@ impl<'ctx> StateMachine<WriteCtx<'ctx>, WriteStep> for WaitR2T {
                 },
             };
 
-            let ttt = h.target_transfer_tag.get();
+            let ttt = Ttt::new_unchecked(h.target_transfer_tag.get());
             let offset = h.buffer_offset.get() as usize;
             let want = h.desired_data_transfer_length.get() as usize;
 

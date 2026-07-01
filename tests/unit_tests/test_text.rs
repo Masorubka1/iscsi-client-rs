@@ -40,7 +40,7 @@ fn test_text_request() -> Result<()> {
 
     let header_builder = TextRequestBuilder::new()
         .lun(0) // builder takes u64
-        .initiator_task_tag(itt)
+        .initiator_task_tag(itt.into())
         .target_task_tag(ttt)
         .cmd_sn(cmd_sn)
         .exp_stat_sn(exp_sn);

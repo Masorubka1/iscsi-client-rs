@@ -13,8 +13,9 @@ use zerocopy::{
 use crate::{
     client::pdu_connection::FromBytes,
     models::{
-        common::{BasicHeaderSegment, HEADER_LEN, InitiatorTaskTag, SendingData},
+        common::{BasicHeaderSegment, HEADER_LEN, SendingData},
         data_fromat::ZeroCopyType,
+        identifiers::Itt,
         logout::common::{LogoutReason, RawLogoutReason},
         opcode::{BhsOpcode, Opcode, RawBhsOpcode},
     },
@@ -34,9 +35,9 @@ pub struct LogoutRequest {
     pub data_segment_length: [u8; 3], // bytes 5..8: must be zero
     reserved1: [u8; 8],               /* bytes 8..16: Reserved (no ISID/Tsih in
                                        * LogoutReq) */
-    pub initiator_task_tag: InitiatorTaskTag, // bytes 16..20: ITT
-    pub cid: U16<BigEndian>,                  /* bytes 20..22: CID (if closing a
-                                               * specific connection) */
+    pub initiator_task_tag: U32<BigEndian>, // bytes 16..20: ITT
+    pub cid: U16<BigEndian>,                /* bytes 20..22: CID (if closing a
+                                             * specific connection) */
     reserved2: [u8; 2],              // bytes 22..24: Reserved
     pub cmd_sn: U32<BigEndian>,      // bytes 24..28
     pub exp_stat_sn: U32<BigEndian>, // bytes 28..32
@@ -80,7 +81,7 @@ pub struct LogoutRequestBuilder {
 impl LogoutRequestBuilder {
     /// Creates a new `LogoutRequestBuilder` with the given reason, ITT, and
     /// CID.
-    pub fn new(reason: LogoutReason, itt: u32, cid: u16) -> Self {
+    pub fn new(reason: LogoutReason, itt: Itt, cid: u16) -> Self {
         Self {
             header: LogoutRequest {
                 opcode: {
@@ -92,7 +93,7 @@ impl LogoutRequestBuilder {
                 reason: reason.into(),
                 total_ahs_length: 0,
                 data_segment_length: [0, 0, 0],
-                initiator_task_tag: InitiatorTaskTag::new(itt),
+                initiator_task_tag: itt.get().into(),
                 cid: cid.into(),
                 ..Default::default()
             },
@@ -154,8 +155,8 @@ impl BasicHeaderSegment for LogoutRequest {
     }
 
     #[inline]
-    fn get_initiator_task_tag(&self) -> u32 {
-        self.initiator_task_tag.get()
+    fn get_initiator_task_tag(&self) -> Itt {
+        self.initiator_task_tag.get().into()
     }
 
     #[inline]

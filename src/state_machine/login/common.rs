@@ -14,6 +14,7 @@ use crate::{
     models::{
         common::HEADER_LEN,
         data_fromat::PduResponse,
+        identifiers::Itt,
         login::{common::Stage, response::LoginResponse},
     },
     state_machine::{
@@ -39,7 +40,7 @@ pub struct LoginCtx<'a> {
     /// The Target Session Identifying Handle.
     pub tsih: u16,
     /// The Initiator Task Tag.
-    pub itt: u32,
+    pub itt: Itt,
     /// A buffer for the BHS.
     pub buf: [u8; HEADER_LEN],
 
@@ -57,7 +58,7 @@ impl<'a> LoginCtx<'a> {
             isid,
             cid,
             tsih,
-            itt: 0,
+            itt: 0.into(),
             buf: [0u8; HEADER_LEN],
             last_response: None,
             state: None,

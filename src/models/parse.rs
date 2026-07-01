@@ -5,13 +5,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use enum_dispatch::enum_dispatch;
 
 use crate::models::{
     command::{request::ScsiCommandRequest, response::ScsiCommandResponse},
     common::{BasicHeaderSegment, SendingData},
     data::{request::ScsiDataOut, response::ScsiDataIn},
+    identifiers::Itt,
     login::{request::LoginRequest, response::LoginResponse},
     logout::{request::LogoutRequest, response::LogoutResponse},
     nop::{request::NopOutRequest, response::NopInResponse},

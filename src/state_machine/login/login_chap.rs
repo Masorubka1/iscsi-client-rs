@@ -12,7 +12,7 @@ use crate::{
         AuthConfig, login_keys_chap_response, login_keys_operational, login_keys_security,
     },
     models::{
-        common::Builder,
+        common::{BasicHeaderSegment, Builder},
         data_fromat::PduRequest,
         login::{
             common::Stage,
@@ -138,24 +138,21 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for ChapA {
 
     fn step<'a>(&'a self, ctx: &'a mut LoginCtx<'ctx>) -> Self::StepResult<'a> {
         Box::pin(async move {
-            // Step2: Security → Security, CHAP_A=5
             let (header, itt) = {
                 let last = match ctx.validate_last_response_header() {
                     Ok(last) => last,
-                    Err(e) => {
-                        return Transition::Done(Err(e));
-                    },
+                    Err(e) => return Transition::Done(Err(e)),
                 };
 
                 let header = LoginRequestBuilder::new(ctx.isid, last.tsih.get())
                     .csg(Stage::Security)
                     .nsg(Stage::Security)
-                    .initiator_task_tag(last.initiator_task_tag.get())
+                    .initiator_task_tag(last.get_initiator_task_tag())
                     .connection_id(ctx.cid)
                     .cmd_sn(last.exp_cmd_sn.get())
                     .exp_stat_sn(last.stat_sn.get().wrapping_add(1));
 
-                (header, last.initiator_task_tag.get())
+                (header, last.get_initiator_task_tag())
             };
 
             if let Err(e) = header.header.to_bhs_bytes(ctx.buf.as_mut_slice()) {
@@ -225,17 +222,16 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for ChapAnswer {
 
                 let chap_r = calc_chap_r_hex(id, secret, &chal);
 
-                // Step3: (Security -> Operational, Transit=1)
                 let header = LoginRequestBuilder::new(ctx.isid, last_header.tsih.get())
                     .transit()
                     .csg(Stage::Security)
                     .nsg(Stage::Operational)
-                    .initiator_task_tag(last_header.initiator_task_tag.get())
+                    .initiator_task_tag(last_header.get_initiator_task_tag())
                     .connection_id(ctx.cid)
                     .cmd_sn(last_header.exp_cmd_sn.get())
                     .exp_stat_sn(last_header.stat_sn.get().wrapping_add(1));
 
-                (header, last_header.initiator_task_tag.get(), user, chap_r)
+                (header, last_header.get_initiator_task_tag(), user, chap_r)
             };
 
             if let Err(e) = header.header.to_bhs_bytes(ctx.buf.as_mut_slice()) {
@@ -274,24 +270,21 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for ChapOpToFull {
 
     fn step<'a>(&'a self, ctx: &'a mut LoginCtx<'ctx>) -> Self::StepResult<'a> {
         Box::pin(async move {
-            // Step4: Operational (Transit) → FullFeature + operational keys
-            let (header, itt) = {
-                let last = match ctx.validate_last_response_header() {
-                    Ok(last) => last,
-                    Err(e) => return Transition::Done(Err(e)),
-                };
-
-                let header = LoginRequestBuilder::new(ctx.isid, last.tsih.get())
-                    .transit()
-                    .csg(Stage::Operational)
-                    .nsg(Stage::FullFeature)
-                    .versions(last.version_max, last.version_active)
-                    .initiator_task_tag(last.initiator_task_tag.get())
-                    .connection_id(ctx.cid)
-                    .cmd_sn(last.exp_cmd_sn.get())
-                    .exp_stat_sn(last.stat_sn.get().wrapping_add(1));
-                (header, last.initiator_task_tag.get())
+            let last = match ctx.validate_last_response_header() {
+                Ok(last) => last,
+                Err(e) => return Transition::Done(Err(e)),
             };
+
+            let itt = last.get_initiator_task_tag();
+            let header = LoginRequestBuilder::new(ctx.isid, last.tsih.get())
+                .transit()
+                .csg(Stage::Operational)
+                .nsg(Stage::FullFeature)
+                .versions(last.version_max, last.version_active)
+                .initiator_task_tag(itt)
+                .connection_id(ctx.cid)
+                .cmd_sn(last.exp_cmd_sn.get())
+                .exp_stat_sn(last.stat_sn.get().wrapping_add(1));
 
             if let Err(e) = header.header.to_bhs_bytes(ctx.buf.as_mut_slice()) {
                 return Transition::Done(Err(e));

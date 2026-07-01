@@ -7,7 +7,10 @@ use anyhow::{Context, Result};
 use iscsi_client_rs::{
     cfg::{config::Config, logger::init_logger},
     client::pool_sessions::Pool,
-    models::nop::request::NopOutRequest,
+    models::{
+        identifiers::{Lun, Ttt},
+        nop::request::NopOutRequest,
+    },
     state_machine::nop_states::NopCtx,
 };
 
@@ -40,11 +43,11 @@ async fn login_and_nop() -> Result<()> {
     pool.execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
         NopCtx::new(
             c,
-            lun,
-            itt,         // Arc<AtomicU32>
-            cmd_sn,      // Arc<AtomicU32>
-            exp_stat_sn, // Arc<AtomicU32>
-            NopOutRequest::DEFAULT_TAG,
+            Lun::from_raw(lun),
+            itt,
+            cmd_sn,
+            exp_stat_sn,
+            Ttt::new_unchecked(NopOutRequest::DEFAULT_TAG),
         )
     })
     .await

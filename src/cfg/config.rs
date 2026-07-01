@@ -3,7 +3,7 @@
 
 use std::{collections::HashMap, fs, path::Path, time::Duration};
 
-use anyhow::{ensure, Context, Result};
+use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 
 use crate::cfg::enums::{Digest, SessionType, YesNo};

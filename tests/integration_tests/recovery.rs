@@ -12,6 +12,7 @@ use iscsi_client_rs::{
     client::{client::ClientConnection, pool_sessions::Pool},
     models::{
         common::{BasicHeaderSegment, HEADER_LEN},
+        identifiers::{Lun, Ttt},
         login::{
             common::Stage,
             request::LoginRequest,
@@ -208,11 +209,11 @@ async fn poisoned_connection_is_recreated_after_timeout() -> Result<()> {
     pool.execute_with(tsih, 0, |c, itt, cmd_sn, exp_stat_sn| {
         NopCtx::new(
             c,
-            1u64 << 48,
+            Lun::from_raw(1u64 << 48),
             itt,
             cmd_sn,
             exp_stat_sn,
-            NopOutRequest::DEFAULT_TAG,
+            Ttt::new_unchecked(NopOutRequest::DEFAULT_TAG),
         )
     })
     .await

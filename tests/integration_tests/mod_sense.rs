@@ -42,11 +42,23 @@ async fn login_tur_mode_sense_pool() -> Result<()> {
     // --- TEST UNIT READY ---
     let _ = pool
         .execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
-            TurCtx::new(c, itt, cmd_sn, exp_stat_sn, lun)
+            TurCtx::new(
+                c,
+                itt,
+                cmd_sn,
+                exp_stat_sn,
+                iscsi_client_rs::models::identifiers::Lun::from_raw(lun),
+            )
         })
         .await;
     pool.execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
-        TurCtx::new(c, itt, cmd_sn, exp_stat_sn, lun)
+        TurCtx::new(
+            c,
+            itt,
+            cmd_sn,
+            exp_stat_sn,
+            iscsi_client_rs::models::identifiers::Lun::from_raw(lun),
+        )
     })
     .await
     .context("TUR failed")?;
@@ -58,7 +70,15 @@ async fn login_tur_mode_sense_pool() -> Result<()> {
             // Page code 0x3F, allocation length 8
             fill_mode_sense10_simple(&mut cdb10, 0x3F, 8);
             // ReadCtx возвращает ReadResult { data, last_response }
-            ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, 8, cdb10)
+            ReadCtx::new(
+                c,
+                iscsi_client_rs::models::identifiers::Lun::from_raw(lun),
+                itt,
+                cmd_sn,
+                exp_stat_sn,
+                8,
+                cdb10,
+            )
         })
         .await
         .context("MODE SENSE(10) failed")?;
@@ -70,7 +90,15 @@ async fn login_tur_mode_sense_pool() -> Result<()> {
             let mut cdb6 = [0u8; 16];
             // Page code 0x3F, allocation length 4
             fill_mode_sense6_simple(&mut cdb6, 0x3F, 4);
-            ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, 4, cdb6)
+            ReadCtx::new(
+                c,
+                iscsi_client_rs::models::identifiers::Lun::from_raw(lun),
+                itt,
+                cmd_sn,
+                exp_stat_sn,
+                4,
+                cdb6,
+            )
         })
         .await
         .context("MODE SENSE(6) failed")?;

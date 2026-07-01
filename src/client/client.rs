@@ -34,7 +34,10 @@ use crate::{
         pending_requests::PendingRequests,
         pool_sessions::Pool,
     },
-    models::nop::request::NopOutRequest,
+    models::{
+        identifiers::{Lun, Ttt},
+        nop::request::NopOutRequest,
+    },
     state_machine::nop_states::NopCtx,
 };
 
@@ -294,11 +297,11 @@ impl ClientConnection {
         pool.execute_with(sr.tsih, sr.cid, move |conn, itt, cmd_sn, exp_stat_sn| {
             NopCtx::new(
                 conn,
-                lun,
+                Lun::from_raw(lun),
                 itt,
                 cmd_sn,
                 exp_stat_sn,
-                NopOutRequest::DEFAULT_TAG,
+                Ttt::new_unchecked(NopOutRequest::DEFAULT_TAG),
             )
         })
         .await?;

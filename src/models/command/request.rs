@@ -7,18 +7,16 @@
 
 use anyhow::{Result, anyhow, bail};
 use zerocopy::{
-    BigEndian, FromBytes as ZFromBytes, Immutable, IntoBytes, KnownLayout, U32,
+    BigEndian, FromBytes as ZFromBytes, Immutable, IntoBytes, KnownLayout, U32, U64,
 };
 
 use crate::{
     client::pdu_connection::FromBytes,
     models::{
         command::{common::TaskAttribute, zero_copy::RawScsiCmdReqFlags},
-        common::{
-            BasicHeaderSegment, HEADER_LEN, InitiatorTaskTag, LogicalUnitNumber,
-            SendingData,
-        },
+        common::{BasicHeaderSegment, HEADER_LEN, SendingData},
         data_fromat::ZeroCopyType,
+        identifiers::Itt,
         opcode::{BhsOpcode, Opcode, RawBhsOpcode},
     },
 };
@@ -42,9 +40,9 @@ pub struct ScsiCommandRequest {
     /// Data Segment Length (bytes 5-7) - length of immediate data
     pub data_segment_length: [u8; 3],
     /// Logical Unit Number (bytes 8-15)
-    pub lun: LogicalUnitNumber,
+    pub lun: U64<BigEndian>,
     /// Initiator Task Tag (bytes 16-19) - unique command identifier
-    pub initiator_task_tag: InitiatorTaskTag,
+    pub initiator_task_tag: U32<BigEndian>,
     /// Expected Data Transfer Length (bytes 20-23) - total data expected
     pub expected_data_transfer_length: U32<BigEndian>,
     /// Command Sequence Number (bytes 24-27) - for ordering
@@ -151,8 +149,8 @@ impl ScsiCommandRequestBuilder {
     }
 
     /// Sets the initiator task tag, a unique identifier for this command.
-    pub fn initiator_task_tag(mut self, tag: u32) -> Self {
-        self.header.initiator_task_tag.set(tag);
+    pub fn initiator_task_tag(mut self, tag: Itt) -> Self {
+        self.header.initiator_task_tag.set(tag.get());
         self
     }
 
@@ -226,8 +224,8 @@ impl BasicHeaderSegment for ScsiCommandRequest {
         BhsOpcode::try_from(self.opcode.raw())
     }
 
-    fn get_initiator_task_tag(&self) -> u32 {
-        self.initiator_task_tag.get()
+    fn get_initiator_task_tag(&self) -> Itt {
+        self.initiator_task_tag.get().into()
     }
 
     #[inline]

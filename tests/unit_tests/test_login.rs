@@ -13,7 +13,7 @@ use iscsi_client_rs::{
         },
     },
     models::{
-        common::{Builder, HEADER_LEN},
+        common::{BasicHeaderSegment, Builder, HEADER_LEN},
         data_fromat::{PduRequest, PduResponse},
         login::{
             common::Stage,
@@ -167,7 +167,7 @@ fn chap_step1_security_only() -> Result<()> {
     let s1_hdr = LoginRequestBuilder::new(ISID, 0)
         .csg(Stage::Security)
         .nsg(Stage::Security)
-        .initiator_task_tag(0)
+        .initiator_task_tag(0.into())
         .cmd_sn(0)
         .exp_stat_sn(0);
 
@@ -213,7 +213,7 @@ fn chap_step2_chap_a() -> Result<()> {
     let s2_hdr = LoginRequestBuilder::new(ISID, r1_header.tsih.get())
         .csg(Stage::Security)
         .nsg(Stage::Security)
-        .initiator_task_tag(r1_header.initiator_task_tag.get())
+        .initiator_task_tag(r1_header.get_initiator_task_tag())
         .cmd_sn(r1_header.exp_cmd_sn.get())
         .exp_stat_sn(r1_header.exp_cmd_sn.get().wrapping_add(1));
 
@@ -257,7 +257,7 @@ fn chap_step3_chap_response() -> Result<()> {
         .transit()
         .csg(Stage::Security)
         .nsg(Stage::Operational)
-        .initiator_task_tag(r2_header.initiator_task_tag.get())
+        .initiator_task_tag(r2_header.get_initiator_task_tag())
         .cmd_sn(r2_header.exp_cmd_sn.get())
         .exp_stat_sn(r2_header.stat_sn.get().wrapping_add(1));
 

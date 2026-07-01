@@ -8,7 +8,7 @@ use anyhow::anyhow;
 use crate::{
     cfg::config::{login_keys_operational, login_keys_security},
     models::{
-        common::Builder,
+        common::{BasicHeaderSegment, Builder},
         data_fromat::PduRequest,
         login::{
             common::Stage,
@@ -120,12 +120,12 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for PlainOpToFull {
                     .csg(Stage::Operational)
                     .nsg(Stage::FullFeature)
                     .versions(last.version_max, last.version_active)
-                    .initiator_task_tag(last.initiator_task_tag.get())
+                    .initiator_task_tag(last.get_initiator_task_tag())
                     .connection_id(ctx.cid)
                     .cmd_sn(last.exp_cmd_sn.get())
                     .exp_stat_sn(last.stat_sn.get().wrapping_add(1));
 
-                (header, last.initiator_task_tag.get())
+                (header, last.get_initiator_task_tag())
             };
 
             if let Err(e) = header.header.to_bhs_bytes(ctx.buf.as_mut_slice()) {

@@ -8,8 +8,6 @@ pub mod cfg;
 pub mod client;
 /// Implements various SCSI commands (control blocks).
 pub mod control_block;
-/// Contains handlers for different iSCSI PDU types.
-pub mod handlers;
 /// Defines the data structures for iSCSI PDUs and SCSI commands.
 pub mod models;
 /// Contains state machines for handling iSCSI operations like Login, Logout,

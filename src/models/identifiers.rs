@@ -69,6 +69,16 @@ impl Itt {
     }
 }
 
+/// Convenience conversion from raw wire ITT.
+/// Allows the reserved sentinel `0xFFFF_FFFF` (used for fire-and-forget
+/// PDUs like `NopOut` replies). To validate, use `Itt::new()`.
+impl From<u32> for Itt {
+    #[inline]
+    fn from(raw: u32) -> Self {
+        Self(raw)
+    }
+}
+
 impl fmt::Display for Itt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "0x{:08X}", self.0)
@@ -135,6 +145,14 @@ impl Lun {
     }
 }
 
+/// Convenience conversion from raw wire LUN.
+impl From<u64> for Lun {
+    #[inline]
+    fn from(raw: u64) -> Self {
+        Self::from_raw(raw)
+    }
+}
+
 impl fmt::Display for Lun {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if let Some(n) = self.lun_number() {
@@ -178,6 +196,14 @@ impl Ttt {
     #[inline]
     pub const fn get(self) -> u32 {
         self.0
+    }
+}
+
+/// Convenience conversion from raw wire TTT.
+impl From<u32> for Ttt {
+    #[inline]
+    fn from(raw: u32) -> Self {
+        Self(raw)
     }
 }
 

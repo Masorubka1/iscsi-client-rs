@@ -3,7 +3,7 @@
 
 use std::{any::type_name, fmt::Debug, sync::Arc};
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 use bytes::{Bytes, BytesMut};
 use tracing::{debug, warn};
 
@@ -11,8 +11,9 @@ use super::ClientConnection;
 use crate::{
     client::{common::RawPdu, pdu_connection::FromBytes},
     models::{
-        common::{BasicHeaderSegment, SendingData, HEADER_LEN},
+        common::{BasicHeaderSegment, HEADER_LEN, SendingData},
         data_fromat::{PduResponse, ZeroCopyType},
+        identifiers::Itt,
         nop::response::NopInResponse,
         parse::Pdu,
     },
@@ -21,12 +22,12 @@ use crate::{
 impl ClientConnection {
     pub async fn read_response_raw<T: BasicHeaderSegment + Debug>(
         &self,
-        initiator_task_tag: u32,
+        itt: Itt,
     ) -> Result<(PduResponse<T>, Bytes)> {
         #[cfg(feature = "profiling-puffin")]
         profiling::function_scope!();
         self.ensure_active()?;
-        let mut receiver = self.pending.take_receiver(initiator_task_tag)?;
+        let mut receiver = self.pending.take_receiver(itt)?;
 
         let RawPdu {
             mut header,
@@ -46,7 +47,7 @@ impl ClientConnection {
             pdu_header.get_final_bit()
         );
         if !pdu_header.get_final_bit() {
-            self.pending.restore_receiver(initiator_task_tag, receiver);
+            self.pending.restore_receiver(itt, receiver);
         }
 
         Ok((
@@ -59,11 +60,11 @@ impl ClientConnection {
         T: BasicHeaderSegment + FromBytes + Debug + ZeroCopyType,
     >(
         &self,
-        initiator_task_tag: u32,
+        itt: Itt,
     ) -> Result<PduResponse<T>> {
         #[cfg(feature = "profiling-puffin")]
         profiling::function_scope!();
-        let (mut pdu, data) = self.read_response_raw(initiator_task_tag).await?;
+        let (mut pdu, data) = self.read_response_raw(itt).await?;
         if let Err(error) = pdu.parse_with_buff(&data) {
             self.poison(format!("invalid response PDU: {error}"));
             return Err(error);
@@ -112,7 +113,7 @@ impl ClientConnection {
         }
     }
 
-    async fn read_pdu(&self, scratch: &mut BytesMut) -> Result<(u32, bool, RawPdu)> {
+    async fn read_pdu(&self, scratch: &mut BytesMut) -> Result<(Itt, bool, RawPdu)> {
         #[cfg(feature = "profiling-puffin")]
         profiling::scope!("read_pdu");
         self.ensure_active()?;

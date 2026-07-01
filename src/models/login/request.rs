@@ -12,8 +12,9 @@ use zerocopy::{
 use crate::{
     client::pdu_connection::FromBytes,
     models::{
-        common::{BasicHeaderSegment, HEADER_LEN, InitiatorTaskTag, SendingData},
+        common::{BasicHeaderSegment, HEADER_LEN, SendingData},
         data_fromat::ZeroCopyType,
+        identifiers::Itt,
         login::common::{RawLoginFlags, Stage},
         opcode::{BhsOpcode, Opcode, RawBhsOpcode},
     },
@@ -45,7 +46,7 @@ pub struct LoginRequest {
     /// Target Session Identifying Handle (bytes 14-15) - 0 for new sessions
     pub tsih: U16<BigEndian>,
     /// Initiator Task Tag (bytes 16-19) - unique request identifier
-    pub initiator_task_tag: InitiatorTaskTag,
+    pub initiator_task_tag: U32<BigEndian>,
     /// Connection ID (bytes 20-21) - connection identifier within session
     pub cid: U16<BigEndian>,
     /// Reserved bytes (22-23)
@@ -157,8 +158,8 @@ impl LoginRequestBuilder {
     }
 
     /// Sets the initiator task tag, a unique identifier for this command.
-    pub fn initiator_task_tag(mut self, tag: u32) -> Self {
-        self.header.initiator_task_tag.set(tag);
+    pub fn initiator_task_tag(mut self, tag: Itt) -> Self {
+        self.header.initiator_task_tag.set(tag.get());
         self
     }
 
@@ -222,8 +223,8 @@ impl BasicHeaderSegment for LoginRequest {
         BhsOpcode::try_from(self.opcode.raw())
     }
 
-    fn get_initiator_task_tag(&self) -> u32 {
-        self.initiator_task_tag.get()
+    fn get_initiator_task_tag(&self) -> Itt {
+        self.initiator_task_tag.get().into()
     }
 
     fn get_ahs_length_bytes(&self) -> usize {

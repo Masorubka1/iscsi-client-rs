@@ -51,7 +51,13 @@ async fn login_tur_sense_inquiry_vpd() -> Result<()> {
     // === Step 1: TUR — first command can return CHECK CONDITION (UA)
     let _ = pool
         .execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
-            TurCtx::new(c, itt, cmd_sn, exp_stat_sn, lun)
+            TurCtx::new(
+                c,
+                itt,
+                cmd_sn,
+                exp_stat_sn,
+                iscsi_client_rs::models::identifiers::Lun::from_raw(lun),
+            )
         })
         .await;
 
@@ -60,7 +66,15 @@ async fn login_tur_sense_inquiry_vpd() -> Result<()> {
         .execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
             let mut cdb = [0u8; 16];
             fill_request_sense_simple(&mut cdb, 8);
-            ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, 8, cdb)
+            ReadCtx::new(
+                c,
+                iscsi_client_rs::models::identifiers::Lun::from_raw(lun),
+                itt,
+                cmd_sn,
+                exp_stat_sn,
+                8,
+                cdb,
+            )
         })
         .await
         .context("REQUEST SENSE (8) failed")?
@@ -74,7 +88,15 @@ async fn login_tur_sense_inquiry_vpd() -> Result<()> {
         .execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
             let mut cdb = [0u8; 16];
             fill_request_sense_simple(&mut cdb, total_sense as u8);
-            ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, total_sense as u32, cdb)
+            ReadCtx::new(
+                c,
+                iscsi_client_rs::models::identifiers::Lun::from_raw(lun),
+                itt,
+                cmd_sn,
+                exp_stat_sn,
+                total_sense as u32,
+                cdb,
+            )
         })
         .await
         .context("REQUEST SENSE (full) failed")?
@@ -82,7 +104,13 @@ async fn login_tur_sense_inquiry_vpd() -> Result<()> {
 
     // === Step 4: TUR again — UA должна уйти (expect GOOD)
     pool.execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
-        TurCtx::new(c, itt, cmd_sn, exp_stat_sn, lun)
+        TurCtx::new(
+            c,
+            itt,
+            cmd_sn,
+            exp_stat_sn,
+            iscsi_client_rs::models::identifiers::Lun::from_raw(lun),
+        )
     })
     .await
     .context("TUR after sense failed")?;
@@ -92,7 +120,15 @@ async fn login_tur_sense_inquiry_vpd() -> Result<()> {
         .execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
             let mut cdb = [0u8; 16];
             fill_inquiry_standard_simple(&mut cdb, 36);
-            ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, 36, cdb)
+            ReadCtx::new(
+                c,
+                iscsi_client_rs::models::identifiers::Lun::from_raw(lun),
+                itt,
+                cmd_sn,
+                exp_stat_sn,
+                36,
+                cdb,
+            )
         })
         .await
         .context("INQUIRY failed")?
@@ -110,7 +146,15 @@ async fn login_tur_sense_inquiry_vpd() -> Result<()> {
         .execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
             let mut cdb = [0u8; 16];
             fill_inquiry_vpd_simple(&mut cdb, VpdPage::SupportedPages, 4);
-            ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, 4, cdb)
+            ReadCtx::new(
+                c,
+                iscsi_client_rs::models::identifiers::Lun::from_raw(lun),
+                itt,
+                cmd_sn,
+                exp_stat_sn,
+                4,
+                cdb,
+            )
         })
         .await
         .context("VPD 0x00 header read failed")?
@@ -124,7 +168,15 @@ async fn login_tur_sense_inquiry_vpd() -> Result<()> {
         .execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
             let mut cdb = [0u8; 16];
             fill_inquiry_vpd_simple(&mut cdb, VpdPage::SupportedPages, total_vpd00 as u8);
-            ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, total_vpd00 as u32, cdb)
+            ReadCtx::new(
+                c,
+                iscsi_client_rs::models::identifiers::Lun::from_raw(lun),
+                itt,
+                cmd_sn,
+                exp_stat_sn,
+                total_vpd00 as u32,
+                cdb,
+            )
         })
         .await
         .context("VPD 0x00 full read failed")?
@@ -140,7 +192,15 @@ async fn login_tur_sense_inquiry_vpd() -> Result<()> {
             .execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
                 let mut cdb = [0u8; 16];
                 fill_inquiry_vpd_simple(&mut cdb, VpdPage::UnitSerial, 4);
-                ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, 4, cdb)
+                ReadCtx::new(
+                    c,
+                    iscsi_client_rs::models::identifiers::Lun::from_raw(lun),
+                    itt,
+                    cmd_sn,
+                    exp_stat_sn,
+                    4,
+                    cdb,
+                )
             })
             .await
             .context("VPD 0x80 header failed")?
@@ -153,7 +213,15 @@ async fn login_tur_sense_inquiry_vpd() -> Result<()> {
             .execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
                 let mut cdb = [0u8; 16];
                 fill_inquiry_vpd_simple(&mut cdb, VpdPage::UnitSerial, total as u8);
-                ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, total as u32, cdb)
+                ReadCtx::new(
+                    c,
+                    iscsi_client_rs::models::identifiers::Lun::from_raw(lun),
+                    itt,
+                    cmd_sn,
+                    exp_stat_sn,
+                    total as u32,
+                    cdb,
+                )
             })
             .await
             .context("VPD 0x80 full failed")?
@@ -169,7 +237,15 @@ async fn login_tur_sense_inquiry_vpd() -> Result<()> {
             .execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
                 let mut cdb = [0u8; 16];
                 fill_inquiry_vpd_simple(&mut cdb, VpdPage::DeviceId, 4);
-                ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, 4, cdb)
+                ReadCtx::new(
+                    c,
+                    iscsi_client_rs::models::identifiers::Lun::from_raw(lun),
+                    itt,
+                    cmd_sn,
+                    exp_stat_sn,
+                    4,
+                    cdb,
+                )
             })
             .await
             .context("VPD 0x83 header failed")?
@@ -182,7 +258,15 @@ async fn login_tur_sense_inquiry_vpd() -> Result<()> {
             .execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
                 let mut cdb = [0u8; 16];
                 fill_inquiry_vpd_simple(&mut cdb, VpdPage::DeviceId, total as u8);
-                ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, total as u32, cdb)
+                ReadCtx::new(
+                    c,
+                    iscsi_client_rs::models::identifiers::Lun::from_raw(lun),
+                    itt,
+                    cmd_sn,
+                    exp_stat_sn,
+                    total as u32,
+                    cdb,
+                )
             })
             .await
             .context("VPD 0x83 full failed")?

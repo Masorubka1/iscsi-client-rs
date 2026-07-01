@@ -15,7 +15,12 @@ use tracing::{debug, info, warn};
 use crate::{
     cfg::config::{AuthConfig, Config},
     client::client::ClientConnection,
-    models::{data_fromat, logout::common::LogoutReason, nop::response::NopInResponse},
+    models::{
+        data_fromat,
+        identifiers::{Itt, IttGen},
+        logout::common::LogoutReason,
+        nop::response::NopInResponse,
+    },
     state_machine::{
         common::StateMachineCtx,
         discovery::{DiscoveredTarget, DiscoveryCtx},
@@ -65,7 +70,7 @@ pub struct Session {
     cmd_sn: Arc<AtomicU32>,
     /// ITT (Initiator Task Tag) generator - unique within a session.
     /// Used to match requests with responses.
-    itt_gen: Arc<AtomicU32>,
+    itt_gen: IttGen,
 }
 
 /// Pool of iSCSI sessions and connections
@@ -179,7 +184,6 @@ impl Pool {
     ) -> Result<()> {
         #[cfg(feature = "profiling-puffin")]
         profiling::function_scope!();
-        // Read immutable bits upfront (don't hold DashMap guards across await)
         let (target_name, isid) = {
             let sess = self
                 .sessions
@@ -292,7 +296,7 @@ impl Pool {
                     target_name: target_name.clone(),
                     conns: DashMap::with_capacity(self.max_connections as usize),
                     cmd_sn: Arc::new(AtomicU32::new(hdr.exp_cmd_sn.get())),
-                    itt_gen: Arc::new(AtomicU32::new(
+                    itt_gen: IttGen::new(Itt::new_unchecked(
                         hdr.initiator_task_tag.get().wrapping_add(1),
                     )),
                 })
@@ -331,6 +335,8 @@ impl Pool {
         cid: u16,
         reason: LogoutReason,
     ) -> Result<()> {
+        #[cfg(feature = "profiling-puffin")]
+        profiling::function_scope!();
         let sess = self
             .sessions
             .get(&tsih)
@@ -342,15 +348,15 @@ impl Pool {
             .with_context(|| format!("CID={cid} not found in TSIH={tsih}"))?
             .clone();
 
-        let mut lo = LogoutCtx::new(
+        let mut ctx = LogoutCtx::new(
             conn.conn.clone(),
-            sess.itt_gen.clone(),
+            &sess.itt_gen,
             sess.cmd_sn.clone(),
             conn.exp_stat_sn.clone(),
             cid,
             reason.clone(),
         );
-        lo.execute(&conn.conn.stop_writes)
+        ctx.execute(&conn.conn.stop_writes)
             .await
             .context("logout (CloseConnection) failed")?;
 
@@ -364,7 +370,7 @@ impl Pool {
         Ok(())
     }
 
-    /// Logout the entire session by TSIH and purge local state.
+    /// Logout all connections and remove the session from the pool.
     pub async fn logout_session(&self, tsih: u16) -> Result<()> {
         #[cfg(feature = "profiling-puffin")]
         profiling::function_scope!();
@@ -383,7 +389,7 @@ impl Pool {
 
             let mut lo = LogoutCtx::new(
                 conn.conn.clone(),
-                sess.itt_gen.clone(),
+                &sess.itt_gen,
                 sess.cmd_sn.clone(),
                 conn.exp_stat_sn.clone(),
                 cid0,
@@ -416,13 +422,17 @@ impl Pool {
         &self,
         tsih: u16,
         reason: LogoutReason,
-        cid: Option<u16>,
+        cid_opt: Option<u16>,
     ) -> Result<()> {
         match reason {
             LogoutReason::CloseSession => self.logout_session(tsih).await,
             LogoutReason::CloseConnection | LogoutReason::RemoveConnectionForRecovery => {
-                self.logout_connection(tsih, cid.context("failed to get cid")?, reason)
-                    .await
+                self.logout_connection(
+                    tsih,
+                    cid_opt.context("failed to get cid")?,
+                    reason,
+                )
+                .await
             },
         }
     }
@@ -451,11 +461,11 @@ impl Pool {
         debug!("notify state machines to stop writing ti socket");
         for c in &all_connections {
             if let Err(e) = c.conn.graceful_quiesce(max_wait_per_conn).await {
-                warn!("drain failed on TSIH={}?, CID={}: {}", c.cid, c.cid, e);
+                warn!("drain failed on TSIH=? CID={}: {}", c.cid, e);
             }
         }
 
-        debug!("call logout session for 1 connectionf of all sessions");
+        debug!("call logout session for 1 connection of all sessions");
         let tsihs = self.sessions.iter().map(|e| *e.key()).collect::<Vec<_>>();
         for tsih in tsihs {
             if let Err(e) = self.logout_session(tsih).await {
@@ -490,9 +500,11 @@ impl Pool {
     /// it.
     ///
     /// Usage:
+    /// ```ignore
     /// pool.execute_with(tsih, cid, |conn, itt, cmd_sn, exp_stat_sn| {
     ///     NopCtx::new(conn, lun, itt, cmd_sn, exp_stat_sn, ttt)
     /// }).await?;
+    /// ```
     pub async fn execute_with<Ctx, Res, Build>(
         &self,
         tsih: u16,
@@ -502,9 +514,9 @@ impl Pool {
     where
         Build: for<'a> Fn(
             Arc<ClientConnection>,
-            Arc<AtomicU32>, // ITT
-            Arc<AtomicU32>, // CmdSN
-            Arc<AtomicU32>, // ExpStatSN
+            &'a IttGen,
+            Arc<AtomicU32>,
+            Arc<AtomicU32>,
         ) -> Ctx,
         Ctx: StateMachineCtx<Ctx, Res>,
     {
@@ -532,7 +544,7 @@ impl Pool {
             } else {
                 let mut ctx = build(
                     conn.conn.clone(),
-                    sess.itt_gen.clone(),
+                    &sess.itt_gen,
                     sess.cmd_sn.clone(),
                     conn.exp_stat_sn.clone(),
                 );
@@ -627,26 +639,23 @@ impl Pool {
 
         let mut ctx = NopCtx::for_reply(
             conn.conn.clone(),
-            sess.itt_gen.clone(),
+            &sess.itt_gen,
             sess.cmd_sn.clone(),
             conn.exp_stat_sn.clone(),
             pdu,
-        )
-        .expect("failed to build NopCtx::for_reply");
-        ctx.execute(&conn.conn.stop_writes).await.map(|_| ())
+        )?;
+        ctx.execute(&conn.conn.stop_writes).await?;
+        Ok(())
     }
 }
 
 impl Drop for Pool {
     fn drop(&mut self) {
-        // Keep Drop short and non-blocking. We don't spawn long tasks here:
-        // the runtime may already be shutting down and spawned tasks might never run.
-        for sess in self.sessions.iter() {
-            for c in sess.conns.iter() {
-                c.value().conn.stop_writes.cancel();
+        self.cancel.cancel();
+        for entry in self.sessions.iter() {
+            for conn in entry.value().conns.iter() {
+                conn.value().conn.kill_now();
             }
         }
-        // Abort remaining I/O at the nearest await.
-        self.cancel.cancel();
     }
 }

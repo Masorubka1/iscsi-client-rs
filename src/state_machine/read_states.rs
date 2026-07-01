@@ -1,9 +1,7 @@
-//! This module defines the state machine for the iSCSI SCSI Read command.
-//! It includes the states, context, and transitions for handling the read
-//! operation.
-
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
+
+//! This module defines the state machine for the iSCSI SCSI Read command.
 
 use std::{
     future::Future,
@@ -31,6 +29,7 @@ use crate::{
         common::HEADER_LEN,
         data::{response::ScsiDataIn, sense_data::SenseData},
         data_fromat::{PduRequest, PduResponse},
+        identifiers::{Itt, IttGen, Lun},
         opcode::{BhsOpcode, Opcode},
         parse::Pdu,
     },
@@ -41,60 +40,42 @@ use crate::{
 /// operation.
 #[derive(Debug)]
 pub enum ReadPdu {
-    /// A SCSI Data-In PDU.
     DataIn(PduResponse<ScsiDataIn>),
-    /// A SCSI Command Response PDU.
     CmdResp(PduResponse<ScsiCommandResponse>),
 }
 
 /// Holds the runtime state for a SCSI Read operation.
 #[derive(Debug)]
 pub struct ReadRuntime {
-    /// The accumulated data from Data-In PDUs.
     pub acc: Vec<u8>,
-    /// The command sequence number of the current command.
     pub cur_cmd_sn: Option<u32>,
-    /// The SCSI status received in a Data-In PDU.
     pub status_in_datain: Option<ScsiStatus>,
-    /// The residual count received in a Data-In PDU.
     pub residual_in_datain: Option<u32>,
 }
 
-/// This structure represents the context for a SCSI Read operation.
 #[derive(Debug)]
 pub struct ReadCtx<'a> {
     _lt: PhantomData<&'a ()>,
 
-    /// The client connection.
     pub conn: Arc<ClientConnection>,
-    /// The Logical Unit Number.
-    pub lun: u64,
-    /// The Initiator Task Tag.
-    pub itt: u32,
-    /// The Command Sequence Number.
+    pub lun: Lun,
+    pub itt: Itt,
     pub cmd_sn: Arc<AtomicU32>,
-    /// The Expected Status Sequence Number.
     pub exp_stat_sn: Arc<AtomicU32>,
-    /// The number of bytes to read.
     pub read_len: u32,
-    /// The SCSI Command Descriptor Block.
     pub cdb: [u8; 16],
-    /// A buffer for the BHS.
     pub buf: [u8; HEADER_LEN],
 
-    /// The last received command response.
     pub last_response: Option<PduResponse<ScsiCommandResponse>>,
-    /// The runtime state of the read operation.
     pub rt: ReadRuntime,
     state: Option<ReadStates>,
 }
 
 impl<'a> ReadCtx<'a> {
-    /// Creates a new `ReadCtx` for a SCSI Read operation.
     pub fn new(
         conn: Arc<ClientConnection>,
-        lun: u64,
-        itt: Arc<AtomicU32>,
+        lun: Lun,
+        itt_gen: &IttGen,
         cmd_sn: Arc<AtomicU32>,
         exp_stat_sn: Arc<AtomicU32>,
         read_len: u32,
@@ -103,7 +84,7 @@ impl<'a> ReadCtx<'a> {
         Self {
             conn,
             lun,
-            itt: itt.fetch_add(1, Ordering::SeqCst),
+            itt: itt_gen.fetch_inc(),
             cmd_sn,
             exp_stat_sn,
             read_len,
@@ -122,7 +103,7 @@ impl<'a> ReadCtx<'a> {
     }
 
     /// Receives any PDU related to the read operation.
-    pub async fn recv_any(&self, itt: u32) -> anyhow::Result<ReadPdu> {
+    pub async fn recv_any(&self, itt: Itt) -> anyhow::Result<ReadPdu> {
         let (p_any, data): (PduResponse<Pdu>, Bytes) =
             self.conn.read_response_raw(itt).await?;
         let op = BhsOpcode::try_from(p_any.header_buf[0])?.opcode;
@@ -149,7 +130,7 @@ impl<'a> ReadCtx<'a> {
         let esn = self.exp_stat_sn.load(Ordering::SeqCst);
 
         let header = ScsiCommandRequestBuilder::new()
-            .lun(self.lun)
+            .lun(self.lun.get())
             .initiator_task_tag(self.itt)
             .cmd_sn(sn)
             .exp_stat_sn(esn)
@@ -168,7 +149,7 @@ impl<'a> ReadCtx<'a> {
     }
 
     /// Receives a Data-In PDU.
-    pub async fn recv_datain(&self, itt: u32) -> Result<PduResponse<ScsiDataIn>> {
+    pub async fn recv_datain(&self, itt: Itt) -> Result<PduResponse<ScsiDataIn>> {
         self.conn.read_response(itt).await
     }
 
@@ -207,7 +188,7 @@ impl<'a> ReadCtx<'a> {
     /// received.
     pub async fn finalize_status_after_datain(
         &mut self,
-        itt: u32,
+        itt: Itt,
     ) -> Result<(ScsiStatus, u32, Option<Vec<u8>>)> {
         if let Some(ScsiStatus::Good) = self.rt.status_in_datain {
             return Ok((

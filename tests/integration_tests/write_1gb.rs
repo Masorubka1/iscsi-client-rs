@@ -94,7 +94,15 @@ async fn write10_read10_1_gib_plain_pool_multi_tsih_mcs() -> Result<()> {
             .execute_with(*tsih, *cid, |c, itt, cmd_sn, exp_stat_sn| {
                 let mut cdb = [0u8; 16];
                 build_read_capacity10(&mut cdb, 0, false, 0);
-                ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, 8, cdb)
+                ReadCtx::new(
+                    c,
+                    iscsi_client_rs::models::identifiers::Lun::from_raw(lun),
+                    itt,
+                    cmd_sn,
+                    exp_stat_sn,
+                    8,
+                    cdb,
+                )
             })
             .await;
     }
@@ -104,7 +112,15 @@ async fn write10_read10_1_gib_plain_pool_multi_tsih_mcs() -> Result<()> {
         .execute_with(tsih0, cid0, |c, itt, cmd_sn, exp_stat_sn| {
             let mut cdb = [0u8; 16];
             build_read_capacity10(&mut cdb, 0, false, 0);
-            ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, 8, cdb)
+            ReadCtx::new(
+                c,
+                iscsi_client_rs::models::identifiers::Lun::from_raw(lun),
+                itt,
+                cmd_sn,
+                exp_stat_sn,
+                8,
+                cdb,
+            )
         })
         .await
         .context("READ CAPACITY(10) failed")?;
@@ -118,7 +134,15 @@ async fn write10_read10_1_gib_plain_pool_multi_tsih_mcs() -> Result<()> {
             .execute_with(tsih0, cid0, |c, itt, cmd_sn, exp_stat_sn| {
                 let mut cdb = [0u8; 16];
                 build_read_capacity16(&mut cdb, 0, false, 32, 0);
-                ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, 32, cdb)
+                ReadCtx::new(
+                    c,
+                    iscsi_client_rs::models::identifiers::Lun::from_raw(lun),
+                    itt,
+                    cmd_sn,
+                    exp_stat_sn,
+                    32,
+                    cdb,
+                )
             })
             .await;
 
@@ -198,7 +222,7 @@ async fn write10_read10_1_gib_plain_pool_multi_tsih_mcs() -> Result<()> {
                         build_write10(&mut cdb, start_lba_u32, blk_this as u16, 0, 0);
                         WriteCtx::new(
                             c,
-                            lun,
+                            iscsi_client_rs::models::identifiers::Lun::from_raw(lun),
                             itt,
                             cmd_sn,
                             exp_stat_sn,
@@ -250,7 +274,7 @@ async fn write10_read10_1_gib_plain_pool_multi_tsih_mcs() -> Result<()> {
                         build_read10(&mut cdb, start_lba_u32, blk_this as u16, 0, 0);
                         ReadCtx::new(
                             c,
-                            lun,
+                            iscsi_client_rs::models::identifiers::Lun::from_raw(lun),
                             itt,
                             cmd_sn,
                             exp_stat_sn,

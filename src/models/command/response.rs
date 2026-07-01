@@ -14,8 +14,9 @@ use crate::{
     client::pdu_connection::FromBytes,
     models::{
         command::zero_copy::{RawResponseCode, RawScsiCmdRespFlags, RawScsiStatus},
-        common::{BasicHeaderSegment, HEADER_LEN, InitiatorTaskTag, SendingData},
+        common::{BasicHeaderSegment, HEADER_LEN, SendingData},
         data_fromat::ZeroCopyType,
+        identifiers::Itt,
         opcode::{BhsOpcode, Opcode, RawBhsOpcode},
     },
 };
@@ -46,7 +47,7 @@ pub struct ScsiCommandResponse {
     /// Reserved bytes (8-15)
     reserved: [u8; 8],
     /// Initiator Task Tag (bytes 16-19) - matches the original command ITT
-    pub initiator_task_tag: InitiatorTaskTag,
+    pub initiator_task_tag: U32<BigEndian>,
     /// SNACK Tag (bytes 20-23) - used for data recovery
     pub snack_tag: U32<BigEndian>,
     /// Status Sequence Number (bytes 24-27) - sequence number for this response
@@ -160,8 +161,8 @@ impl BasicHeaderSegment for ScsiCommandResponse {
     }
 
     #[inline]
-    fn get_initiator_task_tag(&self) -> u32 {
-        self.initiator_task_tag.get()
+    fn get_initiator_task_tag(&self) -> Itt {
+        self.initiator_task_tag.get().into()
     }
 
     #[inline]
