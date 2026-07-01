@@ -9,16 +9,34 @@ use iscsi_client_rs::{
 
 use crate::integration_tests::common::test_path;
 
-/// Verify that SendTargets discovery against tgt returns the expected
-/// target name and portal address.
-///
-/// Uses `tests/configs/tgt/discovery.yaml` — a dedicated config with
-/// `SessionType: Discovery`, no `TargetName`, and `AuthMethod: None`.
+/// Verify that SendTargets discovery returns the expected target name and
+/// portal address. Always discovers against a plain (no-auth) target;
+/// the discovery port/IQN are derived from `TEST_CONFIG`.
 #[tokio::test]
 async fn send_targets_discovery_tgt() -> Result<()> {
     let _ = init_logger(&test_path());
 
-    let cfg = Config::load_from_file("tests/configs/tgt/discovery.yaml")
+    let test_cfg = test_path();
+
+    // Pick the right discovery config and expected IQN based on which
+    // target is running.
+    let (discovery_cfg_path, expected_iqn) = if test_cfg.contains("/tgt/") {
+        // All tgt profiles share the same plain discovery config and IQN.
+        (
+            "tests/configs/tgt/discovery.yaml",
+            "iqn.2025-08.example:disk0",
+        )
+    } else if test_cfg.contains("/lio/") {
+        (
+            "tests/configs/lio/discovery.yaml",
+            "iqn.2025-08.com.example:disk0",
+        )
+    } else {
+        // Fallback: vanilla config at repo root
+        ("tests/config.yaml", "iqn.2025-08.example:disk0")
+    };
+
+    let cfg = Config::load_from_file(discovery_cfg_path)
         .context("failed to load discovery config")?;
 
     let targets: Vec<DiscoveredTarget> =
@@ -31,22 +49,20 @@ async fn send_targets_discovery_tgt() -> Result<()> {
         "expected at least one target from SendTargets discovery"
     );
 
-    // The docker TGT container exports `iqn.2025-08.example:disk0`.
-    let tgt_iqn = "iqn.2025-08.example:disk0";
-    let found = targets.iter().any(|t| t.target_name == tgt_iqn);
+    let found = targets.iter().any(|t| t.target_name == expected_iqn);
     assert!(
         found,
         "expected target '{}' in discovery results, got: {:?}",
-        tgt_iqn,
+        expected_iqn,
         targets.iter().map(|t| &t.target_name).collect::<Vec<_>>()
     );
 
     // Verify that the discovered target has at least one portal address.
-    if let Some(t) = targets.iter().find(|t| t.target_name == tgt_iqn) {
+    if let Some(t) = targets.iter().find(|t| t.target_name == expected_iqn) {
         assert!(
             !t.target_addresses.is_empty(),
             "target '{}' should have at least one TargetAddress, got none",
-            tgt_iqn
+            expected_iqn
         );
     }
 
