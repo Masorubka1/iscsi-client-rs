@@ -9,7 +9,6 @@ use std::{
     pin::Pin,
     sync::{
         Arc,
-        atomic::{AtomicU32, Ordering},
     },
 };
 
@@ -29,7 +28,9 @@ use crate::{
         common::HEADER_LEN,
         data::{response::ScsiDataIn, sense_data::SenseData},
         data_fromat::{PduRequest, PduResponse},
-        identifiers::{Itt, IttGen, Lun},
+        identifiers::{
+            AtomicCmdSn, AtomicStatSn, DataSn, Itt, IttGen, Lun, StatSn,
+        },
         opcode::{BhsOpcode, Opcode},
         parse::Pdu,
     },
@@ -49,6 +50,8 @@ pub enum ReadPdu {
 pub struct ReadRuntime {
     pub acc: Vec<u8>,
     pub cur_cmd_sn: Option<u32>,
+    /// DataSN expected on the next Data-In PDU.
+    pub expected_data_sn: DataSn,
     pub status_in_datain: Option<ScsiStatus>,
     pub residual_in_datain: Option<u32>,
 }
@@ -60,8 +63,8 @@ pub struct ReadCtx<'a> {
     pub conn: Arc<ClientConnection>,
     pub lun: Lun,
     pub itt: Itt,
-    pub cmd_sn: Arc<AtomicU32>,
-    pub exp_stat_sn: Arc<AtomicU32>,
+    pub cmd_sn: Arc<AtomicCmdSn>,
+    pub exp_stat_sn: Arc<AtomicStatSn>,
     pub read_len: u32,
     pub cdb: [u8; 16],
     pub buf: [u8; HEADER_LEN],
@@ -93,8 +96,8 @@ impl<'a> ReadCtx<'a> {
         conn: Arc<ClientConnection>,
         lun: Lun,
         itt_gen: &IttGen,
-        cmd_sn: Arc<AtomicU32>,
-        exp_stat_sn: Arc<AtomicU32>,
+        cmd_sn: Arc<AtomicCmdSn>,
+        exp_stat_sn: Arc<AtomicStatSn>,
         read_len: u32,
         cdb: [u8; 16],
     ) -> Self {
@@ -111,6 +114,7 @@ impl<'a> ReadCtx<'a> {
             rt: ReadRuntime {
                 acc: Vec::with_capacity(read_len as usize),
                 cur_cmd_sn: None,
+                expected_data_sn: DataSn::ZERO,
                 status_in_datain: None,
                 residual_in_datain: None,
             },
@@ -142,9 +146,9 @@ impl<'a> ReadCtx<'a> {
         pdu_local
     }
 
-    async fn send_read_request(&mut self) -> Result<u32> {
-        let sn = self.cmd_sn.fetch_add(1, Ordering::SeqCst);
-        let esn = self.exp_stat_sn.load(Ordering::SeqCst);
+    async fn send_read_request(&mut self) -> Result<()> {
+        let sn = self.cmd_sn.fetch_inc();
+        let esn = self.exp_stat_sn.load();
 
         let header = ScsiCommandRequestBuilder::new()
             .lun(self.lun.get())
@@ -161,8 +165,8 @@ impl<'a> ReadCtx<'a> {
             PduRequest::<ScsiCommandRequest>::new_request(self.buf, &self.conn.cfg);
         self.conn.send_request(self.itt, builder).await?;
 
-        self.rt.cur_cmd_sn = Some(sn);
-        Ok(esn)
+        self.rt.cur_cmd_sn = Some(sn.get());
+        Ok(())
     }
 
     /// Receives a Data-In PDU.
@@ -173,6 +177,14 @@ impl<'a> ReadCtx<'a> {
     /// Appends the data from a Data-In PDU to the accumulator.
     pub fn apply_datain_append(&mut self, pdu: &PduResponse<ScsiDataIn>) -> Result<bool> {
         let h = pdu.header_view()?;
+        let received_data_sn = DataSn::new(h.data_sn.get());
+        anyhow::ensure!(
+            received_data_sn == self.rt.expected_data_sn,
+            "unexpected DataSN: expected {}, received {}",
+            self.rt.expected_data_sn,
+            received_data_sn
+        );
+        self.rt.expected_data_sn = self.rt.expected_data_sn.next();
 
         let off = h.buffer_offset.get() as usize;
         if off != self.rt.acc.len() {
@@ -191,7 +203,7 @@ impl<'a> ReadCtx<'a> {
 
         if h.stat_sn_or_rsvd.get() != 0 {
             self.exp_stat_sn
-                .store(h.stat_sn_or_rsvd.get().wrapping_add(1), Ordering::SeqCst);
+                .observe(StatSn::new(h.stat_sn_or_rsvd.get()));
         }
         if h.get_status_bit() {
             self.rt.status_in_datain = h.scsi_status();
@@ -228,8 +240,13 @@ impl<'a> ReadCtx<'a> {
             .status
             .decode()
             .map_err(|e| anyhow!("SCSI status decode: {e}"))?;
-        self.exp_stat_sn
-            .store(h.stat_sn.get().wrapping_add(1), Ordering::SeqCst);
+        anyhow::ensure!(
+            DataSn::new(h.exp_data_sn.get()) == self.rt.expected_data_sn,
+            "unexpected ExpDataSN: expected {}, received {}",
+            self.rt.expected_data_sn,
+            h.exp_data_sn.get()
+        );
+        self.exp_stat_sn.observe(StatSn::new(h.stat_sn.get()));
 
         let data = lr.data()?;
 

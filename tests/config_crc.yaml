@@ -21,7 +21,7 @@ login:
     DataPDUInOrder: Yes
     DataSequenceInOrder: Yes
   recovery:
-    ErrorRecoveryLevel: 1
+    ErrorRecoveryLevel: 0
   timers:
     DefaultTime2Wait: 2
     DefaultTime2Retain: 0

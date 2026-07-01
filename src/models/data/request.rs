@@ -15,7 +15,7 @@ use crate::{
         common::{BasicHeaderSegment, HEADER_LEN, SendingData},
         data::common::RawDataOutFlags,
         data_fromat::ZeroCopyType,
-        identifiers::{Itt, Lun, StatSn, Ttt},
+        identifiers::{DataSn, Itt, Lun, StatSn, Ttt},
         opcode::{BhsOpcode, Opcode, RawBhsOpcode},
     },
 };
@@ -205,8 +205,8 @@ impl ScsiDataOutBuilder {
     }
 
     /// Sets the Data Sequence Number (DataSN) for this PDU.
-    pub fn data_sn(mut self, data_sn: u32) -> Self {
-        self.header.data_sn.set(data_sn);
+    pub fn data_sn(mut self, data_sn: DataSn) -> Self {
+        self.header.data_sn.set(data_sn.get());
         self
     }
 

@@ -236,13 +236,10 @@ impl Config {
 
     /// Validates invariants and normalizes derived fields.
     pub fn validate_and_normalize(&mut self) -> Result<()> {
-        // Discovery sessions always use MaxConnections=1 and ERL=0.
+        // Discovery sessions always use MaxConnections=1.
         if self.login.identity.session_type.is_discovery() {
             if self.login.limits.max_connections != 1 {
                 self.login.limits.max_connections = 1;
-            }
-            if self.login.recovery.error_recovery_level != 0 {
-                self.login.recovery.error_recovery_level = 0;
             }
         }
 
@@ -266,6 +263,10 @@ impl Config {
         ensure!(
             self.login.limits.max_connections >= 1,
             "MaxConnections must be >= 1"
+        );
+        ensure!(
+            self.login.recovery.error_recovery_level == 0,
+            "only ErrorRecoveryLevel=0 is supported"
         );
         ensure!(self.runtime.max_sessions >= 1, "MaxSessions must be >= 1");
         ensure!(

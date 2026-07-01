@@ -9,7 +9,6 @@ use std::{
     pin::Pin,
     sync::{
         Arc,
-        atomic::{AtomicU32, Ordering},
     },
 };
 
@@ -28,7 +27,7 @@ use crate::{
         },
         common::HEADER_LEN,
         data_fromat::{PduRequest, PduResponse},
-        identifiers::{Itt, IttGen, Lun},
+        identifiers::{AtomicCmdSn, AtomicStatSn, Itt, IttGen, Lun, StatSn},
     },
     state_machine::common::{StateMachine, StateMachineCtx, Transition},
 };
@@ -42,9 +41,9 @@ pub struct TurCtx<'a> {
     /// The client connection.
     pub conn: Arc<ClientConnection>,
     pub itt: Itt,
-    pub cmd_sn: Arc<AtomicU32>,
+    pub cmd_sn: Arc<AtomicCmdSn>,
     /// The Expected Status Sequence Number.
-    pub exp_stat_sn: Arc<AtomicU32>,
+    pub exp_stat_sn: Arc<AtomicStatSn>,
     pub lun: Lun,
     pub buf: [u8; HEADER_LEN],
     /// The SCSI Command Descriptor Block.
@@ -70,8 +69,8 @@ impl<'a> TurCtx<'a> {
     pub fn new(
         conn: Arc<ClientConnection>,
         itt_gen: &IttGen,
-        cmd_sn: Arc<AtomicU32>,
-        exp_stat_sn: Arc<AtomicU32>,
+        cmd_sn: Arc<AtomicCmdSn>,
+        exp_stat_sn: Arc<AtomicStatSn>,
         lun: Lun,
     ) -> Self {
         Self {
@@ -91,8 +90,8 @@ impl<'a> TurCtx<'a> {
     async fn send_tur(&mut self) -> Result<()> {
         build_test_unit_ready(&mut self.cbd, 0);
 
-        let cmd_sn = self.cmd_sn.fetch_add(1, Ordering::SeqCst);
-        let esn = self.exp_stat_sn.load(Ordering::SeqCst);
+        let cmd_sn = self.cmd_sn.fetch_inc();
+        let esn = self.exp_stat_sn.load();
 
         let header = ScsiCommandRequestBuilder::new()
             .initiator_task_tag(self.itt)
@@ -120,8 +119,7 @@ impl<'a> TurCtx<'a> {
         let lr = self.last_response.as_ref().expect("saved above");
         let hv = lr.header_view()?;
 
-        self.exp_stat_sn
-            .store(hv.stat_sn.get().wrapping_add(1), Ordering::SeqCst);
+        self.exp_stat_sn.observe(StatSn::new(hv.stat_sn.get()));
 
         let scsi_status = hv.status.decode()?;
         if scsi_status != ScsiStatus::Good {

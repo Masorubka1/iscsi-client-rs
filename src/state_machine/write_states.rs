@@ -8,7 +8,6 @@ use std::{
     pin::Pin,
     sync::{
         Arc,
-        atomic::{AtomicU32, Ordering},
     },
 };
 
@@ -31,7 +30,9 @@ use crate::{
             sense_data::SenseData,
         },
         data_fromat::{PduRequest, PduResponse},
-        identifiers::{Itt, IttGen, Lun, Ttt},
+        identifiers::{
+            AtomicCmdSn, AtomicStatSn, DataSn, Itt, IttGen, Lun, StatSn, Ttt,
+        },
         ready_2_transfer::response::ReadyToTransfer,
     },
     state_machine::common::{StateMachine, StateMachineCtx, Transition},
@@ -45,8 +46,8 @@ pub struct WriteCtx<'a> {
     pub conn: Arc<ClientConnection>,
     pub lun: Lun,
     pub itt: Itt,
-    pub cmd_sn: Arc<AtomicU32>,
-    pub exp_stat_sn: Arc<AtomicU32>,
+    pub cmd_sn: Arc<AtomicCmdSn>,
+    pub exp_stat_sn: Arc<AtomicStatSn>,
 
     pub cdb: [u8; 16],
     pub payload: Vec<u8>,
@@ -82,8 +83,8 @@ impl<'a> WriteCtx<'a> {
         conn: Arc<ClientConnection>,
         lun: Lun,
         itt_gen: &IttGen,
-        cmd_sn: Arc<AtomicU32>,
-        exp_stat_sn: Arc<AtomicU32>,
+        cmd_sn: Arc<AtomicCmdSn>,
+        exp_stat_sn: Arc<AtomicStatSn>,
         cdb: [u8; 16],
         payload: impl Into<Vec<u8>>,
     ) -> Self {
@@ -106,8 +107,8 @@ impl<'a> WriteCtx<'a> {
 
     /// Sends the SCSI Write command.
     async fn send_write_command(&mut self) -> Result<()> {
-        let cmd_sn = self.cmd_sn.fetch_add(1, Ordering::SeqCst);
-        let esn = self.exp_stat_sn.load(Ordering::SeqCst);
+        let cmd_sn = self.cmd_sn.fetch_inc();
+        let esn = self.exp_stat_sn.load();
 
         self.total_bytes = self.payload.len();
 
@@ -131,8 +132,7 @@ impl<'a> WriteCtx<'a> {
     async fn recv_r2t(&self, itt: Itt) -> Result<PduResponse<ReadyToTransfer>> {
         let r2t: PduResponse<ReadyToTransfer> = self.conn.read_response(itt).await?;
         let header = r2t.header_view()?;
-        self.exp_stat_sn
-            .store(header.stat_sn.get().wrapping_add(1), Ordering::SeqCst);
+        self.exp_stat_sn.observe(StatSn::new(header.stat_sn.get()));
         Ok(r2t)
     }
 
@@ -144,7 +144,7 @@ impl<'a> WriteCtx<'a> {
         offset: usize,
         len: usize,
     ) -> Result<usize> {
-        let mut next_data_sn = 0;
+        let mut next_data_sn = DataSn::ZERO;
         if len == 0 {
             bail!("Refuse to send Data-Out with zero length");
         }
@@ -174,7 +174,7 @@ impl<'a> WriteCtx<'a> {
                 .lun(self.lun.get())
                 .initiator_task_tag(itt.get())
                 .target_transfer_tag(ttt.get())
-                .exp_stat_sn(self.exp_stat_sn.load(Ordering::SeqCst))
+                .exp_stat_sn(self.exp_stat_sn.load())
                 .buffer_offset(off as u32)
                 .data_sn(next_data_sn);
 
@@ -196,7 +196,7 @@ impl<'a> WriteCtx<'a> {
 
             self.conn.send_request(itt, pdu).await?;
 
-            next_data_sn = next_data_sn.wrapping_add(1);
+            next_data_sn = next_data_sn.next();
             sent += take;
         }
 
@@ -206,8 +206,7 @@ impl<'a> WriteCtx<'a> {
     async fn wait_scsi_response(&mut self, itt: Itt) -> Result<()> {
         let rsp: PduResponse<ScsiCommandResponse> = self.conn.read_response(itt).await?;
         let header = rsp.header_view()?;
-        self.exp_stat_sn
-            .store(header.stat_sn.get().wrapping_add(1), Ordering::SeqCst);
+        self.exp_stat_sn.observe(StatSn::new(header.stat_sn.get()));
 
         if header.response.decode()? != ResponseCode::CommandCompleted {
             bail!("WRITE failed: response={:?}", header.response);
@@ -254,8 +253,8 @@ impl<'a> WriteCtx<'a> {
 
     /// Sends the SCSI Write command with immediate data.
     async fn send_write_cmd_with_immediate(&mut self, imm_len: usize) -> Result<()> {
-        let cmd_sn = self.cmd_sn.fetch_add(1, Ordering::SeqCst);
-        let esn = self.exp_stat_sn.load(Ordering::SeqCst);
+        let cmd_sn = self.cmd_sn.fetch_inc();
+        let esn = self.exp_stat_sn.load();
         self.total_bytes = self.payload.len();
 
         let header = ScsiCommandRequestBuilder::new()
@@ -299,7 +298,7 @@ impl<'a> WriteCtx<'a> {
             );
         }
 
-        let mut next_data_sn = 0u32;
+        let mut next_data_sn = DataSn::ZERO;
         let mut sent = 0usize;
         while sent < len {
             let take = (len - sent).min(mrdsl);
@@ -310,7 +309,7 @@ impl<'a> WriteCtx<'a> {
                 .lun(self.lun.get())
                 .initiator_task_tag(self.itt.get())
                 .target_transfer_tag(Ttt::NONE)
-                .exp_stat_sn(self.exp_stat_sn.load(Ordering::SeqCst))
+                .exp_stat_sn(self.exp_stat_sn.load())
                 .buffer_offset(off as u32)
                 .data_sn(next_data_sn);
 
@@ -330,7 +329,7 @@ impl<'a> WriteCtx<'a> {
             pdu.append_data(&self.payload[off..off + take])?;
             self.conn.send_request(self.itt, pdu).await?;
 
-            next_data_sn = next_data_sn.wrapping_add(1);
+            next_data_sn = next_data_sn.next();
             sent += take;
         }
         Ok(sent)

@@ -8,7 +8,6 @@ use std::{
     pin::Pin,
     sync::{
         Arc,
-        atomic::{AtomicU32, Ordering},
     },
 };
 
@@ -21,7 +20,7 @@ use crate::{
     models::{
         common::HEADER_LEN,
         data_fromat::{PduRequest, PduResponse},
-        identifiers::{Cid, Itt, IttGen},
+        identifiers::{AtomicCmdSn, AtomicStatSn, Cid, Itt, IttGen, StatSn},
         logout::{
             common::{LogoutReason, LogoutResponseCode},
             request::{LogoutRequest, LogoutRequestBuilder},
@@ -37,8 +36,8 @@ pub struct LogoutCtx<'a> {
 
     pub conn: Arc<ClientConnection>,
     pub itt: Itt,
-    pub cmd_sn: Arc<AtomicU32>,
-    pub exp_stat_sn: Arc<AtomicU32>,
+    pub cmd_sn: Arc<AtomicCmdSn>,
+    pub exp_stat_sn: Arc<AtomicStatSn>,
     /// Connection to close when logout targets one connection.
     pub cid: Cid,
     pub reason: LogoutReason,
@@ -64,8 +63,8 @@ impl<'a> LogoutCtx<'a> {
     pub fn new(
         conn: Arc<ClientConnection>,
         itt_gen: &IttGen,
-        cmd_sn: Arc<AtomicU32>,
-        exp_stat_sn: Arc<AtomicU32>,
+        cmd_sn: Arc<AtomicCmdSn>,
+        exp_stat_sn: Arc<AtomicStatSn>,
         cid: Cid,
         reason: LogoutReason,
     ) -> Self {
@@ -84,8 +83,8 @@ impl<'a> LogoutCtx<'a> {
     }
 
     async fn send_logout(&mut self) -> Result<()> {
-        let cmd_sn = self.cmd_sn.fetch_add(1, Ordering::SeqCst);
-        let exp_stat_sn = self.exp_stat_sn.load(Ordering::SeqCst);
+        let cmd_sn = self.cmd_sn.fetch_inc();
+        let exp_stat_sn = self.exp_stat_sn.load();
         let header = LogoutRequestBuilder::new(self.reason.clone(), self.itt, self.cid)
             .cmd_sn(cmd_sn)
             .exp_stat_sn(exp_stat_sn);
@@ -102,8 +101,7 @@ impl<'a> LogoutCtx<'a> {
         let rsp = self.conn.read_response::<LogoutResponse>(self.itt).await?;
         let hv = rsp.header_view()?;
 
-        self.exp_stat_sn
-            .store(hv.stat_sn.get().wrapping_add(1), Ordering::SeqCst);
+        self.exp_stat_sn.observe(StatSn::new(hv.stat_sn.get()));
 
         if hv.response.decode()? != LogoutResponseCode::Success {
             bail!("LogoutResp: target returned {:?}", hv.response);

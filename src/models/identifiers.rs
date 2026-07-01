@@ -330,6 +330,101 @@ impl fmt::Display for StatSn {
     }
 }
 
+// ── Data Sequence Number ────────────────────────────────────────────────────
+
+/// Sequence number of a Data-In or Data-Out PDU within one data sequence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
+pub struct DataSn(u32);
+
+impl DataSn {
+    /// First DataSN in a data sequence.
+    pub const ZERO: Self = Self(0);
+
+    /// Creates a data sequence number from its wire value.
+    #[inline]
+    pub const fn new(raw: u32) -> Self {
+        Self(raw)
+    }
+
+    /// Returns the next sequence number using RFC serial-number wrap-around.
+    #[inline]
+    pub const fn next(self) -> Self {
+        Self(self.0.wrapping_add(1))
+    }
+
+    /// Returns the 32-bit wire value.
+    #[inline]
+    pub const fn get(self) -> u32 {
+        self.0
+    }
+}
+
+impl From<u32> for DataSn {
+    #[inline]
+    fn from(raw: u32) -> Self {
+        Self::new(raw)
+    }
+}
+
+impl fmt::Display for DataSn {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+/// Atomic allocator for monotonically increasing command sequence numbers.
+#[derive(Debug)]
+pub struct AtomicCmdSn(AtomicU32);
+
+impl AtomicCmdSn {
+    /// Creates an allocator starting at `initial`.
+    pub fn new(initial: CmdSn) -> Self {
+        Self(AtomicU32::new(initial.get()))
+    }
+
+    /// Allocates the current CmdSN and advances with wrap-around.
+    pub fn fetch_inc(&self) -> CmdSn {
+        CmdSn::new(self.0.fetch_add(1, Ordering::SeqCst))
+    }
+
+    /// Returns the next CmdSN without allocating it.
+    pub fn load(&self) -> CmdSn {
+        CmdSn::new(self.0.load(Ordering::SeqCst))
+    }
+}
+
+/// Atomic tracker for the next expected target status sequence number.
+#[derive(Debug)]
+pub struct AtomicStatSn(AtomicU32);
+
+impl AtomicStatSn {
+    /// Creates a tracker with the next expected StatSN.
+    pub fn new(expected: StatSn) -> Self {
+        Self(AtomicU32::new(expected.get()))
+    }
+
+    /// Returns the next expected StatSN.
+    pub fn load(&self) -> StatSn {
+        StatSn::new(self.0.load(Ordering::SeqCst))
+    }
+
+    /// Observes a target StatSN and advances without allowing stale,
+    /// concurrently processed responses to move ExpStatSN backwards.
+    pub fn observe(&self, received: StatSn) {
+        let candidate = received.get().wrapping_add(1);
+        let _ = self.0.fetch_update(
+            Ordering::SeqCst,
+            Ordering::SeqCst,
+            |current| serial_is_after(candidate, current).then_some(candidate),
+        );
+    }
+}
+
+#[inline]
+const fn serial_is_after(candidate: u32, current: u32) -> bool {
+    candidate != current && candidate.wrapping_sub(current) < (1 << 31)
+}
+
 // ── Atomic ITT generator ────────────────────────────────────────────────────
 
 /// Thread-safe generator for unique initiator task tags.
@@ -361,21 +456,5 @@ impl IttGen {
     /// Returns the current tag without incrementing the generator.
     pub fn load(&self) -> Itt {
         Itt::new(self.0.load(Ordering::SeqCst)).expect("Failed to increase itt")
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::Isid;
-
-    #[test]
-    fn generated_isid_matches_hex_representation() {
-        let (isid, hex) = Isid::generate();
-        assert_eq!(isid.as_bytes().len(), 6);
-        assert_eq!(hex.len(), 12);
-        assert_eq!(
-            hex::decode(hex).expect("failed to decode generated ISID"),
-            isid.as_bytes()
-        );
     }
 }

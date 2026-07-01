@@ -8,7 +8,6 @@ use std::{
     pin::Pin,
     sync::{
         Arc,
-        atomic::{AtomicU32, Ordering},
     },
 };
 
@@ -21,7 +20,7 @@ use crate::{
     models::{
         common::HEADER_LEN,
         data_fromat::{PduRequest, PduResponse},
-        identifiers::{Itt, IttGen, Lun},
+        identifiers::{AtomicCmdSn, AtomicStatSn, Itt, IttGen, Lun, StatSn},
         nop::{
             request::{NopOutRequest, NopOutRequestBuilder},
             response::NopInResponse,
@@ -38,7 +37,7 @@ pub struct NopCtx<'a> {
     pub lun: Lun,
     pub itt: Itt,
     pub cmd_sn: u32,
-    pub exp_stat_sn: Arc<AtomicU32>,
+    pub exp_stat_sn: Arc<AtomicStatSn>,
     pub ttt: u32,
     pub buf: [u8; HEADER_LEN],
 
@@ -63,15 +62,15 @@ impl<'a> NopCtx<'a> {
         conn: Arc<ClientConnection>,
         lun: Lun,
         itt_gen: &IttGen,
-        cmd_sn: Arc<AtomicU32>,
-        exp_stat_sn: Arc<AtomicU32>,
+        cmd_sn: Arc<AtomicCmdSn>,
+        exp_stat_sn: Arc<AtomicStatSn>,
         ttt: u32,
     ) -> Self {
         Self {
             conn,
             lun,
             itt: itt_gen.fetch_inc(),
-            cmd_sn: cmd_sn.load(Ordering::SeqCst),
+            cmd_sn: cmd_sn.load().get(),
             exp_stat_sn,
             ttt,
             buf: [0u8; HEADER_LEN],
@@ -91,8 +90,7 @@ impl<'a> NopCtx<'a> {
         match &self.last_response {
             Some(l) => match l.header_view() {
                 Ok(last) => {
-                    self.exp_stat_sn
-                        .store(last.stat_sn.get().wrapping_add(1), Ordering::SeqCst);
+                    self.exp_stat_sn.observe(StatSn::new(last.stat_sn.get()));
                     Ok(last)
                 },
                 Err(e) => Err(e),
@@ -105,8 +103,8 @@ impl<'a> NopCtx<'a> {
     pub fn for_reply(
         conn: Arc<ClientConnection>,
         _itt_gen: &IttGen,
-        cmd_sn: Arc<AtomicU32>,
-        exp_stat_sn: Arc<AtomicU32>,
+        cmd_sn: Arc<AtomicCmdSn>,
+        exp_stat_sn: Arc<AtomicStatSn>,
         response: PduResponse<NopInResponse>,
     ) -> Result<Self> {
         let header = response.header_view()?;
@@ -114,7 +112,7 @@ impl<'a> NopCtx<'a> {
             conn,
             lun: Lun::ZERO,
             itt: Itt::new(0)?,
-            cmd_sn: cmd_sn.load(Ordering::SeqCst),
+            cmd_sn: cmd_sn.load().get(),
             exp_stat_sn,
             ttt: header.target_task_tag.get(),
             buf: [0u8; HEADER_LEN],
@@ -125,7 +123,7 @@ impl<'a> NopCtx<'a> {
     }
 
     async fn send_nop_out(&mut self) -> Result<()> {
-        let exp_stat_sn = self.exp_stat_sn.load(Ordering::SeqCst);
+        let exp_stat_sn = self.exp_stat_sn.load();
 
         let header = NopOutRequestBuilder::new()
             .cmd_sn(self.cmd_sn)
@@ -229,7 +227,7 @@ impl<'ctx> StateMachine<NopCtx<'ctx>, NopStepOut> for Reply {
                 .initiator_task_tag(Itt::RESERVED)
                 .target_task_tag(ctx.ttt)
                 .cmd_sn(ctx.cmd_sn)
-                .exp_stat_sn(ctx.exp_stat_sn.load(Ordering::SeqCst))
+                .exp_stat_sn(ctx.exp_stat_sn.load())
                 .header;
 
             if let Err(e) = hdr.to_bhs_bytes(ctx.buf.as_mut_slice()) {

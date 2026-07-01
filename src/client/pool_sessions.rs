@@ -2,7 +2,7 @@
 // Copyright (C) 2012-2025 Andrei Maltsev
 
 use std::{
-    sync::{Arc, Weak, atomic::AtomicU32},
+    sync::{Arc, Weak},
     time::Duration,
 };
 
@@ -17,7 +17,9 @@ use crate::{
     models::{
         common::BasicHeaderSegment,
         data_fromat,
-        identifiers::{Cid, Isid, IttGen, Tsih},
+        identifiers::{
+            AtomicCmdSn, AtomicStatSn, Cid, CmdSn, Isid, IttGen, StatSn, Tsih,
+        },
         logout::common::LogoutReason,
         nop::response::NopInResponse,
     },
@@ -44,7 +46,7 @@ pub struct Connection {
     pub conn: Arc<ClientConnection>,
     /// Next Expected StatSN (ACK). Bumped when we accept a reply from target.
     /// Used to track the sequence of status responses from the target.
-    pub exp_stat_sn: Arc<AtomicU32>,
+    pub exp_stat_sn: Arc<AtomicStatSn>,
 }
 
 /// Per-session state identified by ISID+TSIH combination
@@ -69,7 +71,7 @@ pub struct Session {
 
     /// CmdSN generator for numbered commands (incremented on every
     /// non-immediate command). Ensures proper command ordering.
-    cmd_sn: Arc<AtomicU32>,
+    cmd_sn: Arc<AtomicCmdSn>,
     /// ITT (Initiator Task Tag) generator - unique within a session.
     /// Used to match requests with responses.
     itt_gen: Arc<IttGen>,
@@ -103,8 +105,8 @@ pub struct Pool {
 pub struct ExecuteEnv {
     pub conn: Arc<ClientConnection>,
     pub itt_gen: Arc<IttGen>,
-    pub cmd_sn: Arc<AtomicU32>,
-    pub exp_stat_sn: Arc<AtomicU32>,
+    pub cmd_sn: Arc<AtomicCmdSn>,
+    pub exp_stat_sn: Arc<AtomicStatSn>,
 }
 
 impl Pool {
@@ -292,7 +294,9 @@ impl Pool {
                     isid,
                     target_name: target_name.clone(),
                     conns: DashMap::with_capacity(self.max_connections as usize),
-                    cmd_sn: Arc::new(AtomicU32::new(hdr.exp_cmd_sn.get())),
+                    cmd_sn: Arc::new(AtomicCmdSn::new(CmdSn::new(
+                        hdr.exp_cmd_sn.get(),
+                    ))),
                     itt_gen: Arc::new(IttGen::new(
                         hdr.get_initiator_task_tag().get().wrapping_add(1).into(),
                     )),
@@ -305,7 +309,9 @@ impl Pool {
             Arc::new(Connection {
                 cid,
                 conn: conn.clone(),
-                exp_stat_sn: Arc::new(AtomicU32::new(hdr.stat_sn.get().wrapping_add(1))),
+                exp_stat_sn: Arc::new(AtomicStatSn::new(StatSn::new(
+                    hdr.stat_sn.get().wrapping_add(1),
+                ))),
             }),
         );
         ensure!(
