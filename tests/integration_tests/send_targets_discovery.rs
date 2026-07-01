@@ -27,6 +27,8 @@ async fn send_targets_discovery() -> Result<()> {
     // Switch to discovery mode — no TargetName
     cfg.login.identity.session_type = SessionType::Discovery;
     cfg.login.identity.target_name.clear();
+    cfg.login.integrity.header_digest = Digest::None;
+    cfg.login.integrity.data_digest = Digest::None;
 
     let expected_iqn =
         if test_path().contains("/lio/") || test_path().contains("/truenas/") {
