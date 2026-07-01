@@ -35,7 +35,7 @@ login:
     DefaultTime2Retain: 0
 
   limits:
-    MaxConnections: 2
+    MaxConnections: 1
 
   extensions:
     IFMarker: "No"
