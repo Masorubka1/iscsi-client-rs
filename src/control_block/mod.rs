@@ -19,3 +19,5 @@ pub mod request_sense;
 pub mod test_unit_ready;
 /// Implements the SCSI WRITE command.
 pub mod write;
+/// Implements the SCSI XDWRITEREAD (bidirectional) command.
+pub mod xdwrite_read;

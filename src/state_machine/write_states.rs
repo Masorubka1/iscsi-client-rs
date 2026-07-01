@@ -192,7 +192,7 @@ impl<'a> WriteCtx<'a> {
                 }
             }
 
-            pdu.append_data(&self.payload[off..off + take]);
+            pdu.append_data(&self.payload[off..off + take])?;
 
             self.conn.send_request(itt, pdu).await?;
 
@@ -273,7 +273,7 @@ impl<'a> WriteCtx<'a> {
             PduRequest::<ScsiCommandRequest>::new_request(self.buf, &self.conn.cfg);
 
         if imm_len > 0 {
-            pdu.append_data(&self.payload[0..imm_len]);
+            pdu.append_data(&self.payload[0..imm_len])?;
         }
 
         self.conn.send_request(self.itt, pdu).await?;
@@ -327,7 +327,7 @@ impl<'a> WriteCtx<'a> {
                     h.set_continue_bit();
                 }
             }
-            pdu.append_data(&self.payload[off..off + take]);
+            pdu.append_data(&self.payload[off..off + take])?;
             self.conn.send_request(self.itt, pdu).await?;
 
             next_data_sn = next_data_sn.wrapping_add(1);

@@ -48,7 +48,7 @@ fn test_text_request() -> Result<()> {
     let mut hdr_buf = [0u8; HEADER_LEN];
     header_builder.header.to_bhs_bytes(&mut hdr_buf)?;
     let mut builder = PduRequest::<TextRequest>::new_request(hdr_buf, &cfg);
-    builder.append_data(parsed_fixture.data()?);
+    builder.append_data(parsed_fixture.data()?)?;
 
     let (hdr_bytes, body_bytes) =
         &builder.build(cfg.login.flow.max_recv_data_segment_length as usize)?;

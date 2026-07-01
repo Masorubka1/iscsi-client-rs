@@ -83,7 +83,18 @@ pub struct PDUWithData<T, Body = Bytes> {
     /// The optional data digest value.
     pub data_digest: Option<U32<BigEndian>>,
 
+    phase: BuilderPhase,
+
     _marker: PhantomData<T>,
+}
+
+/// Tracks which part of the payload is currently being built.
+///
+/// AHS must be written *before* any Data-Segment bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BuilderPhase {
+    Ahs,
+    Data,
 }
 
 impl<T, Body: Clone> Clone for PDUWithData<T, Body> {
@@ -96,6 +107,7 @@ impl<T, Body: Clone> Clone for PDUWithData<T, Body> {
             allocated_header_diggest: self.allocated_header_diggest,
             header_digest: self.header_digest,
             data_digest: self.data_digest,
+            phase: self.phase,
             _marker: PhantomData,
         }
     }
@@ -110,10 +122,13 @@ where T: BasicHeaderSegment + SendingData + FromBytes + ZeroCopyType
     /// On the first call, if HeaderDigest is enabled, reserve exactly one
     /// 4-byte slot for it right before DATA; then append DATA and update
     /// DataSegmentLength.
-    fn append_data(&mut self, more: &[u8]) {
+    fn append_data(&mut self, more: &[u8]) -> anyhow::Result<()> {
+        // Once we start writing data, AHS cannot be appended any more.
+        self.phase = BuilderPhase::Data;
+
         let hd_len = self
             .header_view()
-            .expect("uninitialized header")
+            .context("uninitialized header")?
             .get_header_diggest(self.enable_header_digest);
         if !self.allocated_header_diggest && hd_len != 0 {
             self.payload.extend_from_slice(&[0u8; 4][..hd_len]);
@@ -125,13 +140,14 @@ where T: BasicHeaderSegment + SendingData + FromBytes + ZeroCopyType
             // increment DataSegmentLength ONLY by DATA bytes
             let old = self
                 .header_view()
-                .expect("header_view failed")
+                .context("header_view failed")?
                 .get_data_length_bytes();
             let new_len = old.saturating_add(more.len()) as u32;
             self.header_view_mut()
-                .expect("header_view_mut failed")
+                .context("header_view_mut failed")?
                 .set_data_length_bytes(new_len);
         }
+        Ok(())
     }
 
     /// Finalize and return the already-laid-out body as Bytes.
@@ -145,7 +161,9 @@ where T: BasicHeaderSegment + SendingData + FromBytes + ZeroCopyType
             let enable_hd = self.enable_header_digest;
             let enable_dd = self.enable_data_digest;
 
-            let h = self.header_view_mut().expect("building without header_buf");
+            let h = self
+                .header_view_mut()
+                .context("building without header_buf")?;
             let opcode = h.get_opcode()?.opcode;
             h.set_final_bit();
             let ahs_len = h.get_ahs_length_bytes();
@@ -165,7 +183,7 @@ where T: BasicHeaderSegment + SendingData + FromBytes + ZeroCopyType
         // compute pads
         let ahs_pad = pad_len(ahs_len);
         let data_pad = pad_len(data_len);
-        self.append_data(&[]); // Allocate place for crc32 header
+        self.append_data(&[])?; // Allocate place for crc32 header
         self.payload.extend_from_slice(&[0u8; 4][..data_pad]);
 
         if hd_len != 0 && opcode != Opcode::LoginReq {
@@ -219,6 +237,7 @@ impl<T> PDUWithData<T, Bytes> {
             allocated_header_diggest: false,
             enable_data_digest: cfg.login.integrity.data_digest == Digest::CRC32C,
             data_digest: None,
+            phase: BuilderPhase::Data,
             _marker: PhantomData,
         }
     }
@@ -235,8 +254,45 @@ impl<T> PDUWithData<T, BytesMut> {
             allocated_header_diggest: false,
             enable_data_digest: cfg.login.integrity.data_digest == Digest::CRC32C,
             data_digest: None,
+            phase: BuilderPhase::Ahs,
             _marker: PhantomData,
         }
+    }
+
+    /// Prepend Additional Header Segments (AHS) to the payload.
+    ///
+    /// AHS bytes are inserted at the head of the payload buffer, *before*
+    /// any HeaderDigest placeholder and Data-Segment bytes that have already
+    /// been appended via [`Builder::append_data`].  The `total_ahs_length`
+    /// field in the BHS is updated accordingly.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the header view cannot be obtained.
+    pub fn append_ahs(&mut self, ahs: &[u8]) -> anyhow::Result<()>
+    where T: BasicHeaderSegment + FromBytes + ZeroCopyType {
+        anyhow::ensure!(
+            self.phase == BuilderPhase::Ahs,
+            "cannot append AHS after data has been written"
+        );
+        if ahs.is_empty() {
+            return Ok(());
+        }
+        let ahs_len = self
+            .header_view()
+            .context("header_view failed in append_ahs")?
+            .get_ahs_length_bytes();
+        let new_total = ahs_len + ahs.len();
+        self.header_view_mut()
+            .context("header_view_mut failed in append_ahs")?
+            .set_ahs_length_bytes(new_total as u8);
+
+        // Insert AHS bytes at the front, before any HD placeholder + data.
+        let mut new_payload = BytesMut::with_capacity(ahs.len() + self.payload.len());
+        new_payload.extend_from_slice(ahs);
+        new_payload.unsplit(std::mem::replace(&mut self.payload, BytesMut::new()));
+        self.payload = new_payload;
+        Ok(())
     }
 
     /// Parses the PDU payload from a mutable buffer, verifying digests.
@@ -363,6 +419,7 @@ where
             allocated_header_diggest: self.allocated_header_diggest,
             enable_data_digest: self.enable_data_digest,
             data_digest: self.data_digest,
+            phase: self.phase,
             _marker: PhantomData,
         })
     }

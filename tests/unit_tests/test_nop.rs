@@ -99,7 +99,7 @@ fn nop_payload_boundaries() -> Result<()> {
         header.header.to_bhs_bytes(&mut header_buf)?;
 
         let mut request = PduRequest::<NopOutRequest>::new_request(header_buf, &cfg);
-        request.append_data(&vec![0xa5; len]);
+        request.append_data(&vec![0xa5; len])?;
         let (_, body) = request.build(limit)?;
 
         assert_eq!(request.header_view()?.get_data_length_bytes(), len);
@@ -110,7 +110,7 @@ fn nop_payload_boundaries() -> Result<()> {
     let mut header_buf = [0u8; HEADER_LEN];
     header.header.to_bhs_bytes(&mut header_buf)?;
     let mut oversized = PduRequest::<NopOutRequest>::new_request(header_buf, &cfg);
-    oversized.append_data(&vec![0; limit + 1]);
+    oversized.append_data(&vec![0; limit + 1])?;
     assert!(oversized.build(limit).is_err());
 
     Ok(())

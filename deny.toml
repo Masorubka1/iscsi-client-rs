@@ -1,0 +1,46 @@
+# cargo-deny configuration for iscsi-client-rs
+# License: AGPL-3.0-or-later
+
+[graph]
+targets = [
+    { triple = "x86_64-unknown-linux-gnu" },
+]
+
+[advisories]
+ignore = []
+
+[licenses]
+allow = [
+    "AGPL-3.0-or-later",
+    "Apache-2.0",
+    "BSL-1.0",
+    "MIT",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+]
+confidence-threshold = 0.8
+exceptions = [
+    { crate = "md-5", allow = ["MIT", "Apache-2.0"] },
+]
+
+[[licenses.clarify]]
+crate = "ring"
+expression = "ISC AND MIT AND OpenSSL"
+license-files = [{ path = "LICENSE", hash = 0xbd0eed23 }]
+
+[licenses.private]
+ignore = false
+
+[bans]
+multiple-versions = "warn"
+wildcards = "allow"
+deny = []
+skip = []
+skip-tree = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
