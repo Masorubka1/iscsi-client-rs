@@ -26,9 +26,7 @@ mod unit_tests {
     }
 
     fn parse_imm<T>(bytes: &[u8], cfg: &Config) -> anyhow::Result<PduResponse<T>>
-    where
-        T: BasicHeaderSegment + FromBytes + ZeroCopyType,
-    {
+    where T: BasicHeaderSegment + FromBytes + ZeroCopyType {
         let mut header_buf = [0u8; HEADER_LEN];
         header_buf.copy_from_slice(&bytes[..HEADER_LEN]);
 
@@ -39,9 +37,7 @@ mod unit_tests {
     }
 
     fn parse_mut<T>(bytes: &[u8], cfg: &Config) -> anyhow::Result<PduRequest<T>>
-    where
-        T: BasicHeaderSegment + FromBytes + ZeroCopyType,
-    {
+    where T: BasicHeaderSegment + FromBytes + ZeroCopyType {
         let mut header_buf = [0u8; HEADER_LEN];
         header_buf.copy_from_slice(&bytes[..HEADER_LEN]);
 
@@ -52,6 +48,7 @@ mod unit_tests {
     }
 
     pub mod test_config;
+    pub mod test_discovery;
     pub mod test_login;
     pub mod test_nop;
     pub mod test_read;

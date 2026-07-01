@@ -4,7 +4,6 @@ login:
     InitiatorName: iqn.2004-10.com.ubuntu:01:c676ed18968f
     InitiatorAlias: ubuntu
     TargetName: ""
-    IsX86: No
   auth:
     AuthMethod: None
   integrity:

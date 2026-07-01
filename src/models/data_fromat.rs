@@ -1,13 +1,9 @@
-//! This module defines the generic PDU container and related traits.
-//! It provides a generic structure for iSCSI PDUs, handling data, headers, and
-//! digests.
-
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
 use std::{any::type_name, fmt, marker::PhantomData, ops::Deref};
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{bail, Context, Result};
 use bytes::{Bytes, BytesMut};
 use crc32c::crc32c_append;
 use zerocopy::{
@@ -15,14 +11,10 @@ use zerocopy::{
 };
 
 use crate::{
-    cfg::{
-        config::Config,
-        enums::{Digest, YesNo},
-    },
+    cfg::{config::Config, enums::Digest},
     client::pdu_connection::FromBytes,
     models::{
-        common::{BasicHeaderSegment, Builder, HEADER_LEN, SendingData},
-        data::sense_data::SenseData,
+        common::{BasicHeaderSegment, Builder, SendingData, HEADER_LEN},
         opcode::Opcode,
     },
 };
@@ -91,8 +83,6 @@ pub struct PDUWithData<T, Body = Bytes> {
     /// The optional data digest value.
     pub data_digest: Option<U32<BigEndian>>,
 
-    pub is_x86: bool,
-
     _marker: PhantomData<T>,
 }
 
@@ -106,15 +96,13 @@ impl<T, Body: Clone> Clone for PDUWithData<T, Body> {
             allocated_header_diggest: self.allocated_header_diggest,
             header_digest: self.header_digest,
             data_digest: self.data_digest,
-            is_x86: self.is_x86,
             _marker: PhantomData,
         }
     }
 }
 
 impl<T> Builder for PDUWithData<T, BytesMut>
-where
-    T: BasicHeaderSegment + SendingData + FromBytes + ZeroCopyType,
+where T: BasicHeaderSegment + SendingData + FromBytes + ZeroCopyType
 {
     type Body = Bytes;
     type Header = [u8; HEADER_LEN];
@@ -183,11 +171,10 @@ where
         if hd_len != 0 && opcode != Opcode::LoginReq {
             let hd = compute_header_digest(&self.header_buf, self.additional_header()?);
             self.header_digest = Some(U32::<BigEndian>::new(hd));
-            let expected_slice = [hd.to_le_bytes(), hd.to_be_bytes()];
             self.payload
                 .get_mut(0..hd_len)
                 .context("failed to get slice for crc in payload")?
-                .clone_from_slice(&expected_slice[self.is_x86 as usize]);
+                .copy_from_slice(&hd.to_le_bytes());
         }
 
         // current payload should be: [AHS][padAHS][HD?][DATA]
@@ -195,9 +182,7 @@ where
         if dd_len != 0 && opcode != Opcode::LoginReq {
             let dd = compute_data_digest(self.data()?);
             self.data_digest = Some(U32::<BigEndian>::new(dd));
-            let expected_slice = [dd.to_le_bytes(), dd.to_be_bytes()];
-            self.payload
-                .extend_from_slice(&expected_slice[self.is_x86 as usize]);
+            self.payload.extend_from_slice(&dd.to_le_bytes());
         }
 
         let expected = ahs_len + ahs_pad + hd_len + data_len + data_pad + dd_len;
@@ -234,7 +219,6 @@ impl<T> PDUWithData<T, Bytes> {
             allocated_header_diggest: false,
             enable_data_digest: cfg.login.integrity.data_digest == Digest::CRC32C,
             data_digest: None,
-            is_x86: cfg.login.identity.is_x86 == YesNo::Yes,
             _marker: PhantomData,
         }
     }
@@ -251,16 +235,13 @@ impl<T> PDUWithData<T, BytesMut> {
             allocated_header_diggest: false,
             enable_data_digest: cfg.login.integrity.data_digest == Digest::CRC32C,
             data_digest: None,
-            is_x86: cfg.login.identity.is_x86 == YesNo::Yes,
             _marker: PhantomData,
         }
     }
 
     /// Parses the PDU payload from a mutable buffer, verifying digests.
     pub fn parse_with_buff_mut(&mut self, mut buf: BytesMut) -> Result<()>
-    where
-        T: BasicHeaderSegment + FromBytes + ZeroCopyType,
-    {
+    where T: BasicHeaderSegment + FromBytes + ZeroCopyType {
         let tn = type_name::<T>();
         let h = self.header_view().context("parsing without header_buf")?;
 
@@ -289,12 +270,9 @@ impl<T> PDUWithData<T, BytesMut> {
 
         self.header_digest = if self.enable_header_digest {
             let expected_slice = payload[off..off + hd_len].try_into()?;
-            let hd = [
-                u32::from_le_bytes(expected_slice),
-                u32::from_be_bytes(expected_slice),
-            ];
+            let hd = u32::from_le_bytes(expected_slice);
             off += hd_len;
-            Some(U32::<BigEndian>::new(hd[self.is_x86 as usize]))
+            Some(U32::<BigEndian>::new(hd))
         } else {
             None
         };
@@ -303,11 +281,8 @@ impl<T> PDUWithData<T, BytesMut> {
 
         self.data_digest = if self.enable_data_digest {
             let expected_slice = payload[off..off + dd_len].try_into()?;
-            let dd = [
-                u32::from_le_bytes(expected_slice),
-                u32::from_be_bytes(expected_slice),
-            ];
-            Some(U32::<BigEndian>::new(dd[self.is_x86 as usize]))
+            let dd = u32::from_le_bytes(expected_slice);
+            Some(U32::<BigEndian>::new(dd))
         } else {
             None
         };
@@ -331,9 +306,7 @@ impl<T> PDUWithData<T, BytesMut> {
 
     /// Parses the PDU payload from a reference to a mutable buffer.
     pub fn parse_with_buff_ref(&mut self, buf: &BytesMut) -> Result<()>
-    where
-        T: BasicHeaderSegment + FromBytes + ZeroCopyType,
-    {
+    where T: BasicHeaderSegment + FromBytes + ZeroCopyType {
         self.parse_with_buff_mut(buf.clone())
     }
 }
@@ -346,35 +319,29 @@ where
     /// Returns an immutable view of the PDU's header.
     #[inline]
     pub fn header_view(&self) -> Result<&T>
-    where
-        T: FromBytes + ZeroCopyType,
-    {
-        T::ref_from_bytes(self.header_buf.as_slice()).map_err(|e| anyhow!("{}", e))
+    where T: FromBytes + ZeroCopyType {
+        T::ref_from_bytes(self.header_buf.as_slice())
+            .map_err(|e| anyhow::anyhow!("{}", e))
     }
 
     /// Returns a mutable view of the PDU's header.
     #[inline]
     pub fn header_view_mut(&mut self) -> Result<&mut T>
-    where
-        T: FromBytes + ZeroCopyType,
-    {
-        T::mut_from_bytes(self.header_buf.as_mut_slice()).map_err(|e| anyhow!("{}", e))
+    where T: FromBytes + ZeroCopyType {
+        T::mut_from_bytes(self.header_buf.as_mut_slice())
+            .map_err(|e| anyhow::anyhow!("{}", e))
     }
 
     /// Returns a slice of the Additional Header Segment (AHS).
     pub fn additional_header(&self) -> Result<&[u8]>
-    where
-        T: FromBytes + ZeroCopyType,
-    {
+    where T: FromBytes + ZeroCopyType {
         let ahs_size = self.header_view()?.get_ahs_length_bytes();
         Ok(&self.payload[0..ahs_size])
     }
 
     /// Returns a slice of the PDU's data segment.
     pub fn data(&self) -> Result<&[u8]>
-    where
-        T: FromBytes + ZeroCopyType,
-    {
+    where T: FromBytes + ZeroCopyType {
         let header = self.header_view()?;
         let ahs_len = header.get_ahs_length_bytes();
         let hd = header.get_header_diggest(self.enable_header_digest);
@@ -387,9 +354,7 @@ where
 
     /// Rebinds the PDU to a different header type.
     pub fn rebind_pdu<U>(self) -> anyhow::Result<PDUWithData<U, B>>
-    where
-        U: BasicHeaderSegment,
-    {
+    where U: BasicHeaderSegment {
         Ok(PDUWithData::<U, B> {
             header_buf: self.header_buf,
             payload: self.payload,
@@ -398,15 +363,13 @@ where
             allocated_header_diggest: self.allocated_header_diggest,
             enable_data_digest: self.enable_data_digest,
             data_digest: self.data_digest,
-            is_x86: self.is_x86,
             _marker: PhantomData,
         })
     }
 }
 
 impl<T> PDUWithData<T, Bytes>
-where
-    T: BasicHeaderSegment + FromBytes + ZeroCopyType,
+where T: BasicHeaderSegment + FromBytes + ZeroCopyType
 {
     /// Parses the PDU payload from an immutable buffer, verifying digests.
     pub fn parse_with_buff(&mut self, buf: &Bytes) -> Result<()> {
@@ -467,77 +430,49 @@ where
 }
 
 /// A helper struct for providing a debug representation of a byte slice in
-/// hexadecimal format. A helper struct for providing a debug representation of
-/// a byte slice in hexadecimal format.
+/// hexadecimal format.
 struct HexPreview<'a>(&'a [u8]);
 
-impl<'a> fmt::Debug for HexPreview<'a> {
+impl fmt::Debug for HexPreview<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        const MAX: usize = 128;
-        let slice = if self.0.len() > MAX {
-            &self.0[..MAX]
+        const MAX: usize = 64;
+        let data = self.0;
+        if data.len() <= MAX {
+            write!(f, "{}", hex::encode(data))
         } else {
-            self.0
-        };
-        let mut first = true;
-        write!(f, "\"")?;
-        for b in slice {
-            if !first {
-                write!(f, " ")?;
-            }
-            write!(f, "{b:02x}")?;
-            first = false;
+            write!(
+                f,
+                "{}...({} bytes total)",
+                hex::encode(&data[..MAX]),
+                data.len()
+            )
         }
-        if self.0.len() > MAX {
-            write!(f, " ... (+{} bytes)", self.0.len() - MAX)?;
-        }
-        write!(f, "\"")
     }
 }
 
-impl<T, B> fmt::Debug for PDUWithData<T, B>
-where
-    T: BasicHeaderSegment + SendingData + FromBytes + fmt::Debug + ZeroCopyType,
-    B: Deref<Target = [u8]>,
+impl<
+        T: BasicHeaderSegment + FromBytes + ZeroCopyType + fmt::Debug,
+        B: Deref<Target = [u8]>,
+    > fmt::Debug for PDUWithData<T, B>
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut ds = f.debug_struct("PDUWithData");
-        let header = &self.header_view().expect("failed to get header");
-
-        ds.field("header", header);
-
-        let data = &self.data().expect("invlid pdu");
-
-        ds.field("data_len", &data.len());
-
-        match self.header_digest {
-            Some(hd) => ds.field("header_digest", &format_args!("{hd:#010x}")),
-            None => ds.field("header_digest", &r"None"),
-        };
-
-        match self.data_digest {
-            Some(dd) => ds.field("data_digest", &format_args!("{dd:#010x}")),
-            None => ds.field("data_digest", &r"None"),
-        };
-
-        if header.get_opcode().expect("unable to get opcode").opcode
-            == Opcode::ScsiCommandResp
-            && !data.is_empty()
-        {
-            match SenseData::parse(data) {
-                Ok(sense) => {
-                    ds.field("sense", &sense);
-                },
-                Err(_e) => {
-                    ds.field("data_preview", &HexPreview(data));
-                },
-            }
-        } else if !data.is_empty() {
-            ds.field("data_preview", &HexPreview(data));
+        let mut s = f.debug_struct(type_name::<T>());
+        if let Ok(hdr) = self.header_view() {
+            s.field("header", &format_args!("{:?}", hdr));
         } else {
-            ds.field("data", &r"[]");
+            s.field("header_buf", &self.header_buf);
         }
-
-        ds.finish()
+        if let Ok(data) = self.data() {
+            s.field("data", &HexPreview(data));
+        } else {
+            s.field("payload", &HexPreview(&self.payload));
+        }
+        if let Some(hd) = &self.header_digest {
+            s.field("header_digest", &hd.get());
+        }
+        if let Some(dd) = &self.data_digest {
+            s.field("data_digest", &dd.get());
+        }
+        s.finish()
     }
 }

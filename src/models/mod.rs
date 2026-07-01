@@ -11,6 +11,8 @@ pub mod common;
 pub mod data;
 /// Defines the generic PDU container and related traits.
 pub mod data_fromat;
+/// Typed wrappers for iSCSI identifiers (ITT, LUN, TTT).
+pub mod identifiers;
 /// Defines the structures for Login PDUs.
 pub mod login;
 /// Defines the structures for Logout PDUs.
