@@ -25,6 +25,7 @@ mod integration_tests {
     pub mod inquiry;
 
     //rw
+    pub mod ahs_bidi_r2t;
     pub mod get_capacity_read_write;
     pub mod read_write_read;
     pub mod write_1gb;

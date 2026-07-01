@@ -3,13 +3,13 @@
 
 use std::collections::BTreeSet;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use iscsi_client_rs::{
     cfg::{
         cli::resolve_config_path,
         config::{
-            AuthConfig, Config, login_keys_chap_response, login_keys_operational,
-            login_keys_security,
+            login_keys_chap_response, login_keys_operational, login_keys_security,
+            AuthConfig, Config,
         },
     },
     models::{
@@ -103,7 +103,7 @@ fn test_login_request() -> Result<()> {
 
     let mut builder = PduRequest::<LoginRequest>::new_request(header_buf, &cfg);
     let sec_bytes = login_keys_security(&cfg);
-    builder.append_data(&sec_bytes);
+    builder.append_data(&sec_bytes)?;
 
     assert_eq!(
         builder.header_buf, parsed.header_buf,
@@ -175,7 +175,7 @@ fn chap_step1_security_only() -> Result<()> {
     s1_hdr.header.to_bhs_bytes(&mut header_buf)?;
 
     let mut s1 = PduRequest::<LoginRequest>::new_request(header_buf, &cfg);
-    s1.append_data(login_keys_security(&cfg).as_slice());
+    s1.append_data(login_keys_security(&cfg).as_slice())?;
 
     let (hdr_bytes, data_bytes) =
         &s1.build(cfg.login.flow.max_recv_data_segment_length as usize)?;
@@ -221,7 +221,7 @@ fn chap_step2_chap_a() -> Result<()> {
     s2_hdr.header.to_bhs_bytes(&mut header_buf)?;
 
     let mut s2 = PduRequest::<LoginRequest>::new_request(header_buf, &cfg);
-    s2.append_data(b"CHAP_A=5\x00".as_slice());
+    s2.append_data(b"CHAP_A=5\x00".as_slice())?;
 
     assert_eq!(s2.header_buf, req_exp.header_buf, "step2 BHS differs");
     assert_eq!(
@@ -265,7 +265,7 @@ fn chap_step3_chap_response() -> Result<()> {
     s3_hdr.header.to_bhs_bytes(&mut header_buf)?;
 
     let mut s3 = PduRequest::<LoginRequest>::new_request(header_buf, &cfg);
-    s3.append_data(login_keys_chap_response(user, &chap_r).as_slice());
+    s3.append_data(login_keys_chap_response(user, &chap_r).as_slice())?;
 
     let (hdr_bytes, data_bytes) =
         &s3.build(cfg.login.flow.max_recv_data_segment_length as usize)?;
@@ -309,7 +309,7 @@ fn chap_step4_oper_to_ff_with_ops() -> Result<()> {
     s4_hdr.header.to_bhs_bytes(&mut header_buf)?;
 
     let mut s4 = PduRequest::<LoginRequest>::new_request(header_buf, &cfg);
-    s4.append_data(login_keys_operational(&cfg).as_slice());
+    s4.append_data(login_keys_operational(&cfg).as_slice())?;
 
     let (hdr_bytes, data_bytes) =
         &s4.build(cfg.login.flow.max_recv_data_segment_length as usize)?;

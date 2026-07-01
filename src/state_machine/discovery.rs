@@ -5,7 +5,7 @@
 
 use std::{marker::PhantomData, pin::Pin, sync::Arc};
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{anyhow, Context, Result};
 use rand::RngExt;
 use tokio_util::sync::CancellationToken;
 use tracing::debug;
@@ -275,7 +275,9 @@ impl<'ctx> StateMachine<DiscoveryCtx<'ctx>, DiscoveryStep> for SendTargets {
             }
 
             let mut builder = PduRequest::<TextRequest>::new_request(ctx.buf, &conn.cfg);
-            builder.append_data(b"SendTargets=All\0".as_slice());
+            if let Err(e) = builder.append_data(b"SendTargets=All\0".as_slice()) {
+                return Transition::Done(Err(e));
+            }
 
             let itt = ctx.itt;
             if let Err(e) = conn.send_request(itt, builder).await {

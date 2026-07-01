@@ -23,6 +23,8 @@ write_files:
       targetcli /iscsi create iqn.2025-08.com.example:disk0
       targetcli /iscsi/iqn.2025-08.com.example:disk0/tpg1/portals create 0.0.0.0 3260 || true
       targetcli /iscsi/iqn.2025-08.com.example:disk0/tpg1/luns create /backstores/fileio/backing lun=1
+      # Enable bidirectional command support (needed for XDWRITEREAD)
+      targetcli /backstores/fileio/backing set attribute emulate_bidi=1
 
       if [ "$(cat /etc/lio-test-mode)" = chap ]; then
         targetcli /iscsi/iqn.2025-08.com.example:disk0/tpg1 set attribute authentication=1

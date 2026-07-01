@@ -1,0 +1,45 @@
+# cargo-deny configuration for iscsi-client-rs
+# License: AGPL-3.0-or-later
+
+[graph]
+targets = [
+    { triple = "x86_64-unknown-linux-gnu" },
+]
+
+[advisories]
+vulnerability = "deny"
+unmaintained = "warn"
+yanked = "deny"
+notice = "warn"
+ignore = []
+
+[licenses]
+unlicensed = "deny"
+allow-osi-fsf-free = "either"
+copyleft = "allow"
+default = "deny"
+confidence-threshold = 0.8
+exceptions = [
+    # Allow permissive + weak-copyleft licenses used by deps
+    { name = "md-5", allow = ["MIT", "Apache-2.0"] },
+]
+clarify = []
+
+[[licenses.clarify]]
+name = "ring"
+expression = "ISC AND MIT AND OpenSSL"
+license-files = [{ path = "LICENSE", hash = 0xbd0eed23 }]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "allow"
+deny = [
+    # Deny specific crates if needed
+]
+skip = []
+skip-tree = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-git = []

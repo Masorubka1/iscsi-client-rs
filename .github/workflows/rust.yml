@@ -21,8 +21,9 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@nightly
+        uses: actions-rs/toolchain@v1
         with:
+          toolchain: nightly
           components: rustfmt
 
       - &cache-cargo
@@ -55,8 +56,9 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@nightly
+        uses: actions-rs/toolchain@v1
         with:
+          toolchain: nightly
           components: clippy
 
       - *cache-cargo
@@ -65,6 +67,17 @@ jobs:
       - name: clippy check
         run: cargo clippy --offline --tests --examples --benches --no-deps --all-targets -- -D warnings
 
+  cargo-deny:
+    name: cargo-deny
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Run cargo-deny
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check bans licenses sources advisories
+
   unit:
     name: Unit tests
     runs-on: ubuntu-latest
@@ -72,7 +85,9 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@nightly
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
 
       - *cache-cargo
       - *fetch-cargo
@@ -88,7 +103,9 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
 
       - *cache-cargo
       - *fetch-cargo
@@ -293,7 +310,9 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
 
       - name: Verify version matches tag
         run: |

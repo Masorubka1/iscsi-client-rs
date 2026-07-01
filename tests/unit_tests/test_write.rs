@@ -60,7 +60,7 @@ fn test_write_pdu_build() -> Result<()> {
     header_builder.header.to_bhs_bytes(&mut header_buf)?;
 
     let mut builder = PduRequest::<ScsiCommandRequest>::new_request(header_buf, &cfg);
-    builder.append_data(write_buf.as_slice());
+    builder.append_data(write_buf.as_slice())?;
 
     let (hdr_bytes, body_bytes) =
         &builder.build(cfg.login.flow.max_recv_data_segment_length as usize)?;

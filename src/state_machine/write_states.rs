@@ -7,12 +7,12 @@ use std::{
     marker::PhantomData,
     pin::Pin,
     sync::{
-        Arc,
         atomic::{AtomicU32, Ordering},
+        Arc,
     },
 };
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{anyhow, bail, Context, Result};
 use tokio_util::sync::CancellationToken;
 use tracing::debug;
 
@@ -25,7 +25,7 @@ use crate::{
             request::{ScsiCommandRequest, ScsiCommandRequestBuilder},
             response::ScsiCommandResponse,
         },
-        common::{BasicHeaderSegment, Builder, HEADER_LEN, SendingData},
+        common::{BasicHeaderSegment, Builder, SendingData, HEADER_LEN},
         data::{
             request::{ScsiDataOut, ScsiDataOutBuilder},
             sense_data::SenseData,
@@ -192,7 +192,7 @@ impl<'a> WriteCtx<'a> {
                 }
             }
 
-            pdu.append_data(&self.payload[off..off + take]);
+            pdu.append_data(&self.payload[off..off + take])?;
 
             self.conn.send_request(itt, pdu).await?;
 
@@ -273,7 +273,7 @@ impl<'a> WriteCtx<'a> {
             PduRequest::<ScsiCommandRequest>::new_request(self.buf, &self.conn.cfg);
 
         if imm_len > 0 {
-            pdu.append_data(&self.payload[0..imm_len]);
+            pdu.append_data(&self.payload[0..imm_len])?;
         }
 
         self.conn.send_request(self.itt, pdu).await?;
@@ -327,7 +327,7 @@ impl<'a> WriteCtx<'a> {
                     h.set_continue_bit();
                 }
             }
-            pdu.append_data(&self.payload[off..off + take]);
+            pdu.append_data(&self.payload[off..off + take])?;
             self.conn.send_request(self.itt, pdu).await?;
 
             next_data_sn = next_data_sn.wrapping_add(1);

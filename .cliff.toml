@@ -7,7 +7,7 @@ body = """
 {% if version %}## [{{ version | trim }}] - {{ timestamp | date(format="%Y-%m-%d") }}{% else %}## Unreleased{% endif %}
 {% for section, commits in commits | group_by(attribute="group") %}
 ### {{ section | upper_first }}
-{% for commit in commits %}- {{ commit.message | trim }} ({{ commit.id | truncate(length=7, end="") }})
+{% for commit in commits %}- {{ commit.message | trim | upper_first }} ({{ commit.id | truncate(length=7, end="") }})
 {% endfor %}
 
 {% endfor -%}
@@ -16,6 +16,10 @@ body = """
 [git]
 conventional_commits = true
 filter_unconventional = true
+commit_preprocessors = [
+  { pattern = "^(feat|fix|perf|refactor|docs|test|ci|build|chore)(\\([^)]+\\))?!?:\\s*", replace = "" },
+  { pattern = "\\?+$", replace = "" },
+]
 commit_parsers = [
   { message = "^feat", group = "Features" },
   { message = "^fix", group = "Bug Fixes" },

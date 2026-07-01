@@ -4,12 +4,12 @@
 
 use std::pin::Pin;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{anyhow, Context, Result};
 use md5::{Digest, Md5};
 
 use crate::{
     cfg::config::{
-        AuthConfig, login_keys_chap_response, login_keys_operational, login_keys_security,
+        login_keys_chap_response, login_keys_operational, login_keys_security, AuthConfig,
     },
     models::{
         common::{BasicHeaderSegment, Builder},
@@ -24,7 +24,7 @@ use crate::{
     state_machine::{
         common::{StateMachine, Transition},
         login::common::{
-            LoginCtx, LoginStates, LoginStepOut, verify_operational_negotiation,
+            verify_operational_negotiation, LoginCtx, LoginStates, LoginStepOut,
         },
     },
 };
@@ -109,7 +109,9 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for ChapSecurity {
             }
 
             let mut pdu = PduRequest::<LoginRequest>::new_request(ctx.buf, &ctx.conn.cfg);
-            pdu.append_data(login_keys_security(&ctx.conn.cfg).as_slice());
+            if let Err(e) = pdu.append_data(login_keys_security(&ctx.conn.cfg).as_slice()) {
+                return Transition::Done(Err(e));
+            }
 
             match ctx.conn.send_request(Itt::default(), pdu).await {
                 Err(e) => Transition::Done(Err(e)),
@@ -165,7 +167,9 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for ChapA {
             }
 
             let mut pdu = PduRequest::<LoginRequest>::new_request(ctx.buf, &ctx.conn.cfg);
-            pdu.append_data(b"CHAP_A=5\x00".as_slice());
+            if let Err(e) = pdu.append_data(b"CHAP_A=5\x00".as_slice()) {
+                return Transition::Done(Err(e));
+            }
 
             match ctx.conn.send_request(itt, pdu).await {
                 Err(e) => Transition::Done(Err(e)),
@@ -244,7 +248,9 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for ChapAnswer {
             }
 
             let mut pdu = PduRequest::<LoginRequest>::new_request(ctx.buf, &ctx.conn.cfg);
-            pdu.append_data(login_keys_chap_response(user, &chap_r).as_slice());
+            if let Err(e) = pdu.append_data(login_keys_chap_response(user, &chap_r).as_slice()) {
+                return Transition::Done(Err(e));
+            }
 
             if let Err(e) = ctx.conn.send_request(itt, pdu).await {
                 return Transition::Done(Err(e));
@@ -296,7 +302,9 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for ChapOpToFull {
             }
 
             let mut pdu = PduRequest::<LoginRequest>::new_request(ctx.buf, &ctx.conn.cfg);
-            pdu.append_data(login_keys_operational(&ctx.conn.cfg).as_slice());
+            if let Err(e) = pdu.append_data(login_keys_operational(&ctx.conn.cfg).as_slice()) {
+                return Transition::Done(Err(e));
+            }
 
             match ctx.conn.send_request(itt, pdu).await {
                 Err(e) => Transition::Done(Err(e)),

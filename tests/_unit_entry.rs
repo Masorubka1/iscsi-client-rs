@@ -47,6 +47,7 @@ mod unit_tests {
         Ok(pdu)
     }
 
+    pub mod test_ahs;
     pub mod test_config;
     pub mod test_discovery;
     pub mod test_login;
