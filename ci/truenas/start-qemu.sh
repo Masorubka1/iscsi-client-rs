@@ -2,8 +2,9 @@
 
 set -euo pipefail
 
-readonly ISO_PATH="${1:?usage: start-qemu.sh ISO_PATH HOST_PORT}"
-readonly HOST_PORT="${2:?usage: start-qemu.sh ISO_PATH HOST_PORT}"
+readonly ISO_PATH="${1:-}"
+readonly HOST_PORT="${2:?usage: start-qemu.sh ISO_PATH HOST_PORT [full|prepared]}"
+readonly START_MODE="${3:-full}"
 
 readonly WORK_DIR="${RUNNER_TEMP:-/tmp}/iscsi-truenas-qemu"
 readonly SYSTEM_DISK="${WORK_DIR}/system.qcow2"
@@ -13,6 +14,19 @@ readonly PID_FILE="${WORK_DIR}/qemu.pid"
 readonly API_PORT="${TRUENAS_API_PORT:-8084}"
 readonly ROOT_PASSWORD="${TRUENAS_ROOT_PASSWORD:-truenasRoot123}"
 readonly QEMU_ACCEL="${TRUENAS_QEMU_ACCEL:-tcg}"
+
+case "${START_MODE}" in
+  full|prepared) ;;
+  *)
+    echo "unsupported start mode: ${START_MODE}" >&2
+    exit 1
+    ;;
+esac
+
+if [[ "${START_MODE}" == "full" && -z "${ISO_PATH}" ]]; then
+  echo "usage: start-qemu.sh ISO_PATH HOST_PORT [full|prepared]" >&2
+  exit 1
+fi
 
 case "${QEMU_ACCEL}" in
   kvm)
@@ -135,6 +149,20 @@ bash ci/truenas/stop-qemu.sh >/dev/null 2>&1 || true
 
 mkdir -p "${WORK_DIR}"
 rm -f "${QEMU_LOG}" "${PID_FILE}"
+
+if [[ "${START_MODE}" == "prepared" ]]; then
+  if [[ ! -f "${SYSTEM_DISK}" || ! -f "${DATA_DISK}" ]]; then
+    echo "prepared mode requires existing ${SYSTEM_DISK} and ${DATA_DISK}" >&2
+    exit 1
+  fi
+
+  start_vm system
+  wait_for_port "${API_PORT}" "TrueNAS middleware API"
+  wait_for_ws "ws://127.0.0.1:${API_PORT}/api/current" "TrueNAS middleware API"
+  wait_for_port "${HOST_PORT}" "TrueNAS iSCSI target"
+  exit 0
+fi
+
 rm -f "${SYSTEM_DISK}" "${DATA_DISK}"
 qemu-img create -q -f qcow2 "${SYSTEM_DISK}" 32G
 qemu-img create -q -f qcow2 "${DATA_DISK}" 8G
