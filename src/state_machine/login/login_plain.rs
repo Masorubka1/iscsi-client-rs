@@ -3,6 +3,8 @@
 
 use std::pin::Pin;
 
+use anyhow::anyhow;
+
 use crate::{
     cfg::config::{login_keys_operational, login_keys_security},
     models::{
@@ -16,7 +18,9 @@ use crate::{
     },
     state_machine::{
         common::{StateMachine, Transition},
-        login::common::{LoginCtx, LoginStepOut, verify_operational_negotiation},
+        login::common::{
+            LoginCtx, LoginStates, LoginStepOut, verify_operational_negotiation,
+        },
     },
 };
 
@@ -54,19 +58,96 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for PlainStart {
                 Err(e) => Transition::Done(Err(e)),
                 Ok(()) => match ctx.conn.read_response::<LoginResponse>(ctx.itt).await {
                     Ok(rsp) => {
-                        if let Err(e) =
-                            verify_operational_negotiation(&ctx.conn.cfg, &rsp)
-                        {
-                            return Transition::Done(Err(e));
+                        let nsg = match rsp.header_view() {
+                            Ok(header) => header.flags.nsg(),
+                            Err(e) => return Transition::Done(Err(e)),
+                        };
+
+                        match nsg {
+                            Some(Stage::FullFeature) => {
+                                if let Err(e) =
+                                    verify_operational_negotiation(&ctx.conn.cfg, &rsp)
+                                {
+                                    return Transition::Done(Err(e));
+                                }
+                                ctx.last_response = Some(rsp);
+                                Transition::Done(Ok(()))
+                            },
+                            Some(Stage::Operational) => {
+                                ctx.last_response = Some(rsp);
+                                Transition::Next(
+                                    LoginStates::PlainOpToFull(PlainOpToFull),
+                                    Ok(()),
+                                )
+                            },
+                            other => Transition::Done(Err(anyhow!(
+                                "plain login unexpected NSG={other:?}"
+                            ))),
                         }
-                        ctx.last_response = Some(rsp);
-                        Transition::Done(Ok(()))
                     },
                     Err(other) => Transition::Done(Err(anyhow::anyhow!(
                         "got unexpected PDU: {}",
                         other
                     ))),
                 },
+            }
+        })
+    }
+}
+
+/// Represents the follow-up operational step for targets that don't accept a
+/// one-shot plain transition to Full Feature.
+#[derive(Debug)]
+pub struct PlainOpToFull;
+
+impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for PlainOpToFull {
+    type StepResult<'a>
+        = Pin<Box<dyn Future<Output = LoginStepOut> + Send + 'a>>
+    where
+        Self: 'a,
+        LoginCtx<'ctx>: 'a;
+
+    fn step<'a>(&'a self, ctx: &'a mut LoginCtx<'ctx>) -> Self::StepResult<'a> {
+        Box::pin(async move {
+            let (header, itt) = {
+                let last = match ctx.validate_last_response_header() {
+                    Ok(last) => last,
+                    Err(e) => return Transition::Done(Err(e)),
+                };
+
+                let header = LoginRequestBuilder::new(ctx.isid, last.tsih.get())
+                    .transit()
+                    .csg(Stage::Operational)
+                    .nsg(Stage::FullFeature)
+                    .versions(last.version_max, last.version_active)
+                    .initiator_task_tag(last.initiator_task_tag.get())
+                    .connection_id(ctx.cid)
+                    .cmd_sn(last.exp_cmd_sn.get())
+                    .exp_stat_sn(last.stat_sn.get().wrapping_add(1));
+
+                (header, last.initiator_task_tag.get())
+            };
+
+            if let Err(e) = header.header.to_bhs_bytes(ctx.buf.as_mut_slice()) {
+                return Transition::Done(Err(e));
+            }
+
+            let mut pdu = PduRequest::<LoginRequest>::new_request(ctx.buf, &ctx.conn.cfg);
+            pdu.append_data(login_keys_operational(&ctx.conn.cfg).as_slice());
+
+            if let Err(e) = ctx.conn.send_request(itt, pdu).await {
+                return Transition::Done(Err(e));
+            }
+
+            match ctx.conn.read_response::<LoginResponse>(itt).await {
+                Ok(rsp) => {
+                    if let Err(e) = verify_operational_negotiation(&ctx.conn.cfg, &rsp) {
+                        return Transition::Done(Err(e));
+                    }
+                    ctx.last_response = Some(rsp);
+                    Transition::Done(Ok(()))
+                },
+                Err(e) => Transition::Done(Err(e)),
             }
         })
     }

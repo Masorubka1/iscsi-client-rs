@@ -17,7 +17,10 @@ use crate::{
     client::client::ClientConnection,
     models::{data_fromat, logout::common::LogoutReason, nop::response::NopInResponse},
     state_machine::{
-        common::StateMachineCtx, login::common::LoginCtx, logout_states::LogoutCtx,
+        common::StateMachineCtx,
+        discovery::{DiscoveredTarget, DiscoveryCtx},
+        login::common::LoginCtx,
+        logout_states::LogoutCtx,
         nop_states::NopCtx,
     },
     utils::generate_isid,
@@ -124,6 +127,8 @@ impl Pool {
 
     /// Login all sessions sequentially.
     pub async fn login_sessions_from_cfg(&self, cfg: &Config) -> Result<Vec<u16>> {
+        #[cfg(feature = "profiling-puffin")]
+        profiling::function_scope!();
         ensure!(self.max_sessions > 0, "max_sessions must be > 0");
 
         let target_name: Arc<str> = Arc::from(cfg.login.identity.target_name.clone());
@@ -153,6 +158,8 @@ impl Pool {
         cid: u16,
         conn: Arc<ClientConnection>,
     ) -> Result<u16> {
+        #[cfg(feature = "profiling-puffin")]
+        profiling::function_scope!();
         self.login_one_and_insert_impl(
             target_name,
             isid,
@@ -170,6 +177,8 @@ impl Pool {
         cid: u16,
         conn: Arc<ClientConnection>,
     ) -> Result<()> {
+        #[cfg(feature = "profiling-puffin")]
+        profiling::function_scope!();
         // Read immutable bits upfront (don't hold DashMap guards across await)
         let (target_name, isid) = {
             let sess = self
@@ -203,6 +212,8 @@ impl Pool {
         cid: u16,
         expected: Arc<Connection>,
     ) -> Result<()> {
+        #[cfg(feature = "profiling-puffin")]
+        profiling::function_scope!();
         let sess = self
             .sessions
             .get(&tsih)
@@ -257,6 +268,8 @@ impl Pool {
         cid: u16,
         conn: Arc<ClientConnection>,
     ) -> Result<u16> {
+        #[cfg(feature = "profiling-puffin")]
+        profiling::function_scope!();
         let mut l = LoginCtx::new(conn.clone(), isid, cid, tsih_hint);
         match &conn.cfg.login.auth {
             AuthConfig::Chap(_) => l.set_chap_login(),
@@ -353,6 +366,8 @@ impl Pool {
 
     /// Logout the entire session by TSIH and purge local state.
     pub async fn logout_session(&self, tsih: u16) -> Result<()> {
+        #[cfg(feature = "profiling-puffin")]
+        profiling::function_scope!();
         let sess = self
             .sessions
             .get(&tsih)
@@ -420,6 +435,8 @@ impl Pool {
     /// 4) Half-close the write side (TCP FIN) on all connections.
     /// 5) Cancel the root token to stop remaining I/O.
     pub async fn shutdown_gracefully(&self, max_wait_per_conn: Duration) -> Result<()> {
+        #[cfg(feature = "profiling-puffin")]
+        profiling::function_scope!();
         let all_connections: Vec<Arc<Connection>> = self
             .sessions
             .iter()
@@ -491,6 +508,8 @@ impl Pool {
         ) -> Ctx,
         Ctx: StateMachineCtx<Ctx, Res>,
     {
+        #[cfg(feature = "profiling-puffin")]
+        profiling::function_scope!();
         for attempt in 0..=MAX_CONNECTION_RECOVERY_ATTEMPTS {
             let sess = self
                 .sessions
@@ -567,12 +586,34 @@ impl Pool {
         ))
     }
 
+    /// Run SendTargets discovery against a portal using the provided config.
+    ///
+    /// Opens a Discovery-session to the target portal, issues
+    /// `SendTargets=All`, and returns a list of discovered iSCSI target names
+    /// along with their portal addresses.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let cfg = Config::load_from_file("./discovery.yaml")?;
+    /// let targets = Pool::discover_targets(cfg).await?;
+    /// for t in &targets {
+    ///     println!("Target: {} -> {:?}", t.target_name, t.target_addresses);
+    /// }
+    /// ```
+    pub async fn discover_targets(cfg: &Config) -> Result<Vec<DiscoveredTarget>> {
+        let cancel = CancellationToken::new();
+        DiscoveryCtx::discover(cfg.clone(), cancel).await
+    }
+
     pub(crate) async fn execute_nop_reply(
         &self,
         tsih: u16,
         cid: u16,
         pdu: data_fromat::PduResponse<NopInResponse>,
     ) -> Result<()> {
+        #[cfg(feature = "profiling-puffin")]
+        profiling::function_scope!();
         let sess = self
             .sessions
             .get(&tsih)

@@ -16,6 +16,8 @@ impl ClientConnection {
     /// Useful for full shutdown after draining. The reader will still consume
     /// any remaining inbound PDUs until EOF.
     pub async fn half_close_writes(&self) -> Result<()> {
+        #[cfg(feature = "profiling-puffin")]
+        profiling::function_scope!();
         let mut writer = self.writer.lock().await;
         let _ = writer.shutdown().await;
         Ok(())
@@ -25,6 +27,8 @@ impl ClientConnection {
         &self,
         mut request: impl ToBytes<Header = [u8; HEADER_LEN], Body = Bytes> + fmt::Debug,
     ) -> Result<()> {
+        #[cfg(feature = "profiling-puffin")]
+        profiling::function_scope!();
         self.ensure_writable()?;
 
         let mut writer = self.writer.lock().await;
@@ -49,6 +53,8 @@ impl ClientConnection {
         initiator_task_tag: u32,
         request: impl ToBytes<Header = [u8; HEADER_LEN], Body = Bytes> + Debug,
     ) -> Result<()> {
+        #[cfg(feature = "profiling-puffin")]
+        profiling::function_scope!();
         self.ensure_writable()?;
 
         let expects_response = initiator_task_tag != u32::MAX;

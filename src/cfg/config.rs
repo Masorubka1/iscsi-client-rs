@@ -286,7 +286,9 @@ impl SessionType {
 /// Builds a null-delimited `key=value` list, skipping `None` entries and
 /// sorting by key name for a canonical order.
 fn build_kv_sorted<'a, I>(items: I) -> Vec<u8>
-where I: IntoIterator<Item = (&'a str, Option<String>)> {
+where
+    I: IntoIterator<Item = (&'a str, Option<String>)>,
+{
     let mut vec: Vec<(String, String)> = items
         .into_iter()
         .filter_map(|(k, v)| v.map(|vv| (k.to_string(), vv)))

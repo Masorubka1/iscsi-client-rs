@@ -113,7 +113,8 @@ impl<T, Body: Clone> Clone for PDUWithData<T, Body> {
 }
 
 impl<T> Builder for PDUWithData<T, BytesMut>
-where T: BasicHeaderSegment + SendingData + FromBytes + ZeroCopyType
+where
+    T: BasicHeaderSegment + SendingData + FromBytes + ZeroCopyType,
 {
     type Body = Bytes;
     type Header = [u8; HEADER_LEN];
@@ -257,7 +258,9 @@ impl<T> PDUWithData<T, BytesMut> {
 
     /// Parses the PDU payload from a mutable buffer, verifying digests.
     pub fn parse_with_buff_mut(&mut self, mut buf: BytesMut) -> Result<()>
-    where T: BasicHeaderSegment + FromBytes + ZeroCopyType {
+    where
+        T: BasicHeaderSegment + FromBytes + ZeroCopyType,
+    {
         let tn = type_name::<T>();
         let h = self.header_view().context("parsing without header_buf")?;
 
@@ -328,7 +331,9 @@ impl<T> PDUWithData<T, BytesMut> {
 
     /// Parses the PDU payload from a reference to a mutable buffer.
     pub fn parse_with_buff_ref(&mut self, buf: &BytesMut) -> Result<()>
-    where T: BasicHeaderSegment + FromBytes + ZeroCopyType {
+    where
+        T: BasicHeaderSegment + FromBytes + ZeroCopyType,
+    {
         self.parse_with_buff_mut(buf.clone())
     }
 }
@@ -341,27 +346,35 @@ where
     /// Returns an immutable view of the PDU's header.
     #[inline]
     pub fn header_view(&self) -> Result<&T>
-    where T: FromBytes + ZeroCopyType {
+    where
+        T: FromBytes + ZeroCopyType,
+    {
         T::ref_from_bytes(self.header_buf.as_slice()).map_err(|e| anyhow!("{}", e))
     }
 
     /// Returns a mutable view of the PDU's header.
     #[inline]
     pub fn header_view_mut(&mut self) -> Result<&mut T>
-    where T: FromBytes + ZeroCopyType {
+    where
+        T: FromBytes + ZeroCopyType,
+    {
         T::mut_from_bytes(self.header_buf.as_mut_slice()).map_err(|e| anyhow!("{}", e))
     }
 
     /// Returns a slice of the Additional Header Segment (AHS).
     pub fn additional_header(&self) -> Result<&[u8]>
-    where T: FromBytes + ZeroCopyType {
+    where
+        T: FromBytes + ZeroCopyType,
+    {
         let ahs_size = self.header_view()?.get_ahs_length_bytes();
         Ok(&self.payload[0..ahs_size])
     }
 
     /// Returns a slice of the PDU's data segment.
     pub fn data(&self) -> Result<&[u8]>
-    where T: FromBytes + ZeroCopyType {
+    where
+        T: FromBytes + ZeroCopyType,
+    {
         let header = self.header_view()?;
         let ahs_len = header.get_ahs_length_bytes();
         let hd = header.get_header_diggest(self.enable_header_digest);
@@ -374,7 +387,9 @@ where
 
     /// Rebinds the PDU to a different header type.
     pub fn rebind_pdu<U>(self) -> anyhow::Result<PDUWithData<U, B>>
-    where U: BasicHeaderSegment {
+    where
+        U: BasicHeaderSegment,
+    {
         Ok(PDUWithData::<U, B> {
             header_buf: self.header_buf,
             payload: self.payload,
@@ -390,7 +405,8 @@ where
 }
 
 impl<T> PDUWithData<T, Bytes>
-where T: BasicHeaderSegment + FromBytes + ZeroCopyType
+where
+    T: BasicHeaderSegment + FromBytes + ZeroCopyType,
 {
     /// Parses the PDU payload from an immutable buffer, verifying digests.
     pub fn parse_with_buff(&mut self, buf: &Bytes) -> Result<()> {

@@ -48,7 +48,8 @@ pub trait FromBytes: Sized + BasicHeaderSegment {
 }
 
 impl<B> ToBytes for B
-where B: Builder
+where
+    B: Builder,
 {
     type Body = B::Body;
     type Header = B::Header;

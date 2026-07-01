@@ -34,6 +34,8 @@ pub(super) async fn io_with_timeout<F, T>(
 where
     F: Future<Output = std::io::Result<T>>,
 {
+    #[cfg(feature = "profiling-puffin")]
+    profiling::scope!("io_with_timeout", label);
     tokio::select! {
         _ = cancel.cancelled() => Err(ClientIoError::Cancelled { label }.into()),
         res = timeout(io_timeout, fut) => {

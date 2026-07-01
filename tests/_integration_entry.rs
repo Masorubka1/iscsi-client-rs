@@ -18,6 +18,7 @@ mod integration_tests {
     pub mod read_sense;
     pub mod recovery;
     pub mod report_luns;
+    pub mod send_targets_discovery;
 
     //inquiry
     pub mod inquiry;

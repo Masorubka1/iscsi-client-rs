@@ -85,6 +85,8 @@ pub struct ClientConnection {
 impl ClientConnection {
     /// Establishes a new TCP connection to the given address.
     pub async fn connect(cfg: Config, cancel: CancellationToken) -> Result<Arc<Self>> {
+        #[cfg(feature = "profiling-puffin")]
+        profiling::function_scope!();
         let stream = io_with_timeout(
             "connect",
             TcpStream::connect(&cfg.login.transport.target_address),
@@ -100,6 +102,8 @@ impl ClientConnection {
 
         let reader = Arc::clone(&conn);
         tokio::spawn(async move {
+            #[cfg(feature = "profiling-puffin")]
+            profiling::register_thread!("iscsi-client-rs::read-loop");
             if let Err(e) = Arc::clone(&reader).read_loop().await {
                 if is_timeout_error(&e) {
                     reader.poison(format!("read loop timeout: {e}"));
@@ -151,6 +155,8 @@ impl ClientConnection {
         buf: &mut [u8],
         label: &'static str,
     ) -> Result<()> {
+        #[cfg(feature = "profiling-puffin")]
+        profiling::scope!("read_exact_with_timeout", label);
         io_with_timeout(
             label,
             reader.read_exact(buf),
@@ -173,6 +179,8 @@ impl ClientConnection {
         buf: &[u8],
         label: &'static str,
     ) -> Result<()> {
+        #[cfg(feature = "profiling-puffin")]
+        profiling::scope!("write_all_with_timeout", label);
         io_with_timeout(
             label,
             writer.write_all(buf),

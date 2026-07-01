@@ -5,7 +5,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
-use anyhow::{Result, bail};
+use anyhow::{bail, Result};
 use enum_dispatch::enum_dispatch;
 
 use crate::models::{
@@ -67,6 +67,10 @@ impl<'a> Pdu<'a> {
             Opcode::TextReq => {
                 let req = TextRequest::from_bhs_bytes(bytes)?;
                 Ok(Pdu::TextRequest(req))
+            },
+            Opcode::TextResp => {
+                let rsp = TextResponse::from_bhs_bytes(bytes)?;
+                Ok(Pdu::TextResponse(rsp))
             },
             Opcode::LoginReq => {
                 let req = LoginRequest::from_bhs_bytes(bytes)?;
