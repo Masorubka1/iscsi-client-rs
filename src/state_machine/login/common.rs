@@ -14,6 +14,7 @@ use crate::{
     models::{
         common::HEADER_LEN,
         data_fromat::PduResponse,
+        identifiers::{Cid, Isid, Tsih},
         login::{common::Stage, response::LoginResponse},
     },
     state_machine::{
@@ -33,11 +34,11 @@ pub struct LoginCtx<'a> {
     /// The client connection.
     pub conn: Arc<ClientConnection>,
     /// The Initiator Session ID.
-    pub isid: [u8; 6],
+    pub isid: Isid,
     /// The Connection ID.
-    pub cid: u16,
+    pub cid: Cid,
     /// The Target Session Identifying Handle.
-    pub tsih: u16,
+    pub tsih: Tsih,
     /// A buffer for the BHS.
     pub buf: [u8; HEADER_LEN],
 
@@ -49,7 +50,7 @@ pub struct LoginCtx<'a> {
 
 impl<'a> LoginCtx<'a> {
     /// Creates a new `LoginCtx` for a login operation.
-    pub fn new(conn: Arc<ClientConnection>, isid: [u8; 6], cid: u16, tsih: u16) -> Self {
+    pub fn new(conn: Arc<ClientConnection>, isid: Isid, cid: Cid, tsih: Tsih) -> Self {
         Self {
             conn,
             isid,

@@ -12,6 +12,7 @@ use iscsi_client_rs::{
         read_capacity::{build_read_capacity10, parse_read_capacity10_zerocopy},
         write::build_write10,
     },
+    models::identifiers::Cid,
     state_machine::{read_states::ReadCtx, tur_states::TurCtx, write_states::WriteCtx},
 };
 use serial_test::serial;
@@ -25,25 +26,24 @@ use crate::integration_tests::common::{
 async fn io_around_negotiated_segment_boundaries() -> Result<()> {
     let _ = init_logger(&test_path());
     let cfg = Arc::new(load_config()?);
-    let pool = Arc::new(Pool::new(&cfg));
-    pool.attach_self();
+    let pool = Pool::new(&cfg);
 
     let conn = connect_cfg(&cfg).await?;
     let target_name: Arc<str> = Arc::from(cfg.login.identity.target_name.clone());
     let tsih = pool
-        .login_and_insert(target_name, test_isid(), 0, conn)
+        .login_and_insert(target_name, test_isid(), Cid::ZERO, conn)
         .await
         .context("pool login failed")?;
     let lun = get_lun();
     let _ = pool
-        .execute_with_ctx(tsih, 0, |env| TurCtx::from_execute_env(env, lun))
+        .execute_with_ctx(tsih, Cid::ZERO, |env| TurCtx::from_execute_env(env, lun))
         .await;
-    pool.execute_with_ctx(tsih, 0, |env| TurCtx::from_execute_env(env, lun))
+    pool.execute_with_ctx(tsih, Cid::ZERO, |env| TurCtx::from_execute_env(env, lun))
         .await
         .context("TUR failed")?;
 
     let capacity = pool
-        .execute_with_ctx(tsih, 0, |env| {
+        .execute_with_ctx(tsih, Cid::ZERO, |env| {
             let mut cdb = [0u8; 16];
             build_read_capacity10(&mut cdb, 0, false, 0);
             ReadCtx::from_execute_env(env, lun, 8, cdb)
@@ -75,7 +75,7 @@ async fn io_around_negotiated_segment_boundaries() -> Result<()> {
             .map(|offset| (offset as u8).wrapping_add(blocks as u8))
             .collect::<Vec<_>>();
 
-        pool.execute_with_ctx(tsih, 0, |env| {
+        pool.execute_with_ctx(tsih, Cid::ZERO, |env| {
             let mut cdb = [0u8; 16];
             build_write10(&mut cdb, lba, blocks as u16, 0, 0);
             WriteCtx::from_execute_env(env, lun, cdb, payload.clone())
@@ -84,7 +84,7 @@ async fn io_around_negotiated_segment_boundaries() -> Result<()> {
         .with_context(|| format!("WRITE boundary blocks={blocks}"))?;
 
         let read = pool
-            .execute_with_ctx(tsih, 0, |env| {
+            .execute_with_ctx(tsih, Cid::ZERO, |env| {
                 let mut cdb = [0u8; 16];
                 build_read10(&mut cdb, lba, blocks as u16, 0, 0);
                 ReadCtx::from_execute_env(env, lun, byte_len as u32, cdb)

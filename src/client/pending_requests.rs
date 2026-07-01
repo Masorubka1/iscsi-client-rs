@@ -7,21 +7,29 @@ use tokio::sync::mpsc;
 
 use crate::{client::common::RawPdu, models::identifiers::Itt};
 
-const RESPONSE_QUEUE_CAPACITY: usize = 32;
-
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(super) struct PendingRequests {
     senders: DashMap<Itt, mpsc::Sender<RawPdu>>,
     receivers: DashMap<Itt, mpsc::Receiver<RawPdu>>,
+    response_queue_capacity: usize,
 }
 
 impl PendingRequests {
+    pub(super) fn new(response_queue_capacity: usize) -> Self {
+        debug_assert!(response_queue_capacity > 0);
+        Self {
+            senders: DashMap::new(),
+            receivers: DashMap::new(),
+            response_queue_capacity,
+        }
+    }
+
     pub(super) fn register(&self, itt: Itt) {
         if self.senders.contains_key(&itt) {
             return;
         }
 
-        let (tx, rx) = mpsc::channel(RESPONSE_QUEUE_CAPACITY);
+        let (tx, rx) = mpsc::channel(self.response_queue_capacity);
         self.senders.insert(itt, tx);
         self.receivers.insert(itt, rx);
     }

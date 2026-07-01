@@ -12,7 +12,7 @@ use iscsi_client_rs::{
     client::{client::ClientConnection, pool_sessions::Pool},
     models::{
         common::{BasicHeaderSegment, HEADER_LEN},
-        identifiers::Lun,
+        identifiers::{Cid, Lun, Tsih},
         login::{
             common::Stage,
             request::LoginRequest,
@@ -34,7 +34,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::integration_tests::common::{test_isid, test_path};
 
-const TEST_TSIH: u16 = 0x0200;
+const TEST_TSIH: Tsih = Tsih::new(0x0200);
 
 fn load_plain_cfg(target_address: String) -> Result<Config> {
     let mut cfg = Config::load_from_file("tests/configs/tgt/plain.yaml")?;
@@ -79,7 +79,7 @@ async fn write_login_response(
     stream: &mut TcpStream,
     cfg: &Config,
     request_header: [u8; HEADER_LEN],
-    tsih: u16,
+    tsih: Tsih,
 ) -> Result<()> {
     let mut request_header = request_header;
     let request = LoginRequest::from_bhs_bytes(&mut request_header)?;
@@ -96,7 +96,7 @@ async fn write_login_response(
     response.version_max = request.version_max;
     response.version_active = request.version_max;
     response.isid = request.isid;
-    response.tsih.set(tsih);
+    response.tsih.set(tsih.get());
     response
         .initiator_task_tag
         .set(request.initiator_task_tag.get());
@@ -186,13 +186,12 @@ async fn poisoned_connection_is_recreated_after_timeout() -> Result<()> {
     let cfg = load_plain_cfg(address.to_string())?;
 
     let server = tokio::spawn(serve_recovery_target(listener, cfg.clone()));
-    let pool = Arc::new(Pool::new(&cfg));
-    pool.attach_self();
+    let pool = Pool::new(&cfg);
 
     let conn = ClientConnection::connect(cfg.clone(), CancellationToken::new()).await?;
     let target_name: Arc<str> = Arc::from(cfg.login.identity.target_name.clone());
     let tsih = pool
-        .login_and_insert(target_name, test_isid(), 0, conn)
+        .login_and_insert(target_name, test_isid(), Cid::ZERO, conn)
         .await
         .context("pool login failed")?;
     let ttt = NopOutRequest::DEFAULT_TAG;
@@ -202,12 +201,12 @@ async fn poisoned_connection_is_recreated_after_timeout() -> Result<()> {
         .get(&tsih)
         .context("missing session after login")?
         .conns
-        .get(&0)
+        .get(&Cid::ZERO)
         .context("missing CID=0 after login")?
         .conn
         .clone();
 
-    pool.execute_with_ctx(tsih, 0, |env| {
+    pool.execute_with_ctx(tsih, Cid::ZERO, |env| {
         NopCtx::from_execute_env(env, Lun::new(1u64 << 48), ttt)
     })
     .await
@@ -218,7 +217,7 @@ async fn poisoned_connection_is_recreated_after_timeout() -> Result<()> {
         .get(&tsih)
         .context("missing session after recovery")?
         .conns
-        .get(&0)
+        .get(&Cid::ZERO)
         .context("missing CID=0 after recovery")?
         .conn
         .clone();

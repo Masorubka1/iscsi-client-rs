@@ -213,6 +213,14 @@ pub struct RuntimeConfig {
     #[serde(rename = "TimeoutConnection", with = "serde_secs")]
     /// Timeout for TCP connect and per-I/O read/write operations.
     pub timeout_connection: Duration,
+
+    #[serde(rename = "ResponseQueueCapacity")]
+    /// Buffered response PDUs allowed per in-flight command.
+    pub response_queue_capacity: usize,
+
+    #[serde(rename = "MaxConnectionRecoveryAttempts")]
+    /// Number of retries after a poisoned connection's initial failure.
+    pub max_connection_recovery_attempts: usize,
 }
 
 impl Config {
@@ -260,6 +268,10 @@ impl Config {
             "MaxConnections must be >= 1"
         );
         ensure!(self.runtime.max_sessions >= 1, "MaxSessions must be >= 1");
+        ensure!(
+            self.runtime.response_queue_capacity >= 1,
+            "ResponseQueueCapacity must be >= 1"
+        );
 
         Ok(())
     }

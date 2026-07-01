@@ -15,7 +15,7 @@ use crate::{
     models::{
         common::{BasicHeaderSegment, HEADER_LEN, SendingData},
         data_fromat::ZeroCopyType,
-        identifiers::{CmdSn, Itt, StatSn},
+        identifiers::{Cid, CmdSn, Itt, StatSn},
         logout::common::{LogoutReason, RawLogoutReason},
         opcode::{BhsOpcode, Opcode, RawBhsOpcode},
     },
@@ -35,11 +35,12 @@ pub struct LogoutRequest {
     pub data_segment_length: [u8; 3], // Bytes 5..8: must be zero
     reserved1: [u8; 8],       // Bytes 8..16: reserved
     pub initiator_task_tag: U32<BigEndian>, // Bytes 16..20: ITT
-    pub cid: U16<BigEndian>,  // Bytes 20..22: CID for connection logout
-    reserved2: [u8; 2],       // Bytes 22..24: reserved
-    pub cmd_sn: U32<BigEndian>, // Bytes 24..28: CmdSN
+    /// Connection Identifier when logout targets a single connection.
+    pub cid: U16<BigEndian>,
+    reserved2: [u8; 2],              // Bytes 22..24: reserved
+    pub cmd_sn: U32<BigEndian>,      // Bytes 24..28: CmdSN
     pub exp_stat_sn: U32<BigEndian>, // Bytes 28..32: ExpStatSN
-    reserved3: [u8; 16],      // Bytes 32..48: reserved
+    reserved3: [u8; 16],             // Bytes 32..48: reserved
 }
 
 impl LogoutRequest {
@@ -79,7 +80,7 @@ pub struct LogoutRequestBuilder {
 impl LogoutRequestBuilder {
     /// Creates a new `LogoutRequestBuilder` with the given reason, ITT, and
     /// CID.
-    pub fn new(reason: LogoutReason, itt: Itt, cid: u16) -> Self {
+    pub fn new(reason: LogoutReason, itt: Itt, cid: Cid) -> Self {
         Self {
             header: LogoutRequest {
                 opcode: {
@@ -92,15 +93,15 @@ impl LogoutRequestBuilder {
                 total_ahs_length: 0,
                 data_segment_length: [0, 0, 0],
                 initiator_task_tag: itt.get().into(),
-                cid: cid.into(),
+                cid: cid.get().into(),
                 ..Default::default()
             },
         }
     }
 
     /// Sets the Connection ID (CID) for the logout request.
-    pub fn connection_id(mut self, cid: u16) -> Self {
-        self.header.cid.set(cid);
+    pub fn connection_id(mut self, cid: Cid) -> Self {
+        self.header.cid.set(cid.get());
         self
     }
 

@@ -14,7 +14,7 @@ use crate::{
     models::{
         common::{BasicHeaderSegment, HEADER_LEN, SendingData},
         data_fromat::ZeroCopyType,
-        identifiers::{CmdSn, Itt, StatSn},
+        identifiers::{Cid, CmdSn, Isid, Itt, StatSn, Tsih},
         login::common::{RawLoginFlags, Stage},
         opcode::{BhsOpcode, Opcode, RawBhsOpcode},
     },
@@ -35,14 +35,17 @@ pub struct LoginRequest {
     pub version_min: u8,      // Byte 3: minimum supported iSCSI version
     pub total_ahs_length: u8, // Byte 4: AHS length in 4-byte words
     pub data_segment_length: [u8; 3], // Bytes 5..8: login text payload length
-    pub isid: [u8; 6],        // Bytes 8..14: ISID
-    pub tsih: U16<BigEndian>, // Bytes 14..16: TSIH (0 for new session)
+    /// Initiator Session Identifier encoded in bytes 8..14.
+    pub isid: [u8; 6],
+    /// Target Session Identifying Handle, or zero for a new session.
+    pub tsih: U16<BigEndian>,
     pub initiator_task_tag: U32<BigEndian>, // Bytes 16..20: ITT
-    pub cid: U16<BigEndian>,  // Bytes 20..22: CID
-    reserved1: [u8; 2],       // Bytes 22..24: reserved
-    pub cmd_sn: U32<BigEndian>, // Bytes 24..28: CmdSN
+    /// Connection Identifier assigned by the initiator.
+    pub cid: U16<BigEndian>,
+    reserved1: [u8; 2],              // Bytes 22..24: reserved
+    pub cmd_sn: U32<BigEndian>,      // Bytes 24..28: CmdSN
     pub exp_stat_sn: U32<BigEndian>, // Bytes 28..32: ExpStatSN
-    reserved2: [u8; 16],      // Bytes 32..48: reserved
+    reserved2: [u8; 16],             // Bytes 32..48: reserved
 }
 
 impl LoginRequest {
@@ -102,7 +105,7 @@ pub struct LoginRequestBuilder {
 
 impl LoginRequestBuilder {
     /// Creates a new `LoginRequestBuilder` with the given ISID and TSIH.
-    pub fn new(isid: [u8; 6], tsih: u16) -> Self {
+    pub fn new(isid: Isid, tsih: Tsih) -> Self {
         LoginRequestBuilder {
             header: LoginRequest {
                 opcode: {
@@ -111,8 +114,8 @@ impl LoginRequestBuilder {
                     tmp.set_i();
                     tmp
                 },
-                isid,
-                tsih: tsih.into(),
+                isid: isid.get(),
+                tsih: tsih.get().into(),
                 ..Default::default()
             },
         }
@@ -150,8 +153,8 @@ impl LoginRequestBuilder {
     }
 
     /// Sets the connection ID (CID) for this login request.
-    pub fn connection_id(mut self, cid: u16) -> Self {
-        self.header.cid.set(cid);
+    pub fn connection_id(mut self, cid: Cid) -> Self {
+        self.header.cid.set(cid.get());
         self
     }
 
@@ -168,8 +171,8 @@ impl LoginRequestBuilder {
     }
 
     /// Sets the Initiator Session ID (ISID) for the login request.
-    pub fn isid(mut self, isid: &[u8; 6]) -> Self {
-        self.header.isid.clone_from_slice(isid);
+    pub fn isid(mut self, isid: Isid) -> Self {
+        self.header.isid = isid.get();
         self
     }
 }

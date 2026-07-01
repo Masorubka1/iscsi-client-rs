@@ -12,7 +12,7 @@ use tokio_util::sync::CancellationToken;
 use crate::models::common::HEADER_LEN;
 
 #[derive(Debug, Error)]
-pub enum ClientIoError {
+pub(crate) enum ClientIoError {
     #[error("{label} cancelled")]
     Cancelled { label: &'static str },
     #[error("{label} timeout")]
@@ -55,16 +55,16 @@ where
 /// fixed-size Basic Header Segment (BHS) and a variable-length payload that may
 /// contain Additional Header Segments, data, and digests.
 #[derive(Debug, Clone)]
-pub struct RawPdu {
+pub(crate) struct RawPdu {
     /// Basic Header Segment - exactly 48 bytes according to iSCSI specification
     ///
     /// Contains the fundamental PDU information including opcode, flags,
     /// lengths, sequence numbers, and other protocol-specific fields.
-    pub header: [u8; HEADER_LEN],
+    pub(crate) header: [u8; HEADER_LEN],
     /// Variable-length payload section
     ///
     /// May contain Additional Header Segments (AHS), padding, Header Digest
     /// (HD), data payload, padding, and Data Digest (DD) depending on PDU
     /// type and configuration.
-    pub payload: Bytes,
+    pub(crate) payload: Bytes,
 }

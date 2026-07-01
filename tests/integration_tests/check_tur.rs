@@ -22,12 +22,11 @@ async fn login_and_tur() -> Result<()> {
     let conn = connect_cfg(&cfg).await?;
 
     // ---- Pool ----
-    let pool = Arc::new(Pool::new(&cfg));
-    pool.attach_self();
+    let pool = Pool::new(&cfg);
 
     // ---- Login via Pool ----
     let isid = test_isid();
-    let cid: u16 = 1;
+    let cid = 1u16.into();
     let target_name: Arc<str> = Arc::from(cfg.login.identity.target_name.clone());
 
     let tsih = pool

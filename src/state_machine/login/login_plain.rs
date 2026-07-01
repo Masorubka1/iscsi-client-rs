@@ -122,7 +122,7 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for PlainOpToFull {
                     Err(e) => return Transition::Done(Err(e)),
                 };
 
-                let header = LoginRequestBuilder::new(ctx.isid, last.tsih.get())
+                let header = LoginRequestBuilder::new(ctx.isid, last.tsih.get().into())
                     .transit()
                     .csg(Stage::Operational)
                     .nsg(Stage::FullFeature)

@@ -19,7 +19,7 @@ use iscsi_client_rs::{
 };
 use serial_test::serial;
 
-use crate::integration_tests::common::{
+use crate::internal_tests::common::{
     connect_cfg, get_lun, load_config, test_isid, test_path,
 };
 
@@ -57,13 +57,12 @@ async fn xdwrite_read_with_bidi_ahs() -> Result<()> {
     }
 
     // --- Pool + login ---
-    let pool = Arc::new(Pool::new(&cfg));
-    pool.attach_self();
+    let pool = Pool::new(&cfg);
 
     let conn = connect_cfg(&cfg).await?;
     let target_name: Arc<str> = Arc::from(cfg.login.identity.target_name.clone());
     let isid = test_isid();
-    let cid: u16 = 0;
+    let cid = iscsi_client_rs::models::identifiers::Cid::ZERO;
 
     let _tsih = pool
         .login_and_insert(target_name, isid, cid, conn.clone())

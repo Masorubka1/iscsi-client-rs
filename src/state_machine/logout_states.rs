@@ -21,7 +21,7 @@ use crate::{
     models::{
         common::HEADER_LEN,
         data_fromat::{PduRequest, PduResponse},
-        identifiers::{Itt, IttGen},
+        identifiers::{Cid, Itt, IttGen},
         logout::{
             common::{LogoutReason, LogoutResponseCode},
             request::{LogoutRequest, LogoutRequestBuilder},
@@ -39,7 +39,8 @@ pub struct LogoutCtx<'a> {
     pub itt: Itt,
     pub cmd_sn: Arc<AtomicU32>,
     pub exp_stat_sn: Arc<AtomicU32>,
-    pub cid: u16,
+    /// Connection to close when logout targets one connection.
+    pub cid: Cid,
     pub reason: LogoutReason,
     pub buf: [u8; HEADER_LEN],
 
@@ -48,7 +49,7 @@ pub struct LogoutCtx<'a> {
 }
 
 impl<'a> LogoutCtx<'a> {
-    pub fn from_execute_env(env: ExecuteEnv, cid: u16, reason: LogoutReason) -> Self {
+    pub fn from_execute_env(env: ExecuteEnv, cid: Cid, reason: LogoutReason) -> Self {
         Self::new(
             env.conn,
             env.itt_gen.as_ref(),
@@ -65,7 +66,7 @@ impl<'a> LogoutCtx<'a> {
         itt_gen: &IttGen,
         cmd_sn: Arc<AtomicU32>,
         exp_stat_sn: Arc<AtomicU32>,
-        cid: u16,
+        cid: Cid,
         reason: LogoutReason,
     ) -> Self {
         Self {

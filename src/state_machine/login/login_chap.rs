@@ -152,7 +152,7 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for ChapA {
                     Err(e) => return Transition::Done(Err(e)),
                 };
 
-                let header = LoginRequestBuilder::new(ctx.isid, last.tsih.get())
+                let header = LoginRequestBuilder::new(ctx.isid, last.tsih.get().into())
                     .csg(Stage::Security)
                     .nsg(Stage::Security)
                     .initiator_task_tag(last.get_initiator_task_tag())
@@ -232,14 +232,15 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for ChapAnswer {
 
                 let chap_r = calc_chap_r_hex(id, secret, &chal);
 
-                let header = LoginRequestBuilder::new(ctx.isid, last_header.tsih.get())
-                    .transit()
-                    .csg(Stage::Security)
-                    .nsg(Stage::Operational)
-                    .initiator_task_tag(last_header.get_initiator_task_tag())
-                    .connection_id(ctx.cid)
-                    .cmd_sn(last_header.exp_cmd_sn.get())
-                    .exp_stat_sn(last_header.stat_sn.get().wrapping_add(1));
+                let header =
+                    LoginRequestBuilder::new(ctx.isid, last_header.tsih.get().into())
+                        .transit()
+                        .csg(Stage::Security)
+                        .nsg(Stage::Operational)
+                        .initiator_task_tag(last_header.get_initiator_task_tag())
+                        .connection_id(ctx.cid)
+                        .cmd_sn(last_header.exp_cmd_sn.get())
+                        .exp_stat_sn(last_header.stat_sn.get().wrapping_add(1));
 
                 (header, last_header.get_initiator_task_tag(), user, chap_r)
             };
@@ -290,7 +291,7 @@ impl<'ctx> StateMachine<LoginCtx<'ctx>, LoginStepOut> for ChapOpToFull {
             };
 
             let itt = last.get_initiator_task_tag();
-            let header = LoginRequestBuilder::new(ctx.isid, last.tsih.get())
+            let header = LoginRequestBuilder::new(ctx.isid, last.tsih.get().into())
                 .transit()
                 .csg(Stage::Operational)
                 .nsg(Stage::FullFeature)

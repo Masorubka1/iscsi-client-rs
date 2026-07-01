@@ -24,8 +24,8 @@ use crate::integration_tests::common::{
     connect_cfg, get_lun, load_config, test_isid, test_path,
 };
 
-fn pick_lba_from_isid(isid: [u8; 6]) -> u32 {
-    let s: u32 = isid.iter().map(|&b| b as u32).sum();
+fn pick_lba_from_isid(isid: iscsi_client_rs::models::identifiers::Isid) -> u32 {
+    let s: u32 = isid.as_bytes().iter().map(|&b| b as u32).sum();
     4096 + (s % 1024)
 }
 
@@ -42,13 +42,12 @@ async fn read10_write10_read10_plain_pool() -> Result<()> {
     }
 
     // --- Pool + login ---
-    let pool = Arc::new(Pool::new(&cfg));
-    pool.attach_self();
+    let pool = Pool::new(&cfg);
 
     let conn = connect_cfg(&cfg).await?;
     let target_name: Arc<str> = Arc::from(cfg.login.identity.target_name.clone());
     let isid = test_isid();
-    let cid: u16 = 0;
+    let cid = iscsi_client_rs::models::identifiers::Cid::ZERO;
 
     let tsih = pool
         .login_and_insert(target_name, isid, cid, conn.clone())

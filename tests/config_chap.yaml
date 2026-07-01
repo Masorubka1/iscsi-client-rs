@@ -36,3 +36,5 @@ login:
 runtime:
   MaxSessions: 1
   TimeoutConnection: 2
+  ResponseQueueCapacity: 256
+  MaxConnectionRecoveryAttempts: 3

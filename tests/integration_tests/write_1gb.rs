@@ -54,8 +54,7 @@ async fn write10_read10_1_gib_plain_pool_multi_tsih_mcs() -> Result<()> {
     let cfg: Arc<Config> = Arc::new(load_config()?);
 
     // --- Pool: логиним несколько сессий (tsih) из конфигурации ---
-    let pool = Arc::new(Pool::new(&cfg));
-    pool.attach_self();
+    let pool = Pool::new(&cfg);
 
     let tsihs = pool
         .login_sessions_from_cfg(&cfg)
@@ -69,7 +68,7 @@ async fn write10_read10_1_gib_plain_pool_multi_tsih_mcs() -> Result<()> {
         for cid in 1..max_conns {
             // отдельный TCP для каждого CID
             let conn_i: Arc<ClientConnection> = connect_cfg(&cfg).await?;
-            pool.add_connection_to_session(tsih, cid, conn_i)
+            pool.add_connection_to_session(tsih, cid.into(), conn_i)
                 .await
                 .with_context(|| {
                     format!("add_connection_to_session(tsih={tsih}, cid={cid})")
@@ -78,10 +77,10 @@ async fn write10_read10_1_gib_plain_pool_multi_tsih_mcs() -> Result<()> {
     }
 
     // --- Собираем список всех «воркеров»: (tsih, cid) ---
-    let mut workers: Vec<(u16, u16)> = Vec::new();
+    let mut workers = Vec::new();
     for &tsih in &tsihs {
         for cid in 0..max_conns {
-            workers.push((tsih, cid));
+            workers.push((tsih, cid.into()));
         }
     }
     assert!(!workers.is_empty());
