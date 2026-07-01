@@ -13,13 +13,13 @@
 
 use std::{marker::PhantomData, pin::Pin, sync::Arc};
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{anyhow, Context, Result};
 use rand::RngExt;
 use tokio_util::sync::CancellationToken;
 use tracing::debug;
 
 use crate::{
-    cfg::config::{Config, login_keys_security},
+    cfg::config::{login_keys_security, Config},
     client::client::ClientConnection,
     models::{
         common::{BasicHeaderSegment, Builder, HEADER_LEN},
@@ -64,55 +64,31 @@ pub struct DiscoveredTarget {
 // Discovery state machine context
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Holds all state for a SendTargets discovery operation.
-///
-/// The state machine progresses through:
-/// 1. `Connect`     — open a TCP connection to the portal
-/// 2. `Login`       — authenticate with a Discovery session
-/// 3. `SendTargets` — issue `SendTargets=All` Text Request
-/// 4. `Collect`     — read all Text Response PDUs (handle F/C fragmentation)
-/// 5. `Logout`      — gracefully close the session
-/// 6. `Finish`      — return parsed targets
 #[derive(Debug)]
 pub struct DiscoveryCtx<'a> {
     _lt: PhantomData<&'a ()>,
 
-    /// The TCP connection (set after `Connect`).
     pub conn: Option<Arc<ClientConnection>>,
-    /// Configuration — same `Config` as for normal sessions, but the
-    /// `SessionType` is interpreted as Discovery during login.
     pub cfg: Config,
-    /// Cancellation token for the whole discovery flow.
     pub cancel: CancellationToken,
-    /// Accumulated list of discovered targets.
     pub results: Vec<DiscoveredTarget>,
-    /// Initiator Task Tag (ITT), incremented per request.
     pub itt: Itt,
-    /// Command Sequence Number (bumped after login, used for Text/Logout).
     pub cmd_sn: u32,
-    /// Expected Status Sequence Number (from target's StatSN + 1).
     pub exp_stat_sn: u32,
-    /// Scratch buffer for BHS serialization.
     pub buf: [u8; HEADER_LEN],
-    /// Last login response (preserved for logout parameters).
     pub last_login_response: Option<PduResponse<LoginResponse>>,
-    /// Initiator Session ID, generated randomly per discovery attempt.
     pub isid: [u8; 6],
-    /// Target-assigned TSIH (populated after login).
     pub tsih: u16,
 
     state: Option<DiscoveryStates>,
 }
 
 impl<'a> DiscoveryCtx<'a> {
-    /// Creates a new discovery context in the `Connect` state.
     pub fn new(cfg: Config, cancel: CancellationToken) -> Self {
         let isid = {
             let mut rng = rand::rng();
             let mut buf = [0u8; 6];
             rng.fill(&mut buf);
-            // RFC 7143 § 9.10: ISID top 2 bits describe the generator type.
-            // `0b01` = vendor-assigned (safe default for ad-hoc discovery).
             buf[0] = (buf[0] & 0x3F) | 0x40;
             buf
         };
@@ -134,8 +110,6 @@ impl<'a> DiscoveryCtx<'a> {
         }
     }
 
-    /// One-shot convenience: run the full discovery flow and return
-    /// the list of targets.
     pub async fn discover(
         cfg: Config,
         cancel: CancellationToken,
@@ -144,8 +118,6 @@ impl<'a> DiscoveryCtx<'a> {
         ctx.execute(&CancellationToken::new()).await
     }
 
-    /// Parse the raw key=value bytes from Text Response data segments into
-    /// `DiscoveredTarget` structs.
     pub fn parse_send_targets_response(data: &[u8]) -> Vec<DiscoveredTarget> {
         let mut map: std::collections::BTreeMap<String, Vec<String>> =
             std::collections::BTreeMap::new();
@@ -167,7 +139,6 @@ impl<'a> DiscoveryCtx<'a> {
                 .push(value.to_string());
         }
 
-        // Group by TargetName: each entry may have multiple TargetAddress keys.
         let mut targets: Vec<DiscoveredTarget> = Vec::new();
         if let Some(names) = map.remove("TargetName") {
             for name in names {
@@ -203,6 +174,10 @@ pub struct Connect;
 #[derive(Debug)]
 pub struct Login;
 
+/// Second login phase: Operational → FullFeature (for LIO).
+#[derive(Debug)]
+pub struct LoginOp;
+
 #[derive(Debug)]
 pub struct SendTargets;
 
@@ -219,6 +194,7 @@ pub struct Finish;
 pub enum DiscoveryStates {
     Connect(Connect),
     Login(Login),
+    LoginOp(LoginOp),
     SendTargets(SendTargets),
     Collect(Collect),
     Logout(Logout),
@@ -254,7 +230,7 @@ impl<'ctx> StateMachine<DiscoveryCtx<'ctx>, DiscoveryStep> for Connect {
                 Err(e) => {
                     return Transition::Done(Err(anyhow!(
                         "discovery connect failed: {e}"
-                    )));
+                    )))
                 },
             };
             ctx.conn = Some(conn);
@@ -264,7 +240,7 @@ impl<'ctx> StateMachine<DiscoveryCtx<'ctx>, DiscoveryStep> for Connect {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// Login
+// Login — Security → FullFeature (or → Operational for two-phase targets)
 // ═════════════════════════════════════════════════════════════════════════════
 
 impl<'ctx> StateMachine<DiscoveryCtx<'ctx>, DiscoveryStep> for Login {
@@ -281,7 +257,7 @@ impl<'ctx> StateMachine<DiscoveryCtx<'ctx>, DiscoveryStep> for Login {
                 None => {
                     return Transition::Done(Err(anyhow!(
                         "no connection in discovery ctx"
-                    )));
+                    )))
                 },
             };
 
@@ -309,7 +285,7 @@ impl<'ctx> StateMachine<DiscoveryCtx<'ctx>, DiscoveryStep> for Login {
                 Err(e) => {
                     return Transition::Done(Err(anyhow!(
                         "discovery login response: {e}"
-                    )));
+                    )))
                 },
             };
 
@@ -322,21 +298,120 @@ impl<'ctx> StateMachine<DiscoveryCtx<'ctx>, DiscoveryStep> for Login {
                 Some(Stage::FullFeature) => {
                     debug!("Discovery login complete — TSIH={}", hdr.tsih.get());
                 },
+                Some(Stage::Operational) => {
+                    // Two-phase login (LIO): remember TSIH and go to LoginOp.
+                    debug!(
+                        "Discovery login: target wants Operational → FullFeature \
+                         (TSIH={})",
+                        hdr.tsih.get()
+                    );
+                    ctx.tsih = hdr.tsih.get();
+                    let next = ctx.itt.get().wrapping_add(1);
+                    ctx.itt = Itt::new_unchecked(next);
+                    ctx.last_login_response = Some(rsp);
+                    return Transition::Next(DiscoveryStates::LoginOp(LoginOp), Ok(()));
+                },
                 other => {
                     return Transition::Done(Err(anyhow!(
                         "discovery login: unexpected NSG={other:?} (expected \
-                         FullFeature)"
+                         FullFeature or Operational)"
                     )));
                 },
             }
 
             ctx.tsih = hdr.tsih.get();
-            // RFC 7143 § 6.4: Discovery sessions do NOT advance CmdSN
-            // during login.  CmdSN=0 and ExpStatSN=0 for all subsequent PDUs.
             ctx.cmd_sn = 0;
             ctx.exp_stat_sn = 0;
             let next = ctx.itt.get().wrapping_add(1);
             ctx.itt = Itt::new_unchecked(next);
+            ctx.last_login_response = Some(rsp);
+
+            Transition::Next(DiscoveryStates::SendTargets(SendTargets), Ok(()))
+        })
+    }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// LoginOp — Operational → FullFeature (second phase for LIO)
+// ═════════════════════════════════════════════════════════════════════════════
+
+impl<'ctx> StateMachine<DiscoveryCtx<'ctx>, DiscoveryStep> for LoginOp {
+    type StepResult<'a>
+        = Pin<Box<dyn std::future::Future<Output = DiscoveryStep> + Send + 'a>>
+    where
+        Self: 'a,
+        DiscoveryCtx<'ctx>: 'a;
+
+    fn step<'a>(&'a self, ctx: &'a mut DiscoveryCtx<'ctx>) -> Self::StepResult<'a> {
+        Box::pin(async move {
+            let conn = match ctx.conn.as_ref() {
+                Some(c) => Arc::clone(c),
+                None => return Transition::Done(Err(anyhow!("no connection"))),
+            };
+
+            let (tsih, itt) = {
+                let last = match ctx.last_login_response.as_ref() {
+                    Some(rsp) => match rsp.header_view() {
+                        Ok(h) => h,
+                        Err(e) => return Transition::Done(Err(e)),
+                    },
+                    None => {
+                        return Transition::Done(Err(anyhow!("no last login response")))
+                    },
+                };
+                (last.tsih.get(), last.get_initiator_task_tag())
+            };
+
+            let header = LoginRequestBuilder::new(ctx.isid, tsih)
+                .transit()
+                .csg(Stage::Operational)
+                .nsg(Stage::FullFeature)
+                .versions(0, 0)
+                .initiator_task_tag(itt)
+                .connection_id(0)
+                .cmd_sn(0)
+                .exp_stat_sn(1);
+
+            if let Err(e) = header.header.to_bhs_bytes(ctx.buf.as_mut_slice()) {
+                return Transition::Done(Err(e));
+            }
+
+            let pdu = PduRequest::<LoginRequest>::new_request(ctx.buf, &conn.cfg);
+            // Operational → FullFeature has no payload
+            // (operational keys not relevant for discovery).
+
+            if let Err(e) = conn.send_request(itt, pdu).await {
+                return Transition::Done(Err(e));
+            }
+
+            let rsp = match conn.read_response::<LoginResponse>(itt).await {
+                Ok(r) => r,
+                Err(e) => {
+                    return Transition::Done(Err(anyhow!(
+                        "discovery login-op response: {e}"
+                    )))
+                },
+            };
+
+            let hdr = match rsp.header_view() {
+                Ok(h) => h,
+                Err(e) => return Transition::Done(Err(e)),
+            };
+
+            match hdr.flags.nsg() {
+                Some(Stage::FullFeature) => {
+                    debug!("Discovery login-op complete — TSIH={}", hdr.tsih.get());
+                },
+                other => {
+                    return Transition::Done(Err(anyhow!(
+                        "discovery login-op: unexpected NSG={other:?} (expected \
+                         FullFeature)"
+                    )));
+                },
+            }
+
+            ctx.cmd_sn = 0;
+            ctx.exp_stat_sn = 0;
             ctx.last_login_response = Some(rsp);
 
             Transition::Next(DiscoveryStates::SendTargets(SendTargets), Ok(()))
@@ -416,7 +491,7 @@ impl<'ctx> StateMachine<DiscoveryCtx<'ctx>, DiscoveryStep> for Collect {
                         Err(e) => {
                             return Transition::Done(Err(anyhow!(
                                 "discovery text response read: {e}"
-                            )));
+                            )))
                         },
                     };
 
@@ -545,6 +620,7 @@ impl<'ctx> StateMachineCtx<DiscoveryCtx<'ctx>, Vec<DiscoveredTarget>>
             let tr = match state {
                 DiscoveryStates::Connect(s) => s.step(self).await,
                 DiscoveryStates::Login(s) => s.step(self).await,
+                DiscoveryStates::LoginOp(s) => s.step(self).await,
                 DiscoveryStates::SendTargets(s) => s.step(self).await,
                 DiscoveryStates::Collect(s) => s.step(self).await,
                 DiscoveryStates::Logout(s) => s.step(self).await,
