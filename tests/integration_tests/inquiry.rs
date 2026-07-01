@@ -50,17 +50,15 @@ async fn login_tur_sense_inquiry_vpd() -> Result<()> {
 
     // === Step 1: TUR — first command can return CHECK CONDITION (UA)
     let _ = pool
-        .execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
-            TurCtx::new(c, itt, cmd_sn, exp_stat_sn, lun)
-        })
+        .execute_with_ctx(tsih, cid, |env| TurCtx::from_execute_env(env, lun))
         .await;
 
     // === Step 2: REQUEST SENSE (8 bytes header)
     let s8 = pool
-        .execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
+        .execute_with_ctx(tsih, cid, |env| {
             let mut cdb = [0u8; 16];
             fill_request_sense_simple(&mut cdb, 8);
-            ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, 8, cdb)
+            ReadCtx::from_execute_env(env, lun, 8, cdb)
         })
         .await
         .context("REQUEST SENSE (8) failed")?
@@ -71,28 +69,26 @@ async fn login_tur_sense_inquiry_vpd() -> Result<()> {
 
     // === Step 3: REQUEST SENSE (full)
     let _sfull = pool
-        .execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
+        .execute_with_ctx(tsih, cid, |env| {
             let mut cdb = [0u8; 16];
             fill_request_sense_simple(&mut cdb, total_sense as u8);
-            ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, total_sense as u32, cdb)
+            ReadCtx::from_execute_env(env, lun, total_sense as u32, cdb)
         })
         .await
         .context("REQUEST SENSE (full) failed")?
         .data;
 
     // === Step 4: TUR again — UA должна уйти (expect GOOD)
-    pool.execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
-        TurCtx::new(c, itt, cmd_sn, exp_stat_sn, lun)
-    })
-    .await
-    .context("TUR after sense failed")?;
+    pool.execute_with_ctx(tsih, cid, |env| TurCtx::from_execute_env(env, lun))
+        .await
+        .context("TUR after sense failed")?;
 
     // === Step 5: Standard INQUIRY — 36 bytes
     let inq = pool
-        .execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
+        .execute_with_ctx(tsih, cid, |env| {
             let mut cdb = [0u8; 16];
             fill_inquiry_standard_simple(&mut cdb, 36);
-            ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, 36, cdb)
+            ReadCtx::from_execute_env(env, lun, 36, cdb)
         })
         .await
         .context("INQUIRY failed")?
@@ -107,10 +103,10 @@ async fn login_tur_sense_inquiry_vpd() -> Result<()> {
     // === Step 6: VPD 0x00 (Supported Pages) — header then full
     // 6a) header-only (4 bytes)
     let vpd00_hdr = pool
-        .execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
+        .execute_with_ctx(tsih, cid, |env| {
             let mut cdb = [0u8; 16];
             fill_inquiry_vpd_simple(&mut cdb, VpdPage::SupportedPages, 4);
-            ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, 4, cdb)
+            ReadCtx::from_execute_env(env, lun, 4, cdb)
         })
         .await
         .context("VPD 0x00 header read failed")?
@@ -121,10 +117,10 @@ async fn login_tur_sense_inquiry_vpd() -> Result<()> {
 
     // 6b) full page
     let vpd00 = pool
-        .execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
+        .execute_with_ctx(tsih, cid, |env| {
             let mut cdb = [0u8; 16];
             fill_inquiry_vpd_simple(&mut cdb, VpdPage::SupportedPages, total_vpd00 as u8);
-            ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, total_vpd00 as u32, cdb)
+            ReadCtx::from_execute_env(env, lun, total_vpd00 as u32, cdb)
         })
         .await
         .context("VPD 0x00 full read failed")?
@@ -137,10 +133,10 @@ async fn login_tur_sense_inquiry_vpd() -> Result<()> {
     if pages.iter().any(|&p| p == VpdPage::UnitSerial as u8) {
         // header
         let hdr = pool
-            .execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
+            .execute_with_ctx(tsih, cid, |env| {
                 let mut cdb = [0u8; 16];
                 fill_inquiry_vpd_simple(&mut cdb, VpdPage::UnitSerial, 4);
-                ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, 4, cdb)
+                ReadCtx::from_execute_env(env, lun, 4, cdb)
             })
             .await
             .context("VPD 0x80 header failed")?
@@ -150,10 +146,10 @@ async fn login_tur_sense_inquiry_vpd() -> Result<()> {
 
         // full
         let page = pool
-            .execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
+            .execute_with_ctx(tsih, cid, |env| {
                 let mut cdb = [0u8; 16];
                 fill_inquiry_vpd_simple(&mut cdb, VpdPage::UnitSerial, total as u8);
-                ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, total as u32, cdb)
+                ReadCtx::from_execute_env(env, lun, total as u32, cdb)
             })
             .await
             .context("VPD 0x80 full failed")?
@@ -166,10 +162,10 @@ async fn login_tur_sense_inquiry_vpd() -> Result<()> {
     if pages.iter().any(|&p| p == VpdPage::DeviceId as u8) {
         // header
         let hdr = pool
-            .execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
+            .execute_with_ctx(tsih, cid, |env| {
                 let mut cdb = [0u8; 16];
                 fill_inquiry_vpd_simple(&mut cdb, VpdPage::DeviceId, 4);
-                ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, 4, cdb)
+                ReadCtx::from_execute_env(env, lun, 4, cdb)
             })
             .await
             .context("VPD 0x83 header failed")?
@@ -179,10 +175,10 @@ async fn login_tur_sense_inquiry_vpd() -> Result<()> {
 
         // full
         let page = pool
-            .execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
+            .execute_with_ctx(tsih, cid, |env| {
                 let mut cdb = [0u8; 16];
                 fill_inquiry_vpd_simple(&mut cdb, VpdPage::DeviceId, total as u8);
-                ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, total as u32, cdb)
+                ReadCtx::from_execute_env(env, lun, total as u32, cdb)
             })
             .await
             .context("VPD 0x83 full failed")?

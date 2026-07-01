@@ -19,7 +19,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::debug;
 
 use crate::{
-    client::client::ClientConnection,
+    client::{client::ClientConnection, pool_sessions::ExecuteEnv},
     models::{
         command::{
             common::{ScsiStatus, TaskAttribute},
@@ -72,6 +72,23 @@ pub struct ReadCtx<'a> {
 }
 
 impl<'a> ReadCtx<'a> {
+    pub fn from_execute_env(
+        env: ExecuteEnv,
+        lun: Lun,
+        read_len: u32,
+        cdb: [u8; 16],
+    ) -> Self {
+        Self::new(
+            env.conn,
+            lun,
+            env.itt_gen.as_ref(),
+            env.cmd_sn,
+            env.exp_stat_sn,
+            read_len,
+            cdb,
+        )
+    }
+
     pub fn new(
         conn: Arc<ClientConnection>,
         lun: Lun,

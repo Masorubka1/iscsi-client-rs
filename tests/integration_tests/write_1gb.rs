@@ -91,20 +91,20 @@ async fn write10_read10_1_gib_plain_pool_multi_tsih_mcs() -> Result<()> {
     // --- Один раз снимаем READ CAPACITY (10/16) через первого воркера ---
     for (tsih, cid) in &workers {
         let _ = pool
-            .execute_with(*tsih, *cid, |c, itt, cmd_sn, exp_stat_sn| {
+            .execute_with_ctx(*tsih, *cid, |env| {
                 let mut cdb = [0u8; 16];
                 build_read_capacity10(&mut cdb, 0, false, 0);
-                ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, 8, cdb)
+                ReadCtx::from_execute_env(env, lun, 8, cdb)
             })
             .await;
     }
     let (tsih0, cid0) = workers[0];
 
     let rc10 = pool
-        .execute_with(tsih0, cid0, |c, itt, cmd_sn, exp_stat_sn| {
+        .execute_with_ctx(tsih0, cid0, |env| {
             let mut cdb = [0u8; 16];
             build_read_capacity10(&mut cdb, 0, false, 0);
-            ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, 8, cdb)
+            ReadCtx::from_execute_env(env, lun, 8, cdb)
         })
         .await
         .context("READ CAPACITY(10) failed")?;
@@ -115,10 +115,10 @@ async fn write10_read10_1_gib_plain_pool_multi_tsih_mcs() -> Result<()> {
 
     let (blk_len, max_lba_u64) = {
         let try16 = pool
-            .execute_with(tsih0, cid0, |c, itt, cmd_sn, exp_stat_sn| {
+            .execute_with_ctx(tsih0, cid0, |env| {
                 let mut cdb = [0u8; 16];
                 build_read_capacity16(&mut cdb, 0, false, 32, 0);
-                ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, 32, cdb)
+                ReadCtx::from_execute_env(env, lun, 32, cdb)
             })
             .await;
 
@@ -193,18 +193,10 @@ async fn write10_read10_1_gib_plain_pool_multi_tsih_mcs() -> Result<()> {
                 fill_pattern(&mut payload, blk_sz, start_lba_u32 as u64);
 
                 pool_cl
-                    .execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
+                    .execute_with_ctx(tsih, cid, |env| {
                         let mut cdb = [0u8; 16];
                         build_write10(&mut cdb, start_lba_u32, blk_this as u16, 0, 0);
-                        WriteCtx::new(
-                            c,
-                            lun,
-                            itt,
-                            cmd_sn,
-                            exp_stat_sn,
-                            cdb,
-                            payload.clone(),
-                        )
+                        WriteCtx::from_execute_env(env, lun, cdb, payload.clone())
                     })
                     .await
                     .with_context(|| {
@@ -245,18 +237,10 @@ async fn write10_read10_1_gib_plain_pool_multi_tsih_mcs() -> Result<()> {
                 let len_bytes = blk_this * blk_sz;
 
                 let chunk = pool_cl
-                    .execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
+                    .execute_with_ctx(tsih, cid, |env| {
                         let mut cdb = [0u8; 16];
                         build_read10(&mut cdb, start_lba_u32, blk_this as u16, 0, 0);
-                        ReadCtx::new(
-                            c,
-                            lun,
-                            itt,
-                            cmd_sn,
-                            exp_stat_sn,
-                            len_bytes as u32,
-                            cdb,
-                        )
+                        ReadCtx::from_execute_env(env, lun, len_bytes as u32, cdb)
                     })
                     .await
                     .with_context(|| {

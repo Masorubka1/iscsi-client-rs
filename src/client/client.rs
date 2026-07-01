@@ -292,8 +292,8 @@ impl ClientConnection {
             .ok_or_else(|| anyhow!("pool has been dropped"))?;
         let ttt = NopOutRequest::DEFAULT_TAG;
 
-        pool.execute_with(sr.tsih, sr.cid, move |conn, itt, cmd_sn, exp_stat_sn| {
-            NopCtx::new(conn, lun, itt, cmd_sn, exp_stat_sn, ttt)
+        pool.execute_with_ctx(sr.tsih, sr.cid, move |env| {
+            NopCtx::from_execute_env(env, lun, ttt)
         })
         .await?;
         Ok(())

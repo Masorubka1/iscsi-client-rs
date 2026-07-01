@@ -24,19 +24,19 @@ use crate::{
 #[repr(C)]
 #[derive(Debug, Default, PartialEq, ZFromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct ScsiDataOut {
-    pub opcode: RawBhsOpcode,                // Byte 0: `Opcode::ScsiDataOut`
-    pub flags: RawDataOutFlags,              // Byte 1: Data-Out flags (Final, etc.)
-    pub reserved2: [u8; 2],                  // Bytes 2..4: reserved
-    pub total_ahs_length: u8,                // Byte 4: AHS length in 4-byte words
-    pub data_segment_length: [u8; 3],        // Bytes 5..8: data payload length
-    pub lun: U64<BigEndian>,                 // Bytes 8..16: LUN
-    pub initiator_task_tag: U32<BigEndian>,  // Bytes 16..20: ITT
+    pub opcode: RawBhsOpcode,         // Byte 0: `Opcode::ScsiDataOut`
+    pub flags: RawDataOutFlags,       // Byte 1: Data-Out flags (Final, etc.)
+    pub reserved2: [u8; 2],           // Bytes 2..4: reserved
+    pub total_ahs_length: u8,         // Byte 4: AHS length in 4-byte words
+    pub data_segment_length: [u8; 3], // Bytes 5..8: data payload length
+    pub lun: U64<BigEndian>,          // Bytes 8..16: LUN
+    pub initiator_task_tag: U32<BigEndian>, // Bytes 16..20: ITT
     pub target_transfer_tag: U32<BigEndian>, // Bytes 20..24: TTT
-    pub exp_stat_sn: U32<BigEndian>,         // Bytes 24..28: ExpStatSN
-    pub reserved3: [u8; 8],                  // Bytes 28..36: reserved
-    pub data_sn: U32<BigEndian>,             // Bytes 36..40: DataSN
-    pub buffer_offset: U32<BigEndian>,       // Bytes 40..44: data buffer offset
-    pub reserved4: u32,                      // Bytes 44..48: reserved
+    pub exp_stat_sn: U32<BigEndian>,  // Bytes 24..28: ExpStatSN
+    pub reserved3: [u8; 8],           // Bytes 28..36: reserved
+    pub data_sn: U32<BigEndian>,      // Bytes 36..40: DataSN
+    pub buffer_offset: U32<BigEndian>, // Bytes 40..44: data buffer offset
+    pub reserved4: u32,               // Bytes 44..48: reserved
 }
 
 impl ScsiDataOut {

@@ -29,20 +29,20 @@ use crate::{
 #[repr(C)]
 #[derive(Debug, Default, PartialEq, ZFromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct LoginRequest {
-    pub opcode: RawBhsOpcode,               // Byte 0: I flag + `Opcode::LoginReq`
-    pub flags: RawLoginFlags,               // Byte 1: login transit/continue/stage flags
-    pub version_max: u8,                    // Byte 2: maximum supported iSCSI version
-    pub version_min: u8,                    // Byte 3: minimum supported iSCSI version
-    pub total_ahs_length: u8,               // Byte 4: AHS length in 4-byte words
-    pub data_segment_length: [u8; 3],       // Bytes 5..8: login text payload length
-    pub isid: [u8; 6],                      // Bytes 8..14: ISID
-    pub tsih: U16<BigEndian>,               // Bytes 14..16: TSIH (0 for new session)
+    pub opcode: RawBhsOpcode, // Byte 0: I flag + `Opcode::LoginReq`
+    pub flags: RawLoginFlags, // Byte 1: login transit/continue/stage flags
+    pub version_max: u8,      // Byte 2: maximum supported iSCSI version
+    pub version_min: u8,      // Byte 3: minimum supported iSCSI version
+    pub total_ahs_length: u8, // Byte 4: AHS length in 4-byte words
+    pub data_segment_length: [u8; 3], // Bytes 5..8: login text payload length
+    pub isid: [u8; 6],        // Bytes 8..14: ISID
+    pub tsih: U16<BigEndian>, // Bytes 14..16: TSIH (0 for new session)
     pub initiator_task_tag: U32<BigEndian>, // Bytes 16..20: ITT
-    pub cid: U16<BigEndian>,                // Bytes 20..22: CID
-    reserved1: [u8; 2],                     // Bytes 22..24: reserved
-    pub cmd_sn: U32<BigEndian>,             // Bytes 24..28: CmdSN
-    pub exp_stat_sn: U32<BigEndian>,        // Bytes 28..32: ExpStatSN
-    reserved2: [u8; 16],                    // Bytes 32..48: reserved
+    pub cid: U16<BigEndian>,  // Bytes 20..22: CID
+    reserved1: [u8; 2],       // Bytes 22..24: reserved
+    pub cmd_sn: U32<BigEndian>, // Bytes 24..28: CmdSN
+    pub exp_stat_sn: U32<BigEndian>, // Bytes 28..32: ExpStatSN
+    reserved2: [u8; 16],      // Bytes 32..48: reserved
 }
 
 impl LoginRequest {

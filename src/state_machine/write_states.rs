@@ -18,7 +18,7 @@ use tracing::debug;
 
 use crate::{
     cfg::enums::YesNo,
-    client::client::ClientConnection,
+    client::{client::ClientConnection, pool_sessions::ExecuteEnv},
     models::{
         command::{
             common::{ResponseCode, ScsiStatus, TaskAttribute},
@@ -61,6 +61,23 @@ pub struct WriteCtx<'a> {
 
 #[allow(clippy::too_many_arguments)]
 impl<'a> WriteCtx<'a> {
+    pub fn from_execute_env(
+        env: ExecuteEnv,
+        lun: Lun,
+        cdb: [u8; 16],
+        payload: impl Into<Vec<u8>>,
+    ) -> Self {
+        Self::new(
+            env.conn,
+            lun,
+            env.itt_gen.as_ref(),
+            env.cmd_sn,
+            env.exp_stat_sn,
+            cdb,
+            payload,
+        )
+    }
+
     pub fn new(
         conn: Arc<ClientConnection>,
         lun: Lun,

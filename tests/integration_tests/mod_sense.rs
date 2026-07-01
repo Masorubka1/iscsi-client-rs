@@ -41,24 +41,20 @@ async fn login_tur_mode_sense_pool() -> Result<()> {
 
     // --- TEST UNIT READY ---
     let _ = pool
-        .execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
-            TurCtx::new(c, itt, cmd_sn, exp_stat_sn, lun)
-        })
+        .execute_with_ctx(tsih, cid, |env| TurCtx::from_execute_env(env, lun))
         .await;
-    pool.execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
-        TurCtx::new(c, itt, cmd_sn, exp_stat_sn, lun)
-    })
-    .await
-    .context("TUR failed")?;
+    pool.execute_with_ctx(tsih, cid, |env| TurCtx::from_execute_env(env, lun))
+        .await
+        .context("TUR failed")?;
 
     // --- MODE SENSE(10) ---
     let ms10 = pool
-        .execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
+        .execute_with_ctx(tsih, cid, |env| {
             let mut cdb10 = [0u8; 16];
             // Page code 0x3F, allocation length 8
             fill_mode_sense10_simple(&mut cdb10, 0x3F, 8);
             // ReadCtx возвращает ReadResult { data, last_response }
-            ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, 8, cdb10)
+            ReadCtx::from_execute_env(env, lun, 8, cdb10)
         })
         .await
         .context("MODE SENSE(10) failed")?;
@@ -66,11 +62,11 @@ async fn login_tur_mode_sense_pool() -> Result<()> {
 
     // --- MODE SENSE(6) ---
     let ms6 = pool
-        .execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
+        .execute_with_ctx(tsih, cid, |env| {
             let mut cdb6 = [0u8; 16];
             // Page code 0x3F, allocation length 4
             fill_mode_sense6_simple(&mut cdb6, 0x3F, 4);
-            ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, 4, cdb6)
+            ReadCtx::from_execute_env(env, lun, 4, cdb6)
         })
         .await
         .context("MODE SENSE(6) failed")?;

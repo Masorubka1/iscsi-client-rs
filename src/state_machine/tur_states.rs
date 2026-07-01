@@ -18,7 +18,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::debug;
 
 use crate::{
-    client::client::ClientConnection,
+    client::{client::ClientConnection, pool_sessions::ExecuteEnv},
     control_block::test_unit_ready::build_test_unit_ready,
     models::{
         command::{
@@ -56,6 +56,16 @@ pub struct TurCtx<'a> {
 }
 
 impl<'a> TurCtx<'a> {
+    pub fn from_execute_env(env: ExecuteEnv, lun: Lun) -> Self {
+        Self::new(
+            env.conn,
+            env.itt_gen.as_ref(),
+            env.cmd_sn,
+            env.exp_stat_sn,
+            lun,
+        )
+    }
+
     /// Creates a new `TurCtx` for a TUR operation.
     pub fn new(
         conn: Arc<ClientConnection>,

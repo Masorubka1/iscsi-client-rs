@@ -24,16 +24,16 @@ use crate::{
 #[repr(C)]
 #[derive(Debug, Default, PartialEq, ZFromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct NopOutRequest {
-    pub opcode: RawBhsOpcode,               // Byte 0: I flag + `Opcode::NopOut`
-    reserved1: [u8; 3],                     // Bytes 1..4: reserved
-    pub total_ahs_length: u8,               // Byte 4: AHS length in 4-byte words
-    pub data_segment_length: [u8; 3],       // Bytes 5..8: optional payload length
-    pub lun: U64<BigEndian>,                // Bytes 8..16: LUN
+    pub opcode: RawBhsOpcode, // Byte 0: I flag + `Opcode::NopOut`
+    reserved1: [u8; 3],       // Bytes 1..4: reserved
+    pub total_ahs_length: u8, // Byte 4: AHS length in 4-byte words
+    pub data_segment_length: [u8; 3], // Bytes 5..8: optional payload length
+    pub lun: U64<BigEndian>,  // Bytes 8..16: LUN
     pub initiator_task_tag: U32<BigEndian>, // Bytes 16..20: ITT
-    pub target_task_tag: U32<BigEndian>,    // Bytes 20..24: TTT
-    pub cmd_sn: U32<BigEndian>,             // Bytes 24..28: CmdSN
-    pub exp_stat_sn: U32<BigEndian>,        // Bytes 28..32: ExpStatSN
-    reserved2: [u8; 16],                    // Bytes 32..48: reserved
+    pub target_task_tag: U32<BigEndian>, // Bytes 20..24: TTT
+    pub cmd_sn: U32<BigEndian>, // Bytes 24..28: CmdSN
+    pub exp_stat_sn: U32<BigEndian>, // Bytes 28..32: ExpStatSN
+    reserved2: [u8; 16],      // Bytes 32..48: reserved
 }
 
 impl NopOutRequest {

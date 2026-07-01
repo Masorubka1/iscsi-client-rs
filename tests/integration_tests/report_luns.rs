@@ -41,19 +41,15 @@ async fn login_tur_report_luns_pool() -> Result<()> {
 
     // --- TEST UNIT READY ---
     let _ = pool
-        .execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
-            TurCtx::new(c, itt, cmd_sn, exp_stat_sn, lun_for_tur)
-        })
+        .execute_with_ctx(tsih, cid, |env| TurCtx::from_execute_env(env, lun_for_tur))
         .await;
-    pool.execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
-        TurCtx::new(c, itt, cmd_sn, exp_stat_sn, lun_for_tur)
-    })
-    .await
-    .context("TUR failed")?;
+    pool.execute_with_ctx(tsih, cid, |env| TurCtx::from_execute_env(env, lun_for_tur))
+        .await
+        .context("TUR failed")?;
 
     // --- REPORT LUNS (step 1): only header ---
     let hdr = pool
-        .execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
+        .execute_with_ctx(tsih, cid, |env| {
             let mut cdb = [0u8; 16];
             fill_report_luns(
                 &mut cdb,
@@ -61,12 +57,9 @@ async fn login_tur_report_luns_pool() -> Result<()> {
                 /* allocation_len */ 16,
                 /* control */ 0x00,
             );
-            ReadCtx::new(
-                c,
+            ReadCtx::from_execute_env(
+                env,
                 iscsi_client_rs::models::identifiers::Lun::new(lun_report),
-                itt,
-                cmd_sn,
-                exp_stat_sn,
                 16,
                 cdb,
             )
@@ -82,7 +75,7 @@ async fn login_tur_report_luns_pool() -> Result<()> {
     // --- REPORT LUNS (step 2): full list (8 bytes header + list) ---
     let total_needed = 8 + lun_list_len;
     let full = pool
-        .execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
+        .execute_with_ctx(tsih, cid, |env| {
             let mut cdb = [0u8; 16];
             fill_report_luns(
                 &mut cdb,
@@ -90,12 +83,9 @@ async fn login_tur_report_luns_pool() -> Result<()> {
                 total_needed as u32,
                 0x00,
             );
-            ReadCtx::new(
-                c,
+            ReadCtx::from_execute_env(
+                env,
                 iscsi_client_rs::models::identifiers::Lun::new(lun_report),
-                itt,
-                cmd_sn,
-                exp_stat_sn,
                 total_needed as u32,
                 cdb,
             )

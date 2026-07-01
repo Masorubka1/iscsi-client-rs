@@ -31,15 +31,16 @@ pub struct RejectPdu {
     pub reason: RawRejectReason,            // Byte 2: reject reason
     pub reserved2: u8,                      // Byte 3: reserved
     pub total_ahs_length: u8,               // Byte 4: AHS length in 4-byte words
-    pub data_segment_length: [u8; 3],       // Bytes 5..8: rejected header+payload snapshot length
-    pub reserved3: U64<BigEndian>,          // Bytes 8..16: reserved
+    pub data_segment_length: [u8; 3],       /* Bytes 5..8: rejected header+payload
+                                             * snapshot length */
+    pub reserved3: U64<BigEndian>, // Bytes 8..16: reserved
     pub initiator_task_tag: U32<BigEndian>, // Bytes 16..20: ITT
-    pub reserved4: U32<BigEndian>,          // Bytes 20..24: reserved
-    pub stat_sn: U32<BigEndian>,            // Bytes 24..28: StatSN
-    pub exp_cmd_sn: U32<BigEndian>,         // Bytes 28..32: ExpCmdSN
-    pub max_cmd_sn: U32<BigEndian>,         // Bytes 32..36: MaxCmdSN
-    pub data_sn_or_r2_sn: U32<BigEndian>,   // Bytes 36..40: DataSN or R2TSN of rejected PDU
-    pub reserved5: U64<BigEndian>,          // Bytes 40..48: reserved
+    pub reserved4: U32<BigEndian>, // Bytes 20..24: reserved
+    pub stat_sn: U32<BigEndian>,   // Bytes 24..28: StatSN
+    pub exp_cmd_sn: U32<BigEndian>, // Bytes 28..32: ExpCmdSN
+    pub max_cmd_sn: U32<BigEndian>, // Bytes 32..36: MaxCmdSN
+    pub data_sn_or_r2_sn: U32<BigEndian>, // Bytes 36..40: DataSN or R2TSN of rejected PDU
+    pub reserved5: U64<BigEndian>, // Bytes 40..48: reserved
 }
 
 impl RejectPdu {

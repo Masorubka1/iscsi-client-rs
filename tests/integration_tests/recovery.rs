@@ -207,8 +207,8 @@ async fn poisoned_connection_is_recreated_after_timeout() -> Result<()> {
         .conn
         .clone();
 
-    pool.execute_with(tsih, 0, |c, itt, cmd_sn, exp_stat_sn| {
-        NopCtx::new(c, Lun::new(1u64 << 48), itt, cmd_sn, exp_stat_sn, ttt)
+    pool.execute_with_ctx(tsih, 0, |env| {
+        NopCtx::from_execute_env(env, Lun::new(1u64 << 48), ttt)
     })
     .await
     .context("NOP after recovery failed")?;

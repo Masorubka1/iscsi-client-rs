@@ -28,21 +28,21 @@ use crate::{
 #[repr(C)]
 #[derive(Debug, Default, PartialEq, ZFromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct ScsiDataIn {
-    pub opcode: RawBhsOpcode,               // Byte 0: `Opcode::ScsiDataIn`
-    pub flags: RawDataInFlags,              // Byte 1: Data-In flags (F/A/O/U/S)
-    pub reserved2: u8,                      // Byte 2: reserved
-    pub status_or_rsvd: RawScsiStatus,      // Byte 3: SCSI status if S=1, else 0
-    pub total_ahs_length: u8,               // Byte 4: AHS length in 4-byte words
-    pub data_segment_length: [u8; 3],       // Bytes 5..8: data payload length
-    pub lun: U64<BigEndian>,                // Bytes 8..16: LUN or reserved
+    pub opcode: RawBhsOpcode,          // Byte 0: `Opcode::ScsiDataIn`
+    pub flags: RawDataInFlags,         // Byte 1: Data-In flags (F/A/O/U/S)
+    pub reserved2: u8,                 // Byte 2: reserved
+    pub status_or_rsvd: RawScsiStatus, // Byte 3: SCSI status if S=1, else 0
+    pub total_ahs_length: u8,          // Byte 4: AHS length in 4-byte words
+    pub data_segment_length: [u8; 3],  // Bytes 5..8: data payload length
+    pub lun: U64<BigEndian>,           // Bytes 8..16: LUN or reserved
     pub initiator_task_tag: U32<BigEndian>, // Bytes 16..20: ITT
     pub target_transfer_tag: U32<BigEndian>, // Bytes 20..24: TTT or `0xFFFF_FFFF`
-    pub stat_sn_or_rsvd: U32<BigEndian>,    // Bytes 24..28: StatSN if S=1, else 0
-    pub exp_cmd_sn: U32<BigEndian>,         // Bytes 28..32: ExpCmdSN
-    pub max_cmd_sn: U32<BigEndian>,         // Bytes 32..36: MaxCmdSN
-    pub data_sn: U32<BigEndian>,            // Bytes 36..40: DataSN
-    pub buffer_offset: U32<BigEndian>,      // Bytes 40..44: data buffer offset
-    pub residual_count: U32<BigEndian>,     // Bytes 44..48: residual count if valid
+    pub stat_sn_or_rsvd: U32<BigEndian>, // Bytes 24..28: StatSN if S=1, else 0
+    pub exp_cmd_sn: U32<BigEndian>,    // Bytes 28..32: ExpCmdSN
+    pub max_cmd_sn: U32<BigEndian>,    // Bytes 32..36: MaxCmdSN
+    pub data_sn: U32<BigEndian>,       // Bytes 36..40: DataSN
+    pub buffer_offset: U32<BigEndian>, // Bytes 40..44: data buffer offset
+    pub residual_count: U32<BigEndian>, // Bytes 44..48: residual count if valid
 }
 
 impl ScsiDataIn {

@@ -25,19 +25,20 @@ use crate::{
 #[repr(C)]
 #[derive(Debug, Default, PartialEq, ZFromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct ReadyToTransfer {
-    pub opcode: RawBhsOpcode,                         // Byte 0: `Opcode::ReadyToTransfer`
-    pub reserved1: [u8; 3],                           // Bytes 1..4: reserved
-    pub total_ahs_length: u8,                         // Byte 4: AHS length in 4-byte words
-    pub data_segment_length: [u8; 3],                 // Bytes 5..8: must be zero
-    pub lun: U64<BigEndian>,                          // Bytes 8..16: LUN
-    pub initiator_task_tag: U32<BigEndian>,           // Bytes 16..20: ITT
-    pub target_transfer_tag: U32<BigEndian>,          // Bytes 20..24: TTT
-    pub stat_sn: U32<BigEndian>,                      // Bytes 24..28: StatSN
-    pub exp_cmd_sn: U32<BigEndian>,                   // Bytes 28..32: ExpCmdSN
-    pub max_cmd_sn: U32<BigEndian>,                   // Bytes 32..36: MaxCmdSN
-    pub r2t_sn: U32<BigEndian>,                       // Bytes 36..40: R2TSN
-    pub buffer_offset: U32<BigEndian>,                // Bytes 40..44: requested buffer offset
-    pub desired_data_transfer_length: U32<BigEndian>, // Bytes 44..48: requested transfer length
+    pub opcode: RawBhsOpcode, // Byte 0: `Opcode::ReadyToTransfer`
+    pub reserved1: [u8; 3],   // Bytes 1..4: reserved
+    pub total_ahs_length: u8, // Byte 4: AHS length in 4-byte words
+    pub data_segment_length: [u8; 3], // Bytes 5..8: must be zero
+    pub lun: U64<BigEndian>,  // Bytes 8..16: LUN
+    pub initiator_task_tag: U32<BigEndian>, // Bytes 16..20: ITT
+    pub target_transfer_tag: U32<BigEndian>, // Bytes 20..24: TTT
+    pub stat_sn: U32<BigEndian>, // Bytes 24..28: StatSN
+    pub exp_cmd_sn: U32<BigEndian>, // Bytes 28..32: ExpCmdSN
+    pub max_cmd_sn: U32<BigEndian>, // Bytes 32..36: MaxCmdSN
+    pub r2t_sn: U32<BigEndian>, // Bytes 36..40: R2TSN
+    pub buffer_offset: U32<BigEndian>, // Bytes 40..44: requested buffer offset
+    pub desired_data_transfer_length: U32<BigEndian>, /* Bytes 44..48: requested
+                                                       * transfer length */
 }
 
 impl ReadyToTransfer {

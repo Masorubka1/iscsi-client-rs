@@ -29,17 +29,18 @@ use crate::{
 #[repr(C)]
 #[derive(Debug, Default, PartialEq, ZFromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct ScsiCommandRequest {
-    pub opcode: RawBhsOpcode,                       // Byte 0: `Opcode::ScsiCommandReq`
-    pub flags: RawScsiCmdReqFlags,                 // Byte 1: Final/Read/Write/task flags
-    reserved1: [u8; 2],                            // Bytes 2..4: reserved
-    pub total_ahs_length: u8,                      // Byte 4: AHS length in 4-byte words
-    pub data_segment_length: [u8; 3],              // Bytes 5..8: immediate data length
-    pub lun: U64<BigEndian>,                       // Bytes 8..16: LUN
-    pub initiator_task_tag: U32<BigEndian>,        // Bytes 16..20: ITT
-    pub expected_data_transfer_length: U32<BigEndian>, // Bytes 20..24: expected transfer length
-    pub cmd_sn: U32<BigEndian>,                    // Bytes 24..28: CmdSN
-    pub exp_stat_sn: U32<BigEndian>,               // Bytes 28..32: ExpStatSN
-    pub scsi_descriptor_block: [u8; 16],           // Bytes 32..48: 16-byte SCSI CDB
+    pub opcode: RawBhsOpcode,      // Byte 0: `Opcode::ScsiCommandReq`
+    pub flags: RawScsiCmdReqFlags, // Byte 1: Final/Read/Write/task flags
+    reserved1: [u8; 2],            // Bytes 2..4: reserved
+    pub total_ahs_length: u8,      // Byte 4: AHS length in 4-byte words
+    pub data_segment_length: [u8; 3], // Bytes 5..8: immediate data length
+    pub lun: U64<BigEndian>,       // Bytes 8..16: LUN
+    pub initiator_task_tag: U32<BigEndian>, // Bytes 16..20: ITT
+    pub expected_data_transfer_length: U32<BigEndian>, /* Bytes 20..24: expected
+                                                        * transfer length */
+    pub cmd_sn: U32<BigEndian>,          // Bytes 24..28: CmdSN
+    pub exp_stat_sn: U32<BigEndian>,     // Bytes 28..32: ExpStatSN
+    pub scsi_descriptor_block: [u8; 16], // Bytes 32..48: 16-byte SCSI CDB
 }
 
 impl ScsiCommandRequest {

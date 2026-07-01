@@ -39,21 +39,17 @@ async fn concurrent_writes_and_reads_share_one_connection() -> Result<()> {
         .context("pool login failed")?;
     let lun = get_lun();
     let _ = pool
-        .execute_with(tsih, 0, |c, itt, cmd_sn, exp_stat_sn| {
-            TurCtx::new(c, itt, cmd_sn, exp_stat_sn, lun)
-        })
+        .execute_with_ctx(tsih, 0, |env| TurCtx::from_execute_env(env, lun))
         .await;
-    pool.execute_with(tsih, 0, |c, itt, cmd_sn, exp_stat_sn| {
-        TurCtx::new(c, itt, cmd_sn, exp_stat_sn, lun)
-    })
-    .await
-    .context("TUR failed")?;
+    pool.execute_with_ctx(tsih, 0, |env| TurCtx::from_execute_env(env, lun))
+        .await
+        .context("TUR failed")?;
 
     let capacity = pool
-        .execute_with(tsih, 0, |c, itt, cmd_sn, exp_stat_sn| {
+        .execute_with_ctx(tsih, 0, |env| {
             let mut cdb = [0u8; 16];
             build_read_capacity10(&mut cdb, 0, false, 0);
-            ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, 8, cdb)
+            ReadCtx::from_execute_env(env, lun, 8, cdb)
         })
         .await?;
     let block_size = parse_read_capacity10_zerocopy(&capacity.data)?
@@ -65,10 +61,10 @@ async fn concurrent_writes_and_reads_share_one_connection() -> Result<()> {
         let pool = Arc::clone(&pool);
         let payload = vec![(index as u8).wrapping_mul(17); block_size];
         writes.push(tokio::spawn(async move {
-            pool.execute_with(tsih, 0, |c, itt, cmd_sn, exp_stat_sn| {
+            pool.execute_with_ctx(tsih, 0, |env| {
                 let mut cdb = [0u8; 16];
                 build_write10(&mut cdb, START_LBA + index, 1, 0, 0);
-                WriteCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, cdb, payload.clone())
+                WriteCtx::from_execute_env(env, lun, cdb, payload.clone())
             })
             .await
         }));
@@ -82,10 +78,10 @@ async fn concurrent_writes_and_reads_share_one_connection() -> Result<()> {
         let pool = Arc::clone(&pool);
         reads.push(tokio::spawn(async move {
             let result = pool
-                .execute_with(tsih, 0, |c, itt, cmd_sn, exp_stat_sn| {
+                .execute_with_ctx(tsih, 0, |env| {
                     let mut cdb = [0u8; 16];
                     build_read10(&mut cdb, START_LBA + index, 1, 0, 0);
-                    ReadCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, block_size as u32, cdb)
+                    ReadCtx::from_execute_env(env, lun, block_size as u32, cdb)
                 })
                 .await?;
             let expected = vec![(index as u8).wrapping_mul(17); block_size];

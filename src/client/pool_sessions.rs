@@ -68,7 +68,7 @@ pub struct Session {
     cmd_sn: Arc<AtomicU32>,
     /// ITT (Initiator Task Tag) generator - unique within a session.
     /// Used to match requests with responses.
-    itt_gen: IttGen,
+    itt_gen: Arc<IttGen>,
 }
 
 /// Pool of iSCSI sessions and connections
@@ -93,6 +93,15 @@ pub struct Pool {
 }
 
 const MAX_CONNECTION_RECOVERY_ATTEMPTS: usize = 3;
+
+/// Injected session/connection state used to build a state-machine context.
+#[derive(Clone)]
+pub struct ExecuteEnv {
+    pub conn: Arc<ClientConnection>,
+    pub itt_gen: Arc<IttGen>,
+    pub cmd_sn: Arc<AtomicU32>,
+    pub exp_stat_sn: Arc<AtomicU32>,
+}
 
 impl Pool {
     /// Create a pool with its own root cancellation token.
@@ -294,9 +303,9 @@ impl Pool {
                     target_name: target_name.clone(),
                     conns: DashMap::with_capacity(self.max_connections as usize),
                     cmd_sn: Arc::new(AtomicU32::new(hdr.exp_cmd_sn.get())),
-                    itt_gen: IttGen::new(
+                    itt_gen: Arc::new(IttGen::new(
                         hdr.get_initiator_task_tag().get().wrapping_add(1).into(),
-                    ),
+                    )),
                 })
             })
             .clone();
@@ -499,23 +508,18 @@ impl Pool {
     ///
     /// Usage:
     /// ```ignore
-    /// pool.execute_with(tsih, cid, |conn, itt, cmd_sn, exp_stat_sn| {
-    ///     NopCtx::new(conn, lun, itt, cmd_sn, exp_stat_sn, ttt)
+    /// pool.execute_with_ctx(tsih, cid, |env| {
+    ///     NopCtx::from_execute_env(env, lun, ttt)
     /// }).await?;
     /// ```
-    pub async fn execute_with<Ctx, Res, Build>(
+    pub async fn execute_with_ctx<Ctx, Res, Build>(
         &self,
         tsih: u16,
         cid: u16,
         build: Build,
     ) -> Result<Res>
     where
-        Build: for<'a> Fn(
-            Arc<ClientConnection>,
-            &'a IttGen,
-            Arc<AtomicU32>,
-            Arc<AtomicU32>,
-        ) -> Ctx,
+        Build: Fn(ExecuteEnv) -> Ctx,
         Ctx: StateMachineCtx<Ctx, Res>,
     {
         #[cfg(feature = "profiling-puffin")]
@@ -540,12 +544,12 @@ impl Pool {
                     attempt + 1,
                 );
             } else {
-                let mut ctx = build(
-                    conn.conn.clone(),
-                    &sess.itt_gen,
-                    sess.cmd_sn.clone(),
-                    conn.exp_stat_sn.clone(),
-                );
+                let mut ctx = build(ExecuteEnv {
+                    conn: conn.conn.clone(),
+                    itt_gen: sess.itt_gen.clone(),
+                    cmd_sn: sess.cmd_sn.clone(),
+                    exp_stat_sn: conn.exp_stat_sn.clone(),
+                });
                 match ctx.execute(&conn.conn.stop_writes).await {
                     Ok(res) => return Ok(res),
                     Err(error) if conn.conn.is_poisoned() => {
@@ -594,6 +598,28 @@ impl Pool {
             tsih,
             cid
         ))
+    }
+
+    /// Backward-compatible adapter over [`Pool::execute_with_ctx`].
+    pub async fn execute_with<Ctx, Res, Build>(
+        &self,
+        tsih: u16,
+        cid: u16,
+        build: Build,
+    ) -> Result<Res>
+    where
+        Build: for<'a> Fn(
+            Arc<ClientConnection>,
+            &'a IttGen,
+            Arc<AtomicU32>,
+            Arc<AtomicU32>,
+        ) -> Ctx,
+        Ctx: StateMachineCtx<Ctx, Res>,
+    {
+        self.execute_with_ctx(tsih, cid, |env| {
+            build(env.conn, env.itt_gen.as_ref(), env.cmd_sn, env.exp_stat_sn)
+        })
+        .await
     }
 
     /// Run SendTargets discovery against a portal using the provided config.

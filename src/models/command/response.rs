@@ -30,21 +30,22 @@ use crate::{
 #[repr(C)]
 #[derive(Debug, PartialEq, ZFromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct ScsiCommandResponse {
-    pub opcode: RawBhsOpcode,                       // Byte 0: `Opcode::ScsiCommandResp`
-    pub flags: RawScsiCmdRespFlags,                 // Byte 1: Final/residual-status flags
-    pub response: RawResponseCode,                  // Byte 2: iSCSI response code
-    pub status: RawScsiStatus,                      // Byte 3: SCSI status
-    pub total_ahs_length: u8,                       // Byte 4: AHS length in 4-byte words
-    pub data_segment_length: [u8; 3],               // Bytes 5..8: sense/response payload length
-    reserved: [u8; 8],                              // Bytes 8..16: reserved
-    pub initiator_task_tag: U32<BigEndian>,         // Bytes 16..20: ITT
-    pub snack_tag: U32<BigEndian>,                  // Bytes 20..24: SNACK tag
-    pub stat_sn: U32<BigEndian>,                    // Bytes 24..28: StatSN
-    pub exp_cmd_sn: U32<BigEndian>,                 // Bytes 28..32: ExpCmdSN
-    pub max_cmd_sn: U32<BigEndian>,                 // Bytes 32..36: MaxCmdSN
-    pub exp_data_sn: U32<BigEndian>,                // Bytes 36..40: ExpDataSN
-    pub bidirectional_read_residual_count: U32<BigEndian>, // Bytes 40..44: bidi residual count
-    pub residual_count: U32<BigEndian>,             // Bytes 44..48: residual count
+    pub opcode: RawBhsOpcode, // Byte 0: `Opcode::ScsiCommandResp`
+    pub flags: RawScsiCmdRespFlags, // Byte 1: Final/residual-status flags
+    pub response: RawResponseCode, // Byte 2: iSCSI response code
+    pub status: RawScsiStatus, // Byte 3: SCSI status
+    pub total_ahs_length: u8, // Byte 4: AHS length in 4-byte words
+    pub data_segment_length: [u8; 3], // Bytes 5..8: sense/response payload length
+    reserved: [u8; 8],        // Bytes 8..16: reserved
+    pub initiator_task_tag: U32<BigEndian>, // Bytes 16..20: ITT
+    pub snack_tag: U32<BigEndian>, // Bytes 20..24: SNACK tag
+    pub stat_sn: U32<BigEndian>, // Bytes 24..28: StatSN
+    pub exp_cmd_sn: U32<BigEndian>, // Bytes 28..32: ExpCmdSN
+    pub max_cmd_sn: U32<BigEndian>, // Bytes 32..36: MaxCmdSN
+    pub exp_data_sn: U32<BigEndian>, // Bytes 36..40: ExpDataSN
+    pub bidirectional_read_residual_count: U32<BigEndian>, /* Bytes 40..44: bidi
+                                                            * residual count */
+    pub residual_count: U32<BigEndian>, // Bytes 44..48: residual count
 }
 
 impl ScsiCommandResponse {

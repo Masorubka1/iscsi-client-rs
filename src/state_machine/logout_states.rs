@@ -17,7 +17,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::debug;
 
 use crate::{
-    client::client::ClientConnection,
+    client::{client::ClientConnection, pool_sessions::ExecuteEnv},
     models::{
         common::HEADER_LEN,
         data_fromat::{PduRequest, PduResponse},
@@ -48,6 +48,17 @@ pub struct LogoutCtx<'a> {
 }
 
 impl<'a> LogoutCtx<'a> {
+    pub fn from_execute_env(env: ExecuteEnv, cid: u16, reason: LogoutReason) -> Self {
+        Self::new(
+            env.conn,
+            env.itt_gen.as_ref(),
+            env.cmd_sn,
+            env.exp_stat_sn,
+            cid,
+            reason,
+        )
+    }
+
     /// Creates a new `LogoutCtx` with the given connection and parameters.
     pub fn new(
         conn: Arc<ClientConnection>,

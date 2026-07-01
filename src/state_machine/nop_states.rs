@@ -17,7 +17,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::debug;
 
 use crate::{
-    client::client::ClientConnection,
+    client::{client::ClientConnection, pool_sessions::ExecuteEnv},
     models::{
         common::HEADER_LEN,
         data_fromat::{PduRequest, PduResponse},
@@ -47,6 +47,17 @@ pub struct NopCtx<'a> {
 }
 
 impl<'a> NopCtx<'a> {
+    pub fn from_execute_env(env: ExecuteEnv, lun: Lun, ttt: u32) -> Self {
+        Self::new(
+            env.conn,
+            lun,
+            env.itt_gen.as_ref(),
+            env.cmd_sn,
+            env.exp_stat_sn,
+            ttt,
+        )
+    }
+
     /// Creates a new `NopCtx` for initiating a NOP-Out exchange.
     pub fn new(
         conn: Arc<ClientConnection>,
