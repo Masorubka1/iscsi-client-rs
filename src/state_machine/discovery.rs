@@ -13,13 +13,13 @@
 
 use std::{marker::PhantomData, pin::Pin, sync::Arc};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use rand::RngExt;
 use tokio_util::sync::CancellationToken;
 use tracing::debug;
 
 use crate::{
-    cfg::config::{login_keys_security, Config},
+    cfg::config::{Config, login_keys_security},
     client::client::ClientConnection,
     models::{
         common::{BasicHeaderSegment, Builder, HEADER_LEN},
@@ -230,7 +230,7 @@ impl<'ctx> StateMachine<DiscoveryCtx<'ctx>, DiscoveryStep> for Connect {
                 Err(e) => {
                     return Transition::Done(Err(anyhow!(
                         "discovery connect failed: {e}"
-                    )))
+                    )));
                 },
             };
             ctx.conn = Some(conn);
@@ -257,7 +257,7 @@ impl<'ctx> StateMachine<DiscoveryCtx<'ctx>, DiscoveryStep> for Login {
                 None => {
                     return Transition::Done(Err(anyhow!(
                         "no connection in discovery ctx"
-                    )))
+                    )));
                 },
             };
 
@@ -285,7 +285,7 @@ impl<'ctx> StateMachine<DiscoveryCtx<'ctx>, DiscoveryStep> for Login {
                 Err(e) => {
                     return Transition::Done(Err(anyhow!(
                         "discovery login response: {e}"
-                    )))
+                    )));
                 },
             };
 
@@ -356,7 +356,7 @@ impl<'ctx> StateMachine<DiscoveryCtx<'ctx>, DiscoveryStep> for LoginOp {
                         Err(e) => return Transition::Done(Err(e)),
                     },
                     None => {
-                        return Transition::Done(Err(anyhow!("no last login response")))
+                        return Transition::Done(Err(anyhow!("no last login response")));
                     },
                 };
                 (last.tsih.get(), last.get_initiator_task_tag())
@@ -389,7 +389,7 @@ impl<'ctx> StateMachine<DiscoveryCtx<'ctx>, DiscoveryStep> for LoginOp {
                 Err(e) => {
                     return Transition::Done(Err(anyhow!(
                         "discovery login-op response: {e}"
-                    )))
+                    )));
                 },
             };
 
@@ -491,7 +491,7 @@ impl<'ctx> StateMachine<DiscoveryCtx<'ctx>, DiscoveryStep> for Collect {
                         Err(e) => {
                             return Transition::Done(Err(anyhow!(
                                 "discovery text response read: {e}"
-                            )))
+                            )));
                         },
                     };
 
