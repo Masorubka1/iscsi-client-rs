@@ -28,22 +28,22 @@ use crate::{
 #[repr(C)]
 #[derive(Debug, Default, PartialEq, ZFromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct LoginResponse {
-    pub opcode: RawBhsOpcode,               // 0
-    pub flags: RawLoginFlags,               // 1
-    pub version_max: u8,                    // 2
-    pub version_active: u8,                 // 3
-    pub total_ahs_length: u8,               // 4
-    pub data_segment_length: [u8; 3],       // 5..7
-    pub isid: [u8; 6],                      // 8..13
-    pub tsih: U16<BigEndian>,               // 14..15
-    pub initiator_task_tag: U32<BigEndian>, // 16..19
-    reserved1: [u8; 4],                     // 20..23
-    pub stat_sn: U32<BigEndian>,            // 24..27
-    pub exp_cmd_sn: U32<BigEndian>,         // 28..31
-    pub max_cmd_sn: U32<BigEndian>,         // 32..35
-    pub status_class: RawStatusClass,       // 36
-    pub status_detail: RawStatusDetail,     // 37
-    reserved2: [u8; 10],                    // 38..47
+    pub opcode: RawBhsOpcode,               // Byte 0: `Opcode::LoginResp`
+    pub flags: RawLoginFlags,               // Byte 1: login transit/continue/stage flags
+    pub version_max: u8,                    // Byte 2: maximum supported iSCSI version
+    pub version_active: u8,                 // Byte 3: negotiated active iSCSI version
+    pub total_ahs_length: u8,               // Byte 4: AHS length in 4-byte words
+    pub data_segment_length: [u8; 3],       // Bytes 5..8: login text payload length
+    pub isid: [u8; 6],                      // Bytes 8..14: ISID echoed from initiator
+    pub tsih: U16<BigEndian>,               // Bytes 14..16: assigned TSIH
+    pub initiator_task_tag: U32<BigEndian>, // Bytes 16..20: ITT
+    reserved1: [u8; 4],                     // Bytes 20..24: reserved
+    pub stat_sn: U32<BigEndian>,            // Bytes 24..28: StatSN
+    pub exp_cmd_sn: U32<BigEndian>,         // Bytes 28..32: ExpCmdSN
+    pub max_cmd_sn: U32<BigEndian>,         // Bytes 32..36: MaxCmdSN
+    pub status_class: RawStatusClass,       // Byte 36: login status class
+    pub status_detail: RawStatusDetail,     // Byte 37: login status detail
+    reserved2: [u8; 10],                    // Bytes 38..48: reserved
 }
 
 impl LoginResponse {

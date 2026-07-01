@@ -118,6 +118,66 @@ impl fmt::Display for Ttt {
     }
 }
 
+// ── Command Sequence Number (CmdSN) ─────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
+pub struct CmdSn(u32);
+
+impl CmdSn {
+    #[inline]
+    pub const fn new(raw: u32) -> Self {
+        Self(raw)
+    }
+
+    #[inline]
+    pub const fn get(self) -> u32 {
+        self.0
+    }
+}
+
+impl From<u32> for CmdSn {
+    #[inline]
+    fn from(raw: u32) -> Self {
+        Self(raw)
+    }
+}
+
+impl fmt::Display for CmdSn {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+// ── Status Sequence Number (StatSN / ExpStatSN) ─────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
+pub struct StatSn(u32);
+
+impl StatSn {
+    #[inline]
+    pub const fn new(raw: u32) -> Self {
+        Self(raw)
+    }
+
+    #[inline]
+    pub const fn get(self) -> u32 {
+        self.0
+    }
+}
+
+impl From<u32> for StatSn {
+    #[inline]
+    fn from(raw: u32) -> Self {
+        Self(raw)
+    }
+}
+
+impl fmt::Display for StatSn {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 // ── Atomic ITT generator ────────────────────────────────────────────────────
 
 #[derive(Debug, Default)]

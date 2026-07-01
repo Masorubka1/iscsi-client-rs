@@ -15,7 +15,7 @@ use crate::{
     models::{
         common::{BasicHeaderSegment, HEADER_LEN, SendingData},
         data_fromat::ZeroCopyType,
-        identifiers::Itt,
+        identifiers::{CmdSn, Itt, StatSn},
         logout::common::{LogoutReason, RawLogoutReason},
         opcode::{BhsOpcode, Opcode, RawBhsOpcode},
     },
@@ -28,20 +28,18 @@ use crate::{
 #[repr(C)]
 #[derive(Debug, Default, PartialEq, ZFromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct LogoutRequest {
-    pub opcode: RawBhsOpcode,         // byte 0: I|0x06
-    pub reason: RawLogoutReason,      // byte 1: Reason Code
-    reserved0: [u8; 2],               // bytes 2..4: Reserved
-    pub total_ahs_length: u8,         // byte 4: normally 0
-    pub data_segment_length: [u8; 3], // bytes 5..8: must be zero
-    reserved1: [u8; 8],               /* bytes 8..16: Reserved (no ISID/Tsih in
-                                       * LogoutReq) */
-    pub initiator_task_tag: U32<BigEndian>, // bytes 16..20: ITT
-    pub cid: U16<BigEndian>,                /* bytes 20..22: CID (if closing a
-                                             * specific connection) */
-    reserved2: [u8; 2],              // bytes 22..24: Reserved
-    pub cmd_sn: U32<BigEndian>,      // bytes 24..28
-    pub exp_stat_sn: U32<BigEndian>, // bytes 28..32
-    reserved3: [u8; 16],             // bytes 32..48: Reserved
+    pub opcode: RawBhsOpcode,                // Byte 0: I flag + `Opcode::LogoutReq`
+    pub reason: RawLogoutReason,             // Byte 1: logout reason code
+    reserved0: [u8; 2],                      // Bytes 2..4: reserved
+    pub total_ahs_length: u8,                // Byte 4: normally zero
+    pub data_segment_length: [u8; 3],        // Bytes 5..8: must be zero
+    reserved1: [u8; 8],                      // Bytes 8..16: reserved
+    pub initiator_task_tag: U32<BigEndian>,  // Bytes 16..20: ITT
+    pub cid: U16<BigEndian>,                 // Bytes 20..22: CID for connection logout
+    reserved2: [u8; 2],                      // Bytes 22..24: reserved
+    pub cmd_sn: U32<BigEndian>,              // Bytes 24..28: CmdSN
+    pub exp_stat_sn: U32<BigEndian>,         // Bytes 28..32: ExpStatSN
+    reserved3: [u8; 16],                     // Bytes 32..48: reserved
 }
 
 impl LogoutRequest {
@@ -107,14 +105,14 @@ impl LogoutRequestBuilder {
     }
 
     /// Sets the command sequence number (CmdSN) for this request.
-    pub fn cmd_sn(mut self, cmd_sn: u32) -> Self {
-        self.header.cmd_sn.set(cmd_sn);
+    pub fn cmd_sn(mut self, cmd_sn: impl Into<CmdSn>) -> Self {
+        self.header.cmd_sn.set(cmd_sn.into().get());
         self
     }
 
     /// Sets the expected status sequence number (ExpStatSN) from the target.
-    pub fn exp_stat_sn(mut self, exp_stat_sn: u32) -> Self {
-        self.header.exp_stat_sn.set(exp_stat_sn);
+    pub fn exp_stat_sn(mut self, exp_stat_sn: impl Into<StatSn>) -> Self {
+        self.header.exp_stat_sn.set(exp_stat_sn.into().get());
         self
     }
 }

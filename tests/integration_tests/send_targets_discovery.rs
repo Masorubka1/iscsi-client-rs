@@ -4,7 +4,7 @@
 use anyhow::{Context, Result};
 use iscsi_client_rs::{
     cfg::{
-        config::Config,
+        config::{AuthConfig, Config},
         enums::{Digest, SessionType},
         logger::init_logger,
     },
@@ -27,6 +27,7 @@ async fn send_targets_discovery() -> Result<()> {
     // Switch to discovery mode — no TargetName
     cfg.login.identity.session_type = SessionType::Discovery;
     cfg.login.identity.target_name.clear();
+    cfg.login.auth = AuthConfig::None;
     cfg.login.integrity.header_digest = Digest::None;
     cfg.login.integrity.data_digest = Digest::None;
 

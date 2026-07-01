@@ -14,7 +14,7 @@ use crate::{
     models::{
         common::{BasicHeaderSegment, HEADER_LEN, SendingData},
         data_fromat::ZeroCopyType,
-        identifiers::{Itt, Ttt},
+        identifiers::{CmdSn, Itt, Lun, StatSn, Ttt},
         opcode::{BhsOpcode, Opcode, RawBhsOpcode},
         text::common::RawStageFlags,
     },
@@ -24,19 +24,17 @@ use crate::{
 #[repr(C)]
 #[derive(Default, Debug, PartialEq, ZFromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct TextRequest {
-    pub opcode: RawBhsOpcode, /* Byte 0: F/I + 6-bit opcode (should be
-                               * `Opcode::TextReq`). */
-    pub flags: RawStageFlags, /* Byte 1: stage flags (F/C); interpretation is Text-PDU
-                               * specific. */
-    reserved1: [u8; 2],                     // Byte 2..5
-    pub total_ahs_length: u8,               // Bytes 5..8
-    pub data_segment_length: [u8; 3],       // Bytes 8..16
-    pub lun: U64<BigEndian>,                // Bytes 16..20
-    pub initiator_task_tag: U32<BigEndian>, // Bytes 20..24
-    pub target_task_tag: U32<BigEndian>,    // Bytes 24..28
-    pub cmd_sn: U32<BigEndian>,             // Bytes 28..32
-    pub exp_stat_sn: U32<BigEndian>,        // Bytes 32..36
-    reserved2: [u8; 16],
+    pub opcode: RawBhsOpcode,               // Byte 0: I/F flags + `Opcode::TextReq`
+    pub flags: RawStageFlags,               // Byte 1: Text stage flags (F/C)
+    reserved1: [u8; 2],                     // Bytes 2..4: reserved
+    pub total_ahs_length: u8,               // Byte 4: AHS length in 4-byte words
+    pub data_segment_length: [u8; 3],       // Bytes 5..8: text payload length
+    pub lun: U64<BigEndian>,                // Bytes 8..16: LUN
+    pub initiator_task_tag: U32<BigEndian>, // Bytes 16..20: ITT
+    pub target_task_tag: U32<BigEndian>,    // Bytes 20..24: TTT
+    pub cmd_sn: U32<BigEndian>,             // Bytes 24..28: CmdSN
+    pub exp_stat_sn: U32<BigEndian>,        // Bytes 28..32: ExpStatSN
+    reserved2: [u8; 16],                    // Bytes 32..48: reserved
 }
 
 impl TextRequest {
@@ -147,20 +145,20 @@ impl TextRequestBuilder {
     }
 
     /// Sets the command sequence number (CmdSN) for this request.
-    pub fn cmd_sn(mut self, sn: u32) -> Self {
-        self.header.cmd_sn.set(sn);
+    pub fn cmd_sn(mut self, sn: impl Into<CmdSn>) -> Self {
+        self.header.cmd_sn.set(sn.into().get());
         self
     }
 
     /// Sets the expected status sequence number (ExpStatSN) from the target.
-    pub fn exp_stat_sn(mut self, sn: u32) -> Self {
-        self.header.exp_stat_sn.set(sn);
+    pub fn exp_stat_sn(mut self, sn: impl Into<StatSn>) -> Self {
+        self.header.exp_stat_sn.set(sn.into().get());
         self
     }
 
     /// Sets the Logical Unit Number (LUN) for the command.
-    pub fn lun(mut self, lun: u64) -> Self {
-        self.header.lun.set(lun);
+    pub fn lun(mut self, lun: impl Into<Lun>) -> Self {
+        self.header.lun.set(lun.into().get());
         self
     }
 }

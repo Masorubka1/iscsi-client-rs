@@ -15,7 +15,7 @@ use crate::{
     models::{
         common::{BasicHeaderSegment, HEADER_LEN, SendingData},
         data_fromat::ZeroCopyType,
-        identifiers::{Itt, Lun, Ttt},
+        identifiers::{CmdSn, Itt, Lun, StatSn, Ttt},
         opcode::{BhsOpcode, Opcode, RawBhsOpcode},
     },
 };
@@ -24,16 +24,16 @@ use crate::{
 #[repr(C)]
 #[derive(Debug, Default, PartialEq, ZFromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct NopOutRequest {
-    pub opcode: RawBhsOpcode,               // 0
-    reserved1: [u8; 3],                     // 1..4
-    pub total_ahs_length: u8,               // 4
-    pub data_segment_length: [u8; 3],       // 5..8
-    pub lun: U64<BigEndian>,                // 8..16
-    pub initiator_task_tag: U32<BigEndian>, // 16..20
-    pub target_task_tag: U32<BigEndian>,    // 20..24
-    pub cmd_sn: U32<BigEndian>,             // 24..28
-    pub exp_stat_sn: U32<BigEndian>,        // 28..32
-    reserved2: [u8; 16],                    // 32..48
+    pub opcode: RawBhsOpcode,               // Byte 0: I flag + `Opcode::NopOut`
+    reserved1: [u8; 3],                     // Bytes 1..4: reserved
+    pub total_ahs_length: u8,               // Byte 4: AHS length in 4-byte words
+    pub data_segment_length: [u8; 3],       // Bytes 5..8: optional payload length
+    pub lun: U64<BigEndian>,                // Bytes 8..16: LUN
+    pub initiator_task_tag: U32<BigEndian>, // Bytes 16..20: ITT
+    pub target_task_tag: U32<BigEndian>,    // Bytes 20..24: TTT
+    pub cmd_sn: U32<BigEndian>,             // Bytes 24..28: CmdSN
+    pub exp_stat_sn: U32<BigEndian>,        // Bytes 28..32: ExpStatSN
+    reserved2: [u8; 16],                    // Bytes 32..48: reserved
 }
 
 impl NopOutRequest {
@@ -155,14 +155,14 @@ impl NopOutRequestBuilder {
     }
 
     /// Sets the command sequence number (CmdSN) for this request.
-    pub fn cmd_sn(mut self, sn: u32) -> Self {
-        self.header.cmd_sn.set(sn);
+    pub fn cmd_sn(mut self, sn: impl Into<CmdSn>) -> Self {
+        self.header.cmd_sn.set(sn.into().get());
         self
     }
 
     /// Sets the expected status sequence number (ExpStatSN) from the target.
-    pub fn exp_stat_sn(mut self, sn: u32) -> Self {
-        self.header.exp_stat_sn.set(sn);
+    pub fn exp_stat_sn(mut self, sn: impl Into<StatSn>) -> Self {
+        self.header.exp_stat_sn.set(sn.into().get());
         self
     }
 
