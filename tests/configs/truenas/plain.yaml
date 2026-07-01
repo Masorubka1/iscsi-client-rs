@@ -40,7 +40,7 @@ login:
     OFMarker: "No"
 
   transport:
-    TargetAddress: 127.0.0.1:33264
+    TargetAddress: 127.0.0.1:3264
     TargetPortalGroupTag: 1
 
 runtime:
