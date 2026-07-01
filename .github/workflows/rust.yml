@@ -107,27 +107,7 @@ jobs:
 
       - name: Collect integration test binary
         run: |
-          BIN_PATH="$(python3 - <<'PY'
-import json
-
-with open("ci-artifacts/integration-build.json", "r", encoding="utf-8") as fh:
-    for line in fh:
-        line = line.strip()
-        if not line:
-            continue
-        event = json.loads(line)
-        target = event.get("target", {})
-        if (
-            event.get("reason") == "compiler-artifact"
-            and target.get("kind") == ["test"]
-            and target.get("name") == "integration"
-        ):
-            executable = event.get("executable")
-            if executable:
-                print(executable)
-                break
-PY
-)"
+          BIN_PATH="$(python3 -c 'import json; import sys; events=(json.loads(line) for line in open("ci-artifacts/integration-build.json", encoding="utf-8") if line.strip()); print(next(event["executable"] for event in events if event.get("reason") == "compiler-artifact" and event.get("target", {}).get("kind") == ["test"] and event.get("target", {}).get("name") == "integration" and event.get("executable")), end="")')"
           test -n "$BIN_PATH"
           cp "$BIN_PATH" ci-artifacts/integration-tests
           chmod +x ci-artifacts/integration-tests
