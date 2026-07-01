@@ -37,7 +37,7 @@ async fn login_and_nop() -> Result<()> {
 
     let lun = get_lun();
 
-    // NOP-Out (keep-alive) via pool.execute_with
+    // NOP-Out (keep-alive) via pool.execute_with_ctx
     pool.execute_with_ctx(tsih, cid, |env| NopCtx::from_execute_env(env, lun, ttt))
         .await
         .context("NOP failed")?;

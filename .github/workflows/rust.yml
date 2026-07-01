@@ -84,11 +84,68 @@ jobs:
       - name: Run tests
         run: cargo test --offline --tests unit --no-fail-fast --verbose
 
+  build-integration:
+    name: Build integration test binary
+    runs-on: ubuntu-latest
+    needs: [rustfmt, clippy, unit]
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+
+      - *cache-cargo
+      - *fetch-cargo
+
+      - name: Build integration test binary
+        run: |
+          mkdir -p ci-artifacts
+          cargo test --offline --test integration --no-run --message-format=json \
+            > ci-artifacts/integration-build.json
+
+      - name: Collect integration test binary
+        run: |
+          BIN_PATH="$(python3 - <<'PY'
+import json
+
+with open("ci-artifacts/integration-build.json", "r", encoding="utf-8") as fh:
+    for line in fh:
+        line = line.strip()
+        if not line:
+            continue
+        event = json.loads(line)
+        target = event.get("target", {})
+        if (
+            event.get("reason") == "compiler-artifact"
+            and target.get("kind") == ["test"]
+            and target.get("name") == "integration"
+        ):
+            executable = event.get("executable")
+            if executable:
+                print(executable)
+                break
+PY
+)"
+          test -n "$BIN_PATH"
+          cp "$BIN_PATH" ci-artifacts/integration-tests
+          chmod +x ci-artifacts/integration-tests
+
+      - name: Upload integration test binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-bin
+          path: |
+            ci-artifacts/integration-tests
+            ci-artifacts/integration-build.json
+          if-no-files-found: error
+
   test-tgt:
     name: Integration tests (TGT/${{ matrix.mode }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    needs: [rustfmt, clippy, unit]
+    needs: [build-integration]
     strategy:
       fail-fast: false
       matrix:
@@ -105,13 +162,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
+      - name: Download integration test binary
+        uses: actions/download-artifact@v4
         with:
-          toolchain: stable
-
-      - *cache-cargo
-      - *fetch-cargo
+          name: integration-test-bin
+          path: ci-artifacts
 
       - name: Start TGT
         run: docker compose --profile tgt up -d --build --wait --wait-timeout 60 ${{ matrix.service }}
@@ -119,7 +174,9 @@ jobs:
       - name: Run integration tests
         env:
           TEST_CONFIG: ${{ matrix.config }}
-        run: cargo test --offline --test integration -- --nocapture --test-threads=1
+        run: |
+          chmod +x ci-artifacts/integration-tests
+          ./ci-artifacts/integration-tests --nocapture --test-threads=1
 
       - name: Show TGT logs
         if: failure()
@@ -133,7 +190,7 @@ jobs:
     name: Integration tests (LIO/${{ matrix.mode }})
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    needs: [rustfmt, clippy, unit]
+    needs: [build-integration]
     strategy:
       fail-fast: false
       matrix:
@@ -150,13 +207,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
+      - name: Download integration test binary
+        uses: actions/download-artifact@v4
         with:
-          toolchain: stable
-
-      - *cache-cargo
-      - *fetch-cargo
+          name: integration-test-bin
+          path: ci-artifacts
 
       - name: Install QEMU and cloud-init tools
         run: |
@@ -192,7 +247,9 @@ jobs:
       - name: Run integration tests
         env:
           TEST_CONFIG: ${{ matrix.config }}
-        run: cargo test --offline --test integration -- --nocapture --test-threads=1
+        run: |
+          chmod +x ci-artifacts/integration-tests
+          ./ci-artifacts/integration-tests --nocapture --test-threads=1
 
       - name: Stop LIO VM
         if: always()
@@ -202,17 +259,15 @@ jobs:
     name: Integration tests (TrueNAS/plain)
     runs-on: ubuntu-latest
     timeout-minutes: 90
-    needs: [rustfmt, clippy, unit]
+    needs: [build-integration]
     steps:
       - uses: actions/checkout@v7
 
-      - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
+      - name: Download integration test binary
+        uses: actions/download-artifact@v4
         with:
-          toolchain: stable
-
-      - *cache-cargo
-      - *fetch-cargo
+          name: integration-test-bin
+          path: ci-artifacts
 
       - name: Install QEMU and helpers
         run: |
@@ -247,7 +302,9 @@ jobs:
       - name: Run integration tests
         env:
           TEST_CONFIG: tests/configs/truenas/plain.yaml
-        run: cargo test --offline --test integration -- --nocapture --test-threads=1
+        run: |
+          chmod +x ci-artifacts/integration-tests
+          ./ci-artifacts/integration-tests --nocapture --test-threads=1
 
       - name: Stop TrueNAS VM
         if: always()
