@@ -4,7 +4,7 @@
 use anyhow::{Context, Result};
 use iscsi_client_rs::{
     cfg::{
-        config::{AuthConfig, Config},
+        config::Config,
         enums::{Digest, SessionType},
         logger::init_logger,
     },
