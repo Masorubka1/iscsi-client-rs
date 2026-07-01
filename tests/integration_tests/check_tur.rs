@@ -40,24 +40,12 @@ async fn login_and_tur() -> Result<()> {
     // ---- TEST UNIT READY via Pool ----
     let _ = pool
         .execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
-            TurCtx::new(
-                c,
-                itt,
-                cmd_sn,
-                exp_stat_sn,
-                iscsi_client_rs::models::identifiers::Lun::from_raw(lun),
-            )
+            TurCtx::new(c, itt, cmd_sn, exp_stat_sn, lun)
         })
         .await;
 
     pool.execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
-        TurCtx::new(
-            c,
-            itt,
-            cmd_sn,
-            exp_stat_sn,
-            iscsi_client_rs::models::identifiers::Lun::from_raw(lun),
-        )
+        TurCtx::new(c, itt, cmd_sn, exp_stat_sn, lun)
     })
     .await
     .context("TUR failed")?;

@@ -8,7 +8,6 @@ use iscsi_client_rs::{
     cfg::{config::Config, logger::init_logger},
     client::pool_sessions::Pool,
     models::{
-        identifiers::{Lun, Ttt},
         logout::common::LogoutReason,
         nop::request::NopOutRequest,
     },
@@ -33,6 +32,7 @@ async fn logout_close_session() -> Result<()> {
     // ---- Login via Pool ----
     let isid = test_isid();
     let cid: u16 = 0;
+    let ttt = NopOutRequest::DEFAULT_TAG;
     let target_name: Arc<str> = Arc::from(cfg.login.identity.target_name.clone());
 
     let tsih = pool
@@ -43,14 +43,7 @@ async fn logout_close_session() -> Result<()> {
     // ---- NOP (NOP-Out -> NOP-In) via pool ----
     let lun = get_lun();
     pool.execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
-        NopCtx::new(
-            c,
-            Lun::from_raw(lun),
-            itt,
-            cmd_sn,
-            exp_stat_sn,
-            Ttt::new_unchecked(NopOutRequest::DEFAULT_TAG),
-        )
+        NopCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, ttt)
     })
     .await
     .context("nop failed")?;

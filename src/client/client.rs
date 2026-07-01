@@ -35,7 +35,7 @@ use crate::{
         pool_sessions::Pool,
     },
     models::{
-        identifiers::{Lun, Ttt},
+        identifiers::Lun,
         nop::request::NopOutRequest,
     },
     state_machine::nop_states::NopCtx,
@@ -284,7 +284,7 @@ impl ClientConnection {
         }
     }
 
-    pub async fn send_keepalive_via_pool_lun(self: &Arc<Self>, lun: u64) -> Result<()> {
+    pub async fn send_keepalive_via_pool_lun(self: &Arc<Self>, lun: Lun) -> Result<()> {
         let sr = self
             .session_ref
             .get()
@@ -293,22 +293,12 @@ impl ClientConnection {
             .pool
             .upgrade()
             .ok_or_else(|| anyhow!("pool has been dropped"))?;
+        let ttt = NopOutRequest::DEFAULT_TAG;
 
         pool.execute_with(sr.tsih, sr.cid, move |conn, itt, cmd_sn, exp_stat_sn| {
-            NopCtx::new(
-                conn,
-                Lun::from_raw(lun),
-                itt,
-                cmd_sn,
-                exp_stat_sn,
-                Ttt::new_unchecked(NopOutRequest::DEFAULT_TAG),
-            )
+            NopCtx::new(conn, lun, itt, cmd_sn, exp_stat_sn, ttt)
         })
         .await?;
         Ok(())
-    }
-
-    pub async fn send_keepalive_via_pool(self: &Arc<Self>) -> Result<()> {
-        self.send_keepalive_via_pool_lun(1u64 << 48).await
     }
 }

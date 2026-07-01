@@ -4,7 +4,9 @@
 use std::{path::PathBuf, sync::Arc};
 
 use anyhow::{Context, Result};
-use iscsi_client_rs::{cfg::config::Config, client::client::ClientConnection};
+use iscsi_client_rs::{
+    cfg::config::Config, client::client::ClientConnection, models::identifiers::Lun,
+};
 use tokio_util::sync::CancellationToken;
 
 pub fn test_path() -> String {
@@ -27,10 +29,10 @@ pub fn test_isid() -> [u8; 6] {
     [0, 2, 61, 0, 0, 14]
 }
 
-pub fn get_lun() -> u64 {
+pub fn get_lun() -> Lun {
     if test_path().contains("/truenas/") {
-        0
+        0.into()
     } else {
-        1u64 << 48
+        (1u64 << 48).into()
     }
 }

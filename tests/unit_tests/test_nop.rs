@@ -31,13 +31,14 @@ fn test_nop_out_minimal() -> Result<()> {
     assert!(parsed.header_digest.is_none());
     assert!(parsed.data_digest.is_none());
 
-    let itt = 1;
+    let itt = 1_u32;
+    let lun = 0_u64;
     let ttt = NopOutRequest::DEFAULT_TAG;
     let cmd_sn = 0;
     let exp_sn = 1;
 
     let header_builder = NopOutRequestBuilder::new()
-        .lun(0)
+        .lun(lun)
         .initiator_task_tag(itt)
         .target_task_tag(ttt)
         .cmd_sn(cmd_sn)

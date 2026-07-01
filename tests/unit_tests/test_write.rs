@@ -37,7 +37,7 @@ fn test_write_pdu_build() -> Result<()> {
 
     let lun_bytes = [0, 1, 0, 0, 0, 0, 0, 0];
     let lun_be = u64::from_be_bytes(lun_bytes);
-    let itt = 2;
+    let itt = 2_u32;
     let cmd_sn = 0;
     let exp_stat_sn = 2;
 
@@ -48,7 +48,7 @@ fn test_write_pdu_build() -> Result<()> {
 
     let header_builder = ScsiCommandRequestBuilder::new()
         .lun(lun_be)
-        .initiator_task_tag(itt.into())
+        .initiator_task_tag(itt)
         .cmd_sn(cmd_sn)
         .exp_stat_sn(exp_stat_sn)
         .expected_data_transfer_length(write_buf.len() as u32)

@@ -47,7 +47,7 @@ async fn login_tur_report_luns_pool() -> Result<()> {
                 itt,
                 cmd_sn,
                 exp_stat_sn,
-                iscsi_client_rs::models::identifiers::Lun::from_raw(lun_for_tur),
+                lun_for_tur,
             )
         })
         .await;
@@ -57,7 +57,7 @@ async fn login_tur_report_luns_pool() -> Result<()> {
             itt,
             cmd_sn,
             exp_stat_sn,
-            iscsi_client_rs::models::identifiers::Lun::from_raw(lun_for_tur),
+            lun_for_tur,
         )
     })
     .await
@@ -75,7 +75,7 @@ async fn login_tur_report_luns_pool() -> Result<()> {
             );
             ReadCtx::new(
                 c,
-                iscsi_client_rs::models::identifiers::Lun::from_raw(lun_report),
+                iscsi_client_rs::models::identifiers::Lun::new(lun_report),
                 itt,
                 cmd_sn,
                 exp_stat_sn,
@@ -104,7 +104,7 @@ async fn login_tur_report_luns_pool() -> Result<()> {
             );
             ReadCtx::new(
                 c,
-                iscsi_client_rs::models::identifiers::Lun::from_raw(lun_report),
+                iscsi_client_rs::models::identifiers::Lun::new(lun_report),
                 itt,
                 cmd_sn,
                 exp_stat_sn,

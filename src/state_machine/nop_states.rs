@@ -7,12 +7,12 @@ use std::{
     marker::PhantomData,
     pin::Pin,
     sync::{
-        Arc,
         atomic::{AtomicU32, Ordering},
+        Arc,
     },
 };
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{anyhow, bail, Context, Result};
 use tokio_util::sync::CancellationToken;
 use tracing::debug;
 
@@ -21,7 +21,7 @@ use crate::{
     models::{
         common::HEADER_LEN,
         data_fromat::{PduRequest, PduResponse},
-        identifiers::{Itt, IttGen, Lun, Ttt},
+        identifiers::{Itt, IttGen, Lun},
         nop::{
             request::{NopOutRequest, NopOutRequestBuilder},
             response::NopInResponse,
@@ -39,7 +39,7 @@ pub struct NopCtx<'a> {
     pub itt: Itt,
     pub cmd_sn: u32,
     pub exp_stat_sn: Arc<AtomicU32>,
-    pub ttt: Ttt,
+    pub ttt: u32,
     pub buf: [u8; HEADER_LEN],
 
     last_response: Option<PduResponse<NopInResponse>>,
@@ -54,7 +54,7 @@ impl<'a> NopCtx<'a> {
         itt_gen: &IttGen,
         cmd_sn: Arc<AtomicU32>,
         exp_stat_sn: Arc<AtomicU32>,
-        ttt: Ttt,
+        ttt: u32,
     ) -> Self {
         Self {
             conn,
@@ -102,10 +102,10 @@ impl<'a> NopCtx<'a> {
         Ok(Self {
             conn,
             lun: Lun::ZERO,
-            itt: Itt::new_unchecked(0),
+            itt: Itt::new(0)?,
             cmd_sn: cmd_sn.load(Ordering::SeqCst),
             exp_stat_sn,
-            ttt: Ttt::new_unchecked(header.target_task_tag.get()),
+            ttt: header.target_task_tag.get(),
             buf: [0u8; HEADER_LEN],
             last_response: Some(response),
             state: Some(NopStates::Reply(Reply)),
@@ -118,9 +118,9 @@ impl<'a> NopCtx<'a> {
 
         let header = NopOutRequestBuilder::new()
             .cmd_sn(self.cmd_sn)
-            .lun(self.lun.get())
-            .initiator_task_tag(self.itt.get())
-            .target_task_tag(self.ttt.get())
+            .lun(self.lun)
+            .initiator_task_tag(self.itt)
+            .target_task_tag(self.ttt)
             .exp_stat_sn(exp_stat_sn)
             .immediate();
 
@@ -214,9 +214,9 @@ impl<'ctx> StateMachine<NopCtx<'ctx>, NopStepOut> for Reply {
             // ITT for response NOP-In = 0xFFFF_FFFF (RESERVED)
             let hdr = NopOutRequestBuilder::new()
                 .immediate()
-                .lun(0)
+                .lun(0_u64)
                 .initiator_task_tag(Itt::RESERVED)
-                .target_task_tag(ctx.ttt.get())
+                .target_task_tag(ctx.ttt)
                 .cmd_sn(ctx.cmd_sn)
                 .exp_stat_sn(ctx.exp_stat_sn.load(Ordering::SeqCst))
                 .header;
@@ -227,11 +227,7 @@ impl<'ctx> StateMachine<NopCtx<'ctx>, NopStepOut> for Reply {
             let pdu = PduRequest::<NopOutRequest>::new_request(ctx.buf, &ctx.conn.cfg);
 
             // Response — fire-and-forget (ITT = RESERVED)
-            if let Err(e) = ctx
-                .conn
-                .send_request(Itt::new_unchecked(Itt::RESERVED), pdu)
-                .await
-            {
+            if let Err(e) = ctx.conn.send_request(Itt::RESERVED.into(), pdu).await {
                 return Transition::Done(Err(e));
             }
 

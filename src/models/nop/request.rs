@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
-use anyhow::{Result, bail};
+use anyhow::{bail, Result};
 use tracing::{debug, warn};
 use zerocopy::{
     BigEndian, FromBytes as ZFromBytes, Immutable, IntoBytes, KnownLayout, U32, U64,
@@ -13,9 +13,9 @@ use zerocopy::{
 use crate::{
     client::pdu_connection::FromBytes,
     models::{
-        common::{BasicHeaderSegment, HEADER_LEN, SendingData},
+        common::{BasicHeaderSegment, SendingData, HEADER_LEN},
         data_fromat::ZeroCopyType,
-        identifiers::Itt,
+        identifiers::{Itt, Lun, Ttt},
         opcode::{BhsOpcode, Opcode, RawBhsOpcode},
     },
 };
@@ -143,14 +143,14 @@ impl NopOutRequestBuilder {
     }
 
     /// Sets the initiator task tag, a unique identifier for this command.
-    pub fn initiator_task_tag(mut self, tag: u32) -> Self {
-        self.header.initiator_task_tag.set(tag);
+    pub fn initiator_task_tag(mut self, tag: impl Into<Itt>) -> Self {
+        self.header.initiator_task_tag.set(tag.into().get());
         self
     }
 
     /// Sets the target task tag, used to match a response to a NOP-In.
-    pub fn target_task_tag(mut self, tag: u32) -> Self {
-        self.header.target_task_tag.set(tag);
+    pub fn target_task_tag(mut self, tag: impl Into<Ttt>) -> Self {
+        self.header.target_task_tag.set(tag.into().get());
         self
     }
 
@@ -167,8 +167,8 @@ impl NopOutRequestBuilder {
     }
 
     /// Sets the Logical Unit Number (LUN) for the command.
-    pub fn lun(mut self, lun: u64) -> Self {
-        self.header.lun.set(lun);
+    pub fn lun(mut self, lun: impl Into<Lun>) -> Self {
+        self.header.lun.set(lun.into().get());
         self
     }
 }

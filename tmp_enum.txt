@@ -1,7 +1,0 @@
-    Connect(Connect),
-    Login(Login),
-    SendTargets(SendTargets),
-    Collect(Collect),
-    Logout(Logout),
-    Finish(Finish),
-}

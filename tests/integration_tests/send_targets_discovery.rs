@@ -11,30 +11,26 @@ use crate::integration_tests::common::test_path;
 
 /// Verify that SendTargets discovery works against the current target.
 ///
-/// Reuses `TEST_CONFIG` but switches `SessionType` to `Discovery`,
-/// clears `TargetName`, and overrides `AuthMethod` to `None` (the target
-/// never requires CHAP for discovery).
+/// Reuses `TEST_CONFIG` but switches to `SessionType: Discovery`, clears
+/// `TargetName`, resets auth and digests (discovery is always plain, no CRC).
 #[tokio::test]
-async fn send_targets_discovery_tgt() -> Result<()> {
+async fn send_targets_discovery() -> Result<()> {
     let _ = init_logger(&test_path());
 
     let mut cfg =
         Config::load_from_file(&test_path()).context("failed to load test config")?;
 
-    // Switch to discovery mode
-    cfg.login.identity.initiator_name.clear();
+    // Switch to discovery mode — no TargetName
     cfg.login.identity.session_type = SessionType::Discovery;
     cfg.login.identity.target_name.clear();
-    // Discovery never needs auth
-    cfg.login.auth = iscsi_client_rs::cfg::config::AuthConfig::None;
-    // Single connection is enough
-    cfg.login.limits.max_connections = 1;
+    cfg.login.identity.initiator_name.clear();
 
-    let expected_iqn = if test_path().contains("/lio/") {
-        "iqn.2025-08.com.example:disk0"
-    } else {
-        "iqn.2025-08.example:disk0"
-    };
+    let expected_iqn =
+        if test_path().contains("/lio/") || test_path().contains("/truenas/") {
+            "iqn.2025-08.com.example:disk0"
+        } else {
+            "iqn.2025-08.example:disk0"
+        };
 
     let targets: Vec<DiscoveredTarget> =
         iscsi_client_rs::client::pool_sessions::Pool::discover_targets(&cfg)

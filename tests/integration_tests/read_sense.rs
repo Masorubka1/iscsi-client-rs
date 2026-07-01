@@ -48,7 +48,7 @@ async fn login_ua_request_sense_then_clear_with_tur_pool() -> Result<()> {
                 itt,
                 cmd_sn,
                 exp_stat_sn,
-                iscsi_client_rs::models::identifiers::Lun::from_raw(lun),
+                lun,
             )
         })
         .await;
@@ -60,7 +60,7 @@ async fn login_ua_request_sense_then_clear_with_tur_pool() -> Result<()> {
             fill_request_sense_simple(&mut cdb, 8);
             ReadCtx::new(
                 c,
-                iscsi_client_rs::models::identifiers::Lun::from_raw(lun),
+                lun,
                 itt,
                 cmd_sn,
                 exp_stat_sn,
@@ -81,7 +81,7 @@ async fn login_ua_request_sense_then_clear_with_tur_pool() -> Result<()> {
             fill_request_sense_simple(&mut cdb, total_needed as u8);
             ReadCtx::new(
                 c,
-                iscsi_client_rs::models::identifiers::Lun::from_raw(lun),
+                lun,
                 itt,
                 cmd_sn,
                 exp_stat_sn,
@@ -109,7 +109,7 @@ async fn login_ua_request_sense_then_clear_with_tur_pool() -> Result<()> {
             itt,
             cmd_sn,
             exp_stat_sn,
-            iscsi_client_rs::models::identifiers::Lun::from_raw(lun),
+            lun,
         )
     })
     .await
@@ -124,7 +124,7 @@ async fn login_ua_request_sense_then_clear_with_tur_pool() -> Result<()> {
             cdb[4] = 36;
             ReadCtx::new(
                 c,
-                iscsi_client_rs::models::identifiers::Lun::from_raw(lun),
+                lun,
                 itt,
                 cmd_sn,
                 exp_stat_sn,

@@ -163,7 +163,7 @@ async fn invalid_header_digest_poisons_connection() -> Result<()> {
     cfg.runtime.timeout_connection = Duration::from_millis(200);
     let conn = ClientConnection::connect(cfg.clone(), CancellationToken::new()).await?;
 
-    let itt = 42;
+    let itt = 42.into();
     let header = NopOutRequestBuilder::new()
         .initiator_task_tag(itt)
         .target_task_tag(NopOutRequest::DEFAULT_TAG)
@@ -171,16 +171,10 @@ async fn invalid_header_digest_poisons_connection() -> Result<()> {
     let mut header_buf = [0u8; HEADER_LEN];
     header.header.to_bhs_bytes(&mut header_buf)?;
     let request = PduRequest::<NopOutRequest>::new_request(header_buf, &cfg);
-    conn.send_request(
-        iscsi_client_rs::models::identifiers::Itt::new_unchecked(itt),
-        request,
-    )
-    .await?;
+    conn.send_request(itt, request).await?;
 
     let error = conn
-        .read_response::<NopInResponse>(
-            iscsi_client_rs::models::identifiers::Itt::new_unchecked(itt),
-        )
+        .read_response::<NopInResponse>(itt)
         .await
         .expect_err("invalid digest must fail");
     assert!(error.to_string().contains("HeaderDigest mismatch"));
@@ -222,7 +216,7 @@ async fn invalid_data_digest_poisons_connection() -> Result<()> {
     cfg.runtime.timeout_connection = Duration::from_millis(200);
     let conn = ClientConnection::connect(cfg.clone(), CancellationToken::new()).await?;
 
-    let itt = 43;
+    let itt: iscsi_client_rs::models::identifiers::Itt = 43_u32.into();
     let header = NopOutRequestBuilder::new()
         .initiator_task_tag(itt)
         .target_task_tag(NopOutRequest::DEFAULT_TAG)
@@ -230,16 +224,10 @@ async fn invalid_data_digest_poisons_connection() -> Result<()> {
     let mut header_buf = [0u8; HEADER_LEN];
     header.header.to_bhs_bytes(&mut header_buf)?;
     let request = PduRequest::<NopOutRequest>::new_request(header_buf, &cfg);
-    conn.send_request(
-        iscsi_client_rs::models::identifiers::Itt::new_unchecked(itt),
-        request,
-    )
-    .await?;
+    conn.send_request(itt, request).await?;
 
     let error = conn
-        .read_response::<NopInResponse>(
-            iscsi_client_rs::models::identifiers::Itt::new_unchecked(itt),
-        )
+        .read_response::<NopInResponse>(itt)
         .await
         .expect_err("invalid digest must fail");
     assert!(error.to_string().contains("DataDigest mismatch"));

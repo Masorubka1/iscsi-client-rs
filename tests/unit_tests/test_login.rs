@@ -167,7 +167,7 @@ fn chap_step1_security_only() -> Result<()> {
     let s1_hdr = LoginRequestBuilder::new(ISID, 0)
         .csg(Stage::Security)
         .nsg(Stage::Security)
-        .initiator_task_tag(0.into())
+        .initiator_task_tag(0_u32)
         .cmd_sn(0)
         .exp_stat_sn(0);
 

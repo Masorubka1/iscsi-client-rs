@@ -47,7 +47,7 @@ fn test_read_pdu_build() -> Result<()> {
 
     let header_builder = ScsiCommandRequestBuilder::new()
         .lun(lun_be)
-        .initiator_task_tag(itt.into())
+        .initiator_task_tag(itt)
         .cmd_sn(cmd_sn)
         .exp_stat_sn(exp_stat_sn)
         .expected_data_transfer_length(512u32)

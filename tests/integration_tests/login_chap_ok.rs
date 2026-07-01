@@ -11,7 +11,6 @@ use iscsi_client_rs::{
     },
     client::pool_sessions::Pool,
     models::{
-        identifiers::{Lun, Ttt},
         nop::request::NopOutRequest,
     },
     state_machine::nop_states::NopCtx,
@@ -42,6 +41,7 @@ async fn login_chap_ok() -> Result<()> {
     let target_name: Arc<str> = Arc::from(cfg.login.identity.target_name.clone());
     let isid = test_isid();
     let cid: u16 = 0;
+    let ttt = NopOutRequest::DEFAULT_TAG;
 
     // ---- Login via pool (CHAP path selected by cfg) ----
     let tsih = pool
@@ -52,14 +52,7 @@ async fn login_chap_ok() -> Result<()> {
     // ---- NOP keep-alive via pool ----
     let lun = get_lun();
     pool.execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
-        NopCtx::new(
-            c,
-            Lun::from_raw(lun),
-            itt,
-            cmd_sn,
-            exp_stat_sn,
-            Ttt::new_unchecked(NopOutRequest::DEFAULT_TAG),
-        )
+        NopCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, ttt)
     })
     .await
     .context("NOP failed")?;

@@ -16,8 +16,9 @@ use crate::{
     cfg::config::{AuthConfig, Config},
     client::client::ClientConnection,
     models::{
+        common::BasicHeaderSegment,
         data_fromat,
-        identifiers::{Itt, IttGen},
+        identifiers::IttGen,
         logout::common::LogoutReason,
         nop::response::NopInResponse,
     },
@@ -296,9 +297,9 @@ impl Pool {
                     target_name: target_name.clone(),
                     conns: DashMap::with_capacity(self.max_connections as usize),
                     cmd_sn: Arc::new(AtomicU32::new(hdr.exp_cmd_sn.get())),
-                    itt_gen: IttGen::new(Itt::new_unchecked(
-                        hdr.initiator_task_tag.get().wrapping_add(1),
-                    )),
+                    itt_gen: IttGen::new(
+                        hdr.get_initiator_task_tag().get().wrapping_add(1).into(),
+                    ),
                 })
             })
             .clone();

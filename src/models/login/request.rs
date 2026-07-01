@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
-use anyhow::{Result, bail};
+use anyhow::{bail, Result};
 use zerocopy::{
     BigEndian, FromBytes as ZFromBytes, Immutable, IntoBytes, KnownLayout, U16, U32,
 };
@@ -12,7 +12,7 @@ use zerocopy::{
 use crate::{
     client::pdu_connection::FromBytes,
     models::{
-        common::{BasicHeaderSegment, HEADER_LEN, SendingData},
+        common::{BasicHeaderSegment, SendingData, HEADER_LEN},
         data_fromat::ZeroCopyType,
         identifiers::Itt,
         login::common::{RawLoginFlags, Stage},
@@ -158,8 +158,8 @@ impl LoginRequestBuilder {
     }
 
     /// Sets the initiator task tag, a unique identifier for this command.
-    pub fn initiator_task_tag(mut self, tag: Itt) -> Self {
-        self.header.initiator_task_tag.set(tag.get());
+    pub fn initiator_task_tag(mut self, tag: impl Into<Itt>) -> Self {
+        self.header.initiator_task_tag.set(tag.into().get());
         self
     }
 

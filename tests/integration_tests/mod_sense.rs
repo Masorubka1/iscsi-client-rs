@@ -47,7 +47,7 @@ async fn login_tur_mode_sense_pool() -> Result<()> {
                 itt,
                 cmd_sn,
                 exp_stat_sn,
-                iscsi_client_rs::models::identifiers::Lun::from_raw(lun),
+                lun,
             )
         })
         .await;
@@ -57,7 +57,7 @@ async fn login_tur_mode_sense_pool() -> Result<()> {
             itt,
             cmd_sn,
             exp_stat_sn,
-            iscsi_client_rs::models::identifiers::Lun::from_raw(lun),
+            lun,
         )
     })
     .await
@@ -72,7 +72,7 @@ async fn login_tur_mode_sense_pool() -> Result<()> {
             // ReadCtx возвращает ReadResult { data, last_response }
             ReadCtx::new(
                 c,
-                iscsi_client_rs::models::identifiers::Lun::from_raw(lun),
+                lun,
                 itt,
                 cmd_sn,
                 exp_stat_sn,
@@ -92,7 +92,7 @@ async fn login_tur_mode_sense_pool() -> Result<()> {
             fill_mode_sense6_simple(&mut cdb6, 0x3F, 4);
             ReadCtx::new(
                 c,
-                iscsi_client_rs::models::identifiers::Lun::from_raw(lun),
+                lun,
                 itt,
                 cmd_sn,
                 exp_stat_sn,

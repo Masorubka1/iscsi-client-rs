@@ -11,7 +11,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::debug;
 
 use crate::{
-    cfg::config::Config,
+    cfg::config::{AuthConfig, Config},
     client::client::ClientConnection,
     models::{
         common::{Builder, HEADER_LEN},
@@ -75,7 +75,7 @@ impl<'a> DiscoveryCtx<'a> {
             cfg,
             cancel,
             results: Vec::new(),
-            itt: Itt::new_unchecked(0),
+            itt: 0.into(),
             cmd_sn: 0,
             exp_stat_sn: 0,
             buf: [0u8; HEADER_LEN],
@@ -219,8 +219,8 @@ impl<'ctx> StateMachine<DiscoveryCtx<'ctx>, DiscoveryStep> for Login {
 
             let mut login_ctx = LoginCtx::new(Arc::clone(&conn), ctx.isid, 0, 0);
             match &conn.cfg.login.auth {
-                crate::cfg::config::AuthConfig::Chap(_) => login_ctx.set_chap_login(),
-                crate::cfg::config::AuthConfig::None => login_ctx.set_plain_login(),
+                AuthConfig::Chap(_) => login_ctx.set_chap_login(),
+                AuthConfig::None => login_ctx.set_plain_login(),
             }
 
             let login_pdu = match login_ctx.execute(&ctx.cancel).await {
@@ -342,7 +342,10 @@ impl<'ctx> StateMachine<DiscoveryCtx<'ctx>, DiscoveryStep> for Collect {
             debug!("Discovery: parsed {} target(s)", ctx.results.len());
 
             let next = ctx.itt.get().wrapping_add(1);
-            ctx.itt = Itt::new_unchecked(next);
+            ctx.itt = match Itt::new(next) {
+                Ok(itt) => itt,
+                Err(e) => return Transition::Stay(Err(e)),
+            };
 
             Transition::Next(DiscoveryStates::Logout(Logout), Ok(()))
         })

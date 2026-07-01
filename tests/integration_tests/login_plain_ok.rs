@@ -8,7 +8,6 @@ use iscsi_client_rs::{
     cfg::{config::Config, logger::init_logger},
     client::pool_sessions::Pool,
     models::{
-        identifiers::{Lun, Ttt},
         nop::request::NopOutRequest,
     },
     state_machine::nop_states::NopCtx,
@@ -31,6 +30,7 @@ async fn login_and_nop() -> Result<()> {
     let target_name: Arc<str> = Arc::from(cfg.login.identity.target_name.clone());
     let isid = test_isid();
     let cid: u16 = 0;
+    let ttt = NopOutRequest::DEFAULT_TAG;
 
     let tsih = pool
         .login_and_insert(target_name, isid, cid, conn.clone())
@@ -41,14 +41,7 @@ async fn login_and_nop() -> Result<()> {
 
     // NOP-Out (keep-alive) via pool.execute_with
     pool.execute_with(tsih, cid, |c, itt, cmd_sn, exp_stat_sn| {
-        NopCtx::new(
-            c,
-            Lun::from_raw(lun),
-            itt,
-            cmd_sn,
-            exp_stat_sn,
-            Ttt::new_unchecked(NopOutRequest::DEFAULT_TAG),
-        )
+        NopCtx::new(c, lun, itt, cmd_sn, exp_stat_sn, ttt)
     })
     .await
     .context("NOP failed")?;

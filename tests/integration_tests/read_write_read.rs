@@ -66,7 +66,7 @@ async fn read10_write10_read10_plain_pool() -> Result<()> {
             build_read_capacity16(&mut cdb, 0, false, 32, 0);
             ReadCtx::new(
                 c,
-                iscsi_client_rs::models::identifiers::Lun::from_raw(lun),
+                lun,
                 itt,
                 cmd_sn,
                 exp_stat_sn,
@@ -88,7 +88,7 @@ async fn read10_write10_read10_plain_pool() -> Result<()> {
                     build_read_capacity10(&mut cdb, 0, false, 0);
                     ReadCtx::new(
                         c,
-                        iscsi_client_rs::models::identifiers::Lun::from_raw(lun),
+                        lun,
                         itt,
                         cmd_sn,
                         exp_stat_sn,
@@ -113,7 +113,7 @@ async fn read10_write10_read10_plain_pool() -> Result<()> {
             build_read10(&mut cdb, lba, blocks, 0, 0);
             ReadCtx::new(
                 c,
-                iscsi_client_rs::models::identifiers::Lun::from_raw(lun),
+                lun,
                 itt,
                 cmd_sn,
                 exp_stat_sn,
@@ -130,7 +130,7 @@ async fn read10_write10_read10_plain_pool() -> Result<()> {
             build_read10(&mut cdb, lba, blocks, 0, 0);
             ReadCtx::new(
                 c,
-                iscsi_client_rs::models::identifiers::Lun::from_raw(lun),
+                lun,
                 itt,
                 cmd_sn,
                 exp_stat_sn,
@@ -154,7 +154,7 @@ async fn read10_write10_read10_plain_pool() -> Result<()> {
             build_write10(&mut cdb, lba, blocks, 0, 0);
             WriteCtx::new(
                 c,
-                iscsi_client_rs::models::identifiers::Lun::from_raw(lun),
+                lun,
                 itt,
                 cmd_sn,
                 exp_stat_sn,
@@ -177,7 +177,7 @@ async fn read10_write10_read10_plain_pool() -> Result<()> {
             build_read10(&mut cdb, lba, blocks, 0, 0);
             ReadCtx::new(
                 c,
-                iscsi_client_rs::models::identifiers::Lun::from_raw(lun),
+                lun,
                 itt,
                 cmd_sn,
                 exp_stat_sn,

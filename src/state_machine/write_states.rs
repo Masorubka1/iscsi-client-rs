@@ -427,7 +427,14 @@ impl<'ctx> StateMachine<WriteCtx<'ctx>, WriteStep> for WaitR2T {
                 },
             };
 
-            let ttt = Ttt::new_unchecked(h.target_transfer_tag.get());
+            let ttt = match Ttt::new(h.target_transfer_tag.get()) {
+                Ok(ttt) => ttt,
+                Err(e) => {
+                    return Transition::Done(Err(anyhow!(
+                        "failed read ReadyToTransfer: {e}"
+                    )));
+                },
+            };
             let offset = h.buffer_offset.get() as usize;
             let want = h.desired_data_transfer_length.get() as usize;
 

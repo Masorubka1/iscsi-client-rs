@@ -56,7 +56,7 @@ async fn login_tur_sense_inquiry_vpd() -> Result<()> {
                 itt,
                 cmd_sn,
                 exp_stat_sn,
-                iscsi_client_rs::models::identifiers::Lun::from_raw(lun),
+                lun,
             )
         })
         .await;
@@ -68,7 +68,7 @@ async fn login_tur_sense_inquiry_vpd() -> Result<()> {
             fill_request_sense_simple(&mut cdb, 8);
             ReadCtx::new(
                 c,
-                iscsi_client_rs::models::identifiers::Lun::from_raw(lun),
+                lun,
                 itt,
                 cmd_sn,
                 exp_stat_sn,
@@ -90,7 +90,7 @@ async fn login_tur_sense_inquiry_vpd() -> Result<()> {
             fill_request_sense_simple(&mut cdb, total_sense as u8);
             ReadCtx::new(
                 c,
-                iscsi_client_rs::models::identifiers::Lun::from_raw(lun),
+                lun,
                 itt,
                 cmd_sn,
                 exp_stat_sn,
@@ -109,7 +109,7 @@ async fn login_tur_sense_inquiry_vpd() -> Result<()> {
             itt,
             cmd_sn,
             exp_stat_sn,
-            iscsi_client_rs::models::identifiers::Lun::from_raw(lun),
+            lun,
         )
     })
     .await
@@ -122,7 +122,7 @@ async fn login_tur_sense_inquiry_vpd() -> Result<()> {
             fill_inquiry_standard_simple(&mut cdb, 36);
             ReadCtx::new(
                 c,
-                iscsi_client_rs::models::identifiers::Lun::from_raw(lun),
+                lun,
                 itt,
                 cmd_sn,
                 exp_stat_sn,
@@ -148,7 +148,7 @@ async fn login_tur_sense_inquiry_vpd() -> Result<()> {
             fill_inquiry_vpd_simple(&mut cdb, VpdPage::SupportedPages, 4);
             ReadCtx::new(
                 c,
-                iscsi_client_rs::models::identifiers::Lun::from_raw(lun),
+                lun,
                 itt,
                 cmd_sn,
                 exp_stat_sn,
@@ -170,7 +170,7 @@ async fn login_tur_sense_inquiry_vpd() -> Result<()> {
             fill_inquiry_vpd_simple(&mut cdb, VpdPage::SupportedPages, total_vpd00 as u8);
             ReadCtx::new(
                 c,
-                iscsi_client_rs::models::identifiers::Lun::from_raw(lun),
+                lun,
                 itt,
                 cmd_sn,
                 exp_stat_sn,
@@ -194,7 +194,7 @@ async fn login_tur_sense_inquiry_vpd() -> Result<()> {
                 fill_inquiry_vpd_simple(&mut cdb, VpdPage::UnitSerial, 4);
                 ReadCtx::new(
                     c,
-                    iscsi_client_rs::models::identifiers::Lun::from_raw(lun),
+                    lun,
                     itt,
                     cmd_sn,
                     exp_stat_sn,
@@ -215,7 +215,7 @@ async fn login_tur_sense_inquiry_vpd() -> Result<()> {
                 fill_inquiry_vpd_simple(&mut cdb, VpdPage::UnitSerial, total as u8);
                 ReadCtx::new(
                     c,
-                    iscsi_client_rs::models::identifiers::Lun::from_raw(lun),
+                    lun,
                     itt,
                     cmd_sn,
                     exp_stat_sn,
@@ -239,7 +239,7 @@ async fn login_tur_sense_inquiry_vpd() -> Result<()> {
                 fill_inquiry_vpd_simple(&mut cdb, VpdPage::DeviceId, 4);
                 ReadCtx::new(
                     c,
-                    iscsi_client_rs::models::identifiers::Lun::from_raw(lun),
+                    lun,
                     itt,
                     cmd_sn,
                     exp_stat_sn,
@@ -260,7 +260,7 @@ async fn login_tur_sense_inquiry_vpd() -> Result<()> {
                 fill_inquiry_vpd_simple(&mut cdb, VpdPage::DeviceId, total as u8);
                 ReadCtx::new(
                     c,
-                    iscsi_client_rs::models::identifiers::Lun::from_raw(lun),
+                    lun,
                     itt,
                     cmd_sn,
                     exp_stat_sn,
