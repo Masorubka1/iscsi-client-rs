@@ -301,6 +301,40 @@ jobs:
         if: always()
         run: bash ci/truenas/stop-qemu.sh
 
+  lint:
+    name: Lint (clippy + rustfmt)
+    runs-on: ubuntu-latest
+    needs: [rustfmt, clippy]
+    if: always()
+    steps:
+      - name: Verify lint jobs passed
+        env:
+          RUSTFMT_RESULT: ${{ needs.rustfmt.result }}
+          CLIPPY_RESULT: ${{ needs.clippy.result }}
+        run: |
+          test "$RUSTFMT_RESULT" = "success"
+          test "$CLIPPY_RESULT" = "success"
+
+  tests:
+    name: Run tests
+    runs-on: ubuntu-latest
+    needs: [unit, build-integration, test-tgt, test-lio, test-truenas]
+    if: always()
+    steps:
+      - name: Verify test jobs passed
+        env:
+          UNIT_RESULT: ${{ needs.unit.result }}
+          BUILD_RESULT: ${{ needs.build-integration.result }}
+          TGT_RESULT: ${{ needs.test-tgt.result }}
+          LIO_RESULT: ${{ needs.test-lio.result }}
+          TRUENAS_RESULT: ${{ needs.test-truenas.result }}
+        run: |
+          test "$UNIT_RESULT" = "success"
+          test "$BUILD_RESULT" = "success"
+          test "$TGT_RESULT" = "success"
+          test "$LIO_RESULT" = "success"
+          test "$TRUENAS_RESULT" = "success"
+
   publish:
     name: Publish to crates.io
     runs-on: ubuntu-latest
