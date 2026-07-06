@@ -1,1 +1,5 @@
 * @Masorubka1
+
+# Dependabot-managed Cargo files may merge after required checks pass.
+/Cargo.toml
+/Cargo.lock
