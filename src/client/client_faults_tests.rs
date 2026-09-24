@@ -16,12 +16,14 @@ use crate::{
     cfg::{config::Config, enums::Digest},
     client::client::ClientConnection,
     models::{
+        command::response::ScsiCommandResponse,
         common::HEADER_LEN,
         data_fromat::PduRequest,
         nop::{
             request::{NopOutRequest, NopOutRequestBuilder},
             response::NopInResponse,
         },
+        ready_2_transfer::response::ReadyToTransfer,
     },
 };
 
@@ -136,6 +138,58 @@ async fn read_timeout_poisons_connection() -> Result<()> {
 
     wait_until_poisoned(&conn).await?;
     server.abort();
+    Ok(())
+}
+
+#[tokio::test]
+async fn r2t_keeps_request_pending_until_scsi_response() -> Result<()> {
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let address = listener.local_addr()?;
+    let server = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.expect("accept");
+        let mut request = [0u8; HEADER_LEN];
+        stream.read_exact(&mut request).await.expect("request BHS");
+
+        let mut r2t = [0u8; HEADER_LEN];
+        r2t[0] = 0x31;
+        r2t[16..20].copy_from_slice(&request[16..20]);
+        r2t[20..24].copy_from_slice(&1u32.to_be_bytes());
+        r2t[44..48].copy_from_slice(&512u32.to_be_bytes());
+
+        let mut response = [0u8; HEADER_LEN];
+        response[0] = 0x21;
+        response[1] = 0x80;
+        response[16..20].copy_from_slice(&request[16..20]);
+
+        stream.write_all(&r2t).await.expect("R2T BHS");
+        stream
+            .write_all(&response)
+            .await
+            .expect("SCSI response BHS");
+        sleep(Duration::from_millis(100)).await;
+    });
+
+    let cfg = test_config(
+        address.to_string(),
+        Duration::from_millis(200),
+        Digest::None,
+    )?;
+    let conn = ClientConnection::connect(cfg.clone(), CancellationToken::new()).await?;
+    let itt = 44.into();
+    let header = NopOutRequestBuilder::new()
+        .initiator_task_tag(itt)
+        .target_task_tag(NopOutRequest::DEFAULT_TAG)
+        .immediate();
+    let mut header_buf = [0u8; HEADER_LEN];
+    header.header.to_bhs_bytes(&mut header_buf)?;
+    let request = PduRequest::<NopOutRequest>::new_request(header_buf, &cfg);
+
+    conn.send_request(itt, request).await?;
+    conn.read_response::<ReadyToTransfer>(itt).await?;
+    conn.read_response::<ScsiCommandResponse>(itt).await?;
+    assert!(!conn.is_poisoned());
+
+    server.await?;
     Ok(())
 }
 
