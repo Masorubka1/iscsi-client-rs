@@ -23,7 +23,7 @@ jobs:
       - name: Install Rust toolchain
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: nightly
+          toolchain: nightly-2026-06-03
           components: rustfmt
 
       - &cache-cargo
@@ -47,7 +47,7 @@ jobs:
           done
 
       - name: rustfmt check
-        run: cargo +nightly fmt -- --check
+        run: cargo +nightly-2026-06-03 fmt -- --check
 
   clippy:
     name: Clippy
