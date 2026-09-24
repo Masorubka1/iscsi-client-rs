@@ -67,7 +67,9 @@ impl ReadyToTransfer {
 
 impl SendingData for ReadyToTransfer {
     fn get_final_bit(&self) -> bool {
-        true
+        // R2T is an intermediate response in a SCSI write exchange. Keep the
+        // request's ITT registered until the final SCSI Command Response.
+        false
     }
 
     fn set_final_bit(&mut self) {
