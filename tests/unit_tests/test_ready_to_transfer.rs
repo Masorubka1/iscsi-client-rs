@@ -6,7 +6,7 @@ use bytes::Bytes;
 use iscsi_client_rs::{
     cfg::{cli::resolve_config_path, config::Config},
     models::{
-        common::HEADER_LEN,
+        common::{HEADER_LEN, SendingData},
         data_fromat::PduResponse,
         opcode::{BhsOpcode, Opcode},
         ready_2_transfer::response::ReadyToTransfer,
@@ -46,6 +46,10 @@ fn test_reject_parse() -> Result<()> {
 
     assert_eq!(hdr.stat_sn.get(), 6);
     assert_eq!(hdr.exp_cmd_sn.get(), 5);
+    assert!(
+        !hdr.get_final_bit(),
+        "R2T must keep the ITT pending for subsequent write responses"
+    );
 
     Ok(())
 }
