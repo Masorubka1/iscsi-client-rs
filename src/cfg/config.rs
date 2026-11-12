@@ -229,7 +229,7 @@ impl Config {
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
         let s = fs::read_to_string(path)?;
         let mut cfg: Config =
-            serde_yaml::from_str(&s).context("failed to parse config YAML")?;
+            serde_saphyr::from_str(&s).context("failed to parse config YAML")?;
         cfg.validate_and_normalize()?;
         Ok(cfg)
     }

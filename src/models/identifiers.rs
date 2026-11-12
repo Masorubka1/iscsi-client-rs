@@ -348,7 +348,7 @@ impl IttGen {
     pub fn fetch_inc(&self) -> Itt {
         let curr = self
             .0
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |curr| {
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |curr| {
                 let next = curr.wrapping_add(1);
                 Some(if next == Itt::RESERVED { 0 } else { next })
             })

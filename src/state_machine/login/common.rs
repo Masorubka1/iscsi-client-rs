@@ -2,6 +2,9 @@
 //! machine. It provides the context and state definitions for handling the
 //! login process.
 
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2012-2025 Andrei Maltsev
+
 use std::{collections::HashMap, marker::PhantomData, sync::Arc};
 
 use anyhow::{Context, Result, anyhow, bail};
