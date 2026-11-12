@@ -2,6 +2,9 @@
 //! process. It includes the states and transitions for handling the CHAP
 //! exchange.
 
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2012-2025 Andrei Maltsev
+
 use std::pin::Pin;
 
 use anyhow::{Context, Result, anyhow};

@@ -307,7 +307,7 @@ impl tracing::field::Visit for JsonVisitor {
 pub fn init_logger(config_path: &str) -> anyhow::Result<WorkerGuard> {
     let config_content = fs::read_to_string(config_path)
         .with_context(|| format!("Failed to read config file: {config_path}"))?;
-    let config: LoggerConfig = serde_yaml::from_str(&config_content)
+    let config: LoggerConfig = serde_saphyr::from_str(&config_content)
         .with_context(|| format!("Failed to parse config file: {config_path}"))?;
 
     let (writer, guard) = make_writer(&config.logger)?;
