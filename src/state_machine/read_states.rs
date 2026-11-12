@@ -189,11 +189,9 @@ impl<'a> ReadCtx<'a> {
             self.rt.acc.extend_from_slice(data);
         }
 
-        if h.stat_sn_or_rsvd.get() != 0 {
+        if h.get_status_bit() {
             self.exp_stat_sn
                 .store(h.stat_sn_or_rsvd.get().wrapping_add(1), Ordering::SeqCst);
-        }
-        if h.get_status_bit() {
             self.rt.status_in_datain = h.scsi_status();
             self.rt.residual_in_datain = Some(h.residual_effective());
         }
