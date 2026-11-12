@@ -73,12 +73,13 @@ async fn concurrent_writes_and_reads_share_one_connection() -> Result<()> {
         write.await.context("write task panicked")??;
     }
 
+    let session = pool.session(tsih)?;
     let mut reads = Vec::with_capacity(REQUESTS as usize);
     for index in 0..REQUESTS {
-        let pool = Arc::clone(&pool);
+        let session = Arc::clone(&session);
         reads.push(tokio::spawn(async move {
-            let result = pool
-                .execute_with_ctx(tsih, Cid::ZERO, |env| {
+            let result = session
+                .execute_with_ctx(Cid::ZERO, |env| {
                     let mut cdb = [0u8; 16];
                     build_read10(&mut cdb, START_LBA + index, 1, 0, 0);
                     ReadCtx::from_execute_env(env, lun, block_size as u32, cdb)

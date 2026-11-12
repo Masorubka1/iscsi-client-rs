@@ -14,3 +14,6 @@ pub mod pdu_connection;
 mod pending_requests;
 /// Manages a pool of iSCSI sessions.
 pub mod pool_sessions;
+/// Session state, command execution, and recovery.
+pub mod session;
+mod transport;

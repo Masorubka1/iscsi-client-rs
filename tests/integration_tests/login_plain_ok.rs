@@ -41,6 +41,13 @@ async fn login_and_nop() -> Result<()> {
         .await
         .context("NOP failed")?;
 
+    conn.send_keepalive(lun)
+        .await
+        .context("session keepalive failed")?;
+    conn.send_keepalive_via_pool_lun(lun)
+        .await
+        .context("compatibility keepalive failed")?;
+
     pool.shutdown_gracefully(Duration::from_secs(10)).await?;
 
     Ok(())

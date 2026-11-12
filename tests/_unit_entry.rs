@@ -48,6 +48,7 @@ mod unit_tests {
     }
 
     pub mod test_ahs;
+    pub mod test_client_transport;
     pub mod test_config;
     pub mod test_discovery;
     pub mod test_login;

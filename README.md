@@ -138,6 +138,19 @@ let jobs = (0..8).map(|_| {
 try_join_all(jobs).await?;
 ```
 
+## Client structure
+
+* `Pool` owns the session registry, login, logout, and shutdown.
+* `Session` owns command execution, session counters, and connection recovery.
+* `ClientConnection` routes responses by ITT and handles connection lifecycle and NOP exchanges.
+* The internal `Transport` owns TCP, complete-PDU framing, socket timeouts, and serialized writes.
+
+The existing `Pool::execute_with_ctx` entry point delegates to the session.
+`pool.session(tsih)?` returns an `Arc<Session>` for calling
+`session.execute_with_ctx(cid, build)` directly, without holding a registry lock.
+`Session`, `Connection`, and `ExecuteEnv` remain available through
+`client::pool_sessions`; their implementation lives in `client::session`.
+
 ## Troubleshooting
 
 * Stuck ITTs usually mean broken finality rules. `ScsiDataIn` is final only when `F=1 && S=1`; `ScsiCommandResponse` is always final; `R2T` is never final.

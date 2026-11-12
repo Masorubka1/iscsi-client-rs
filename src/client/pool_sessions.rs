@@ -2,78 +2,33 @@
 // Copyright (C) 2012-2025 Andrei Maltsev
 
 use std::{
-    sync::{Arc, Weak, atomic::AtomicU32},
+    sync::{Arc, atomic::AtomicU32},
     time::Duration,
 };
 
-use anyhow::{Context, Result, bail, ensure};
-use dashmap::{DashMap, mapref::entry::Entry};
+use anyhow::{Context, Result, ensure};
+use dashmap::DashMap;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
+pub use super::session::{Connection, ExecuteEnv, Session};
 use crate::{
-    cfg::config::{AuthConfig, Config},
-    client::client::ClientConnection,
+    cfg::config::Config,
+    client::{
+        client::ClientConnection,
+        session::{RecoveryExhausted, login_connection},
+    },
     models::{
         common::BasicHeaderSegment,
-        data_fromat,
         identifiers::{Cid, Isid, IttGen, Tsih},
         logout::common::LogoutReason,
-        nop::response::NopInResponse,
     },
     state_machine::{
         common::StateMachineCtx,
         discovery::{DiscoveredTarget, DiscoveryCtx},
-        login::common::LoginCtx,
         logout_states::LogoutCtx,
-        nop_states::NopCtx,
     },
 };
-
-/// Per-connection state within an iSCSI session
-///
-/// Represents a single TCP connection within an iSCSI session. A session may
-/// have multiple connections (Multi-Connection per Session - MC/S) for
-/// increased throughput.
-#[derive(Debug)]
-pub struct Connection {
-    /// Connection ID - unique identifier for this connection within the session
-    /// Identifier of this connection within its session.
-    pub cid: Cid,
-    /// Reference to the underlying client connection handling TCP communication
-    pub conn: Arc<ClientConnection>,
-    /// Next Expected StatSN (ACK). Bumped when we accept a reply from target.
-    /// Used to track the sequence of status responses from the target.
-    pub exp_stat_sn: Arc<AtomicU32>,
-}
-
-/// Per-session state identified by ISID+TSIH combination
-///
-/// Represents an iSCSI session which is a logical connection between an
-/// initiator and target. A session may have multiple TCP connections
-/// (Multi-Connection per Session - MC/S) for increased performance and
-/// redundancy.
-#[derive(Debug)]
-pub struct Session {
-    /// Target Session Identifying Handle - assigned by target during login
-    /// Handle assigned by the target to this session.
-    pub tsih: Tsih,
-    /// Initiator Session ID - 6 bytes identifying the session from initiator
-    /// side
-    /// Identifier selected by the initiator for this session.
-    pub isid: Isid,
-    /// Name of the target this session is connected to
-    pub target_name: Arc<str>,
-    /// Map of connection ID to connection objects within this session
-    pub conns: DashMap<Cid, Arc<Connection>>,
-
-    /// CmdSN generator for numbered commands (incremented on every
-    /// non-immediate command). Ensures proper command ordering.
-    cmd_sn: Arc<AtomicU32>,
-    /// ITT (Initiator Task Tag) generator - unique within a session.
-    /// Used to match requests with responses.
-    itt_gen: Arc<IttGen>,
-}
 
 /// Pool of iSCSI sessions and connections
 ///
@@ -89,22 +44,10 @@ pub struct Pool {
     max_connections: u16,
     /// Retries allowed after the initial connection failure.
     max_connection_recovery_attempts: usize,
-    /// Weak self-reference to avoid circular dependencies
-    self_weak: Weak<Pool>,
-
     /// Root cancellation token for the entire pool.
     /// Child tokens are passed to connections so we can abort all I/O on full
     /// shutdown.
     cancel: CancellationToken,
-}
-
-/// Injected session/connection state used to build a state-machine context.
-#[derive(Clone)]
-pub struct ExecuteEnv {
-    pub conn: Arc<ClientConnection>,
-    pub itt_gen: Arc<IttGen>,
-    pub cmd_sn: Arc<AtomicU32>,
-    pub exp_stat_sn: Arc<AtomicU32>,
 }
 
 impl Pool {
@@ -115,14 +58,13 @@ impl Pool {
 
     /// Optionally construct with an external root cancellation token.
     pub fn with_cancel(cfg: &Config, cancel: CancellationToken) -> Arc<Self> {
-        Arc::new_cyclic(|self_weak| Self {
+        Arc::new(Self {
             sessions: DashMap::with_capacity(cfg.runtime.max_sessions as usize),
             max_sessions: cfg.runtime.max_sessions,
             max_connections: cfg.login.limits.max_connections,
             max_connection_recovery_attempts: cfg
                 .runtime
                 .max_connection_recovery_attempts,
-            self_weak: self_weak.clone(),
             cancel,
         })
     }
@@ -131,6 +73,14 @@ impl Pool {
     #[inline]
     pub fn cancel_token(&self) -> CancellationToken {
         self.cancel.clone()
+    }
+
+    /// Returns a session handle without holding a registry lock.
+    pub fn session(&self, tsih: Tsih) -> Result<Arc<Session>> {
+        self.sessions
+            .get(&tsih)
+            .map(|entry| entry.clone())
+            .with_context(|| format!("unknown TSIH={tsih}"))
     }
 
     /// Login all sessions sequentially.
@@ -194,73 +144,6 @@ impl Pool {
         Ok(())
     }
 
-    fn drop_connection_local(&self, tsih: Tsih, cid: Cid) {
-        let should_remove_session = if let Some(sess) = self.sessions.get(&tsih) {
-            sess.conns.remove(&cid);
-            sess.conns.is_empty()
-        } else {
-            false
-        };
-
-        if should_remove_session {
-            self.sessions.remove(&tsih);
-        }
-    }
-
-    async fn recover_connection(
-        &self,
-        tsih: Tsih,
-        cid: Cid,
-        expected: Arc<Connection>,
-    ) -> Result<()> {
-        #[cfg(feature = "profiling-puffin")]
-        profiling::function_scope!();
-        let sess = self
-            .sessions
-            .get(&tsih)
-            .with_context(|| format!("unknown TSIH={tsih}"))?
-            .clone();
-
-        if let Some(current) = sess.conns.get(&cid).map(|entry| entry.clone())
-            && !Arc::ptr_eq(&current, &expected)
-            && !current.conn.is_poisoned()
-        {
-            return Ok(());
-        }
-
-        let target_name = sess.target_name.clone();
-        let isid = sess.isid;
-        let cfg = expected.conn.cfg.clone();
-        let mut removed = None;
-
-        if let Some(current) = sess.conns.get(&cid).map(|entry| entry.clone()) {
-            if Arc::ptr_eq(&current, &expected) || current.conn.is_poisoned() {
-                removed = sess.conns.remove(&cid).map(|(_, conn)| conn);
-            } else {
-                return Ok(());
-            }
-        }
-
-        let child = self.cancel.child_token();
-        let recovery = async {
-            let conn = ClientConnection::connect(cfg, child).await?;
-            let _ = self
-                .login_one_and_insert_impl(target_name, isid, tsih, cid, conn)
-                .await?;
-            Ok(())
-        }
-        .await;
-
-        if recovery.is_err()
-            && let Some(previous) = removed
-            && sess.conns.get(&cid).is_none()
-        {
-            sess.conns.insert(cid, previous);
-        }
-
-        recovery
-    }
-
     async fn login_one_and_insert_impl(
         &self,
         target_name: Arc<str>,
@@ -271,13 +154,8 @@ impl Pool {
     ) -> Result<Tsih> {
         #[cfg(feature = "profiling-puffin")]
         profiling::function_scope!();
-        let mut l = LoginCtx::new(conn.clone(), isid, cid, tsih_hint);
-        match &conn.cfg.login.auth {
-            AuthConfig::Chap(_) => l.set_chap_login(),
-            AuthConfig::None => l.set_plain_login(),
-        }
-
-        let login_pdu = l.execute(&self.cancel).await.context("login failed")?;
+        let login_pdu =
+            login_connection(conn.clone(), isid, tsih_hint, cid, &self.cancel).await?;
         let hdr = login_pdu.header_view()?;
 
         let tsih = Tsih::new(hdr.tsih.get());
@@ -293,6 +171,9 @@ impl Pool {
                     target_name: target_name.clone(),
                     conns: DashMap::with_capacity(self.max_connections as usize),
                     cmd_sn: Arc::new(AtomicU32::new(hdr.exp_cmd_sn.get())),
+                    cancel: self.cancel.clone(),
+                    max_connection_recovery_attempts: self
+                        .max_connection_recovery_attempts,
                     itt_gen: Arc::new(IttGen::new(
                         hdr.get_initiator_task_tag().get().wrapping_add(1).into(),
                     )),
@@ -300,19 +181,7 @@ impl Pool {
             })
             .clone();
 
-        match sess.conns.entry(cid) {
-            Entry::Occupied(_) => bail!("CID={cid} already exists in TSIH={tsih}"),
-            Entry::Vacant(entry) => {
-                conn.bind_pool_session(self.self_weak.clone(), tsih, cid);
-                entry.insert(Arc::new(Connection {
-                    cid,
-                    conn: conn.clone(),
-                    exp_stat_sn: Arc::new(AtomicU32::new(
-                        hdr.stat_sn.get().wrapping_add(1),
-                    )),
-                }));
-            },
-        }
+        sess.insert_connection(cid, conn, hdr.stat_sn.get())?;
 
         Ok(tsih)
     }
@@ -504,82 +373,16 @@ impl Pool {
         Build: Fn(ExecuteEnv) -> Ctx,
         Ctx: StateMachineCtx<Ctx, Res>,
     {
-        #[cfg(feature = "profiling-puffin")]
-        profiling::function_scope!();
-        for attempt in 0..=self.max_connection_recovery_attempts {
-            let sess = self
-                .sessions
-                .get(&tsih)
-                .with_context(|| format!("unknown TSIH={tsih}"))?
-                .clone();
-            let conn = sess
-                .conns
-                .get(&cid)
-                .with_context(|| format!("CID={cid} not found in TSIH={tsih}"))?
-                .clone();
-
-            if conn.conn.is_poisoned() {
-                warn!(
-                    "TSIH={}, CID={} is poisoned before execute attempt {}",
-                    tsih,
-                    cid,
-                    attempt + 1,
-                );
-            } else {
-                let mut ctx = build(ExecuteEnv {
-                    conn: conn.conn.clone(),
-                    itt_gen: sess.itt_gen.clone(),
-                    cmd_sn: sess.cmd_sn.clone(),
-                    exp_stat_sn: conn.exp_stat_sn.clone(),
-                });
-                match ctx.execute(&conn.conn.stop_writes).await {
-                    Ok(res) => return Ok(res),
-                    Err(error) if conn.conn.is_poisoned() => {
-                        warn!(
-                            "TSIH={}, CID={} poisoned during execute attempt {}: {}",
-                            tsih,
-                            cid,
-                            attempt + 1,
-                            error
-                        );
-                    },
-                    Err(error) => return Err(error),
-                }
-            }
-
-            if attempt == self.max_connection_recovery_attempts {
-                self.drop_connection_local(tsih, cid);
-                return Err(anyhow::anyhow!(
-                    "connection recovery attempts exhausted for TSIH={}, CID={}",
-                    tsih,
-                    cid
-                ));
-            }
-
-            match self.recover_connection(tsih, cid, conn.clone()).await {
-                Ok(()) => {
-                    debug!(
-                        "recovered TSIH={}, CID={} after poisoned connection",
-                        tsih, cid
-                    );
-                },
-                Err(error) => {
-                    warn!(
-                        "failed to recover TSIH={}, CID={} on attempt {}: {}",
-                        tsih,
-                        cid,
-                        attempt + 1,
-                        error
-                    );
-                },
-            }
+        let session = self.session(tsih)?;
+        let result = session.execute_with_ctx(cid, build).await;
+        if result
+            .as_ref()
+            .is_err_and(|error| error.is::<RecoveryExhausted>())
+            && session.conns.is_empty()
+        {
+            self.sessions.remove(&tsih);
         }
-
-        Err(anyhow::anyhow!(
-            "connection recovery attempts exhausted for TSIH={}, CID={}",
-            tsih,
-            cid
-        ))
+        result
     }
 
     /// Run SendTargets discovery against a portal using the provided config.
@@ -600,36 +403,6 @@ impl Pool {
     pub async fn discover_targets(cfg: &Config) -> Result<Vec<DiscoveredTarget>> {
         let cancel = CancellationToken::new();
         DiscoveryCtx::discover(cfg.clone(), cancel).await
-    }
-
-    pub(crate) async fn execute_nop_reply(
-        &self,
-        tsih: Tsih,
-        cid: Cid,
-        pdu: data_fromat::PduResponse<NopInResponse>,
-    ) -> Result<()> {
-        #[cfg(feature = "profiling-puffin")]
-        profiling::function_scope!();
-        let sess = self
-            .sessions
-            .get(&tsih)
-            .with_context(|| format!("unknown TSIH={tsih}"))?
-            .clone();
-        let conn = sess
-            .conns
-            .get(&cid)
-            .with_context(|| format!("CID={cid} not found in TSIH={tsih}"))?
-            .clone();
-
-        let mut ctx = NopCtx::for_reply(
-            conn.conn.clone(),
-            &sess.itt_gen,
-            sess.cmd_sn.clone(),
-            conn.exp_stat_sn.clone(),
-            pdu,
-        )?;
-        ctx.execute(&conn.conn.stop_writes).await?;
-        Ok(())
     }
 }
 
