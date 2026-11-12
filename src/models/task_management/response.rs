@@ -1,5 +1,8 @@
 //! SCSI Task Management Function Response PDU.
 
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2012-2025 Andrei Maltsev
+
 use anyhow::{Result, bail};
 use tracing::{error, warn};
 use zerocopy::{

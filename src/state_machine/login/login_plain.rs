@@ -1,6 +1,9 @@
 //! This module defines the state machine for the iSCSI plain login process.
 //! It includes the state and transitions for handling an unauthenticated login.
 
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2012-2025 Andrei Maltsev
+
 use std::pin::Pin;
 
 use anyhow::anyhow;
