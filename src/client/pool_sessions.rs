@@ -6,8 +6,8 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{Context, Result, ensure};
-use dashmap::DashMap;
+use anyhow::{Context, Result, bail, ensure};
+use dashmap::{DashMap, mapref::entry::Entry};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
@@ -300,20 +300,19 @@ impl Pool {
             })
             .clone();
 
-        let inserted = sess.conns.insert(
-            cid,
-            Arc::new(Connection {
-                cid,
-                conn: conn.clone(),
-                exp_stat_sn: Arc::new(AtomicU32::new(hdr.stat_sn.get().wrapping_add(1))),
-            }),
-        );
-        ensure!(
-            inserted.is_none(),
-            "CID={cid} already exists in TSIH={tsih}"
-        );
-
-        conn.bind_pool_session(self.self_weak.clone(), tsih, cid);
+        match sess.conns.entry(cid) {
+            Entry::Occupied(_) => bail!("CID={cid} already exists in TSIH={tsih}"),
+            Entry::Vacant(entry) => {
+                conn.bind_pool_session(self.self_weak.clone(), tsih, cid);
+                entry.insert(Arc::new(Connection {
+                    cid,
+                    conn: conn.clone(),
+                    exp_stat_sn: Arc::new(AtomicU32::new(
+                        hdr.stat_sn.get().wrapping_add(1),
+                    )),
+                }));
+            },
+        }
 
         Ok(tsih)
     }
