@@ -5,23 +5,14 @@ mod read;
 mod write;
 
 use std::{
-    sync::{
-        Arc, Weak,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::{Arc, Weak},
     time::Duration,
 };
 
 use anyhow::{Result, anyhow, bail};
 use once_cell::sync::OnceCell;
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::{
-        TcpStream,
-        tcp::{OwnedReadHalf, OwnedWriteHalf},
-    },
     select,
-    sync::Mutex,
     time::{Instant, sleep},
 };
 use tokio_util::sync::CancellationToken;
@@ -30,44 +21,34 @@ use tracing::{debug, warn};
 use crate::{
     cfg::config::Config,
     client::{
-        common::{io_with_timeout, is_timeout_error},
-        pending_requests::PendingRequests,
-        pool_sessions::Pool,
+        common::is_timeout_error, connection_state::ConnectionState,
+        pending_requests::PendingRequests, session::Session, transport::Transport,
     },
     models::{
-        identifiers::{Cid, Lun, Tsih},
+        identifiers::{Cid, Lun},
         nop::request::NopOutRequest,
     },
     state_machine::nop_states::NopCtx,
 };
 
-/// A weak reference to a session in the pool, used for unsolicited NOP-In
-/// auto-replies.
-///
-/// Contains a weak reference to the session pool and identifies a specific
-/// session and connection within that pool.
+/// Identifies the owning session for keepalives and unsolicited NOP-In
+/// auto-replies without keeping the session alive.
 #[derive(Debug, Clone)]
 struct SessionRef {
-    /// Weak reference to the session pool to avoid circular references
-    pool: Weak<Pool>,
-    /// Target Session Identifying Handle
-    tsih: Tsih,
+    /// Weak reference to the owning session to avoid circular references
+    session: Weak<Session>,
     /// Connection ID within the session
     cid: Cid,
 }
 
 /// Represents a single iSCSI connection over a TCP stream.
 ///
-/// This struct manages sending requests (PDUs) and receiving responses, and is
-/// responsible for framing PDUs based on the information in their headers. It
-/// handles the low-level TCP communication with proper framing according to the
-/// iSCSI protocol.
+/// Routes responses to pending requests and manages connection lifecycle.
+/// Socket I/O and PDU framing are delegated to the transport.
 #[derive(Debug)]
 pub struct ClientConnection {
-    /// TCP read half protected by mutex for concurrent access
-    pub(crate) reader: Mutex<OwnedReadHalf>,
-    /// TCP write half protected by mutex for concurrent access
-    pub(crate) writer: Mutex<OwnedWriteHalf>,
+    /// Socket I/O and complete-PDU framing.
+    transport: Transport,
     /// Configuration parameters for this connection
     pub(crate) cfg: Config,
     /// Routes responses from the read loop to the request that owns the ITT.
@@ -82,7 +63,7 @@ pub struct ClientConnection {
     /// "Soft stop" gate for writes: when cancelled, new writes are rejected,
     /// but the read loop keeps draining in-flight responses.
     pub(crate) stop_writes: CancellationToken,
-    poisoned: AtomicBool,
+    state: ConnectionState,
 }
 
 impl ClientConnection {
@@ -90,18 +71,17 @@ impl ClientConnection {
     pub async fn connect(cfg: Config, cancel: CancellationToken) -> Result<Arc<Self>> {
         #[cfg(feature = "profiling-puffin")]
         profiling::function_scope!();
-        let stream = io_with_timeout(
-            "connect",
-            TcpStream::connect(&cfg.login.transport.target_address),
-            cfg.runtime.timeout_connection,
-            &cancel,
-        )
-        .await?;
-        stream.set_nodelay(true)?;
-
-        let (r, w) = stream.into_split();
-
-        let conn = Self::from_split_no_reader(r, w, cfg, cancel);
+        let transport = Transport::connect(&cfg, cancel.clone()).await?;
+        let pending = PendingRequests::new(cfg.runtime.response_queue_capacity);
+        let conn = Arc::new(Self {
+            transport,
+            cfg,
+            pending,
+            session_ref: OnceCell::new(),
+            cancel,
+            stop_writes: CancellationToken::new(),
+            state: ConnectionState::default(),
+        });
 
         let reader = Arc::clone(&conn);
         tokio::spawn(async move {
@@ -120,8 +100,8 @@ impl ClientConnection {
         Ok(conn)
     }
 
-    pub(crate) fn bind_pool_session(&self, pool: Weak<Pool>, tsih: Tsih, cid: Cid) {
-        let _ = self.session_ref.set(SessionRef { pool, tsih, cid });
+    pub(crate) fn bind_session(&self, session: Weak<Session>, cid: Cid) {
+        let _ = self.session_ref.set(SessionRef { session, cid });
     }
 
     #[inline]
@@ -142,86 +122,6 @@ impl ClientConnection {
             bail!("writes are quiesced");
         }
         Ok(())
-    }
-
-    #[inline]
-    pub(super) fn digest_flags(&self) -> (bool, bool) {
-        (
-            self.cfg.login.integrity.header_digest == crate::cfg::enums::Digest::CRC32C,
-            self.cfg.login.integrity.data_digest == crate::cfg::enums::Digest::CRC32C,
-        )
-    }
-
-    pub(super) async fn read_exact_with_timeout(
-        &self,
-        reader: &mut OwnedReadHalf,
-        buf: &mut [u8],
-        label: &'static str,
-    ) -> Result<()> {
-        #[cfg(feature = "profiling-puffin")]
-        profiling::scope!("read_exact_with_timeout", label);
-        io_with_timeout(
-            label,
-            reader.read_exact(buf),
-            self.cfg.runtime.timeout_connection,
-            &self.cancel,
-        )
-        .await
-        .map_err(|error| {
-            if is_timeout_error(&error) {
-                self.poison(format!("{label} timeout: {error}"));
-            }
-            error
-        })?;
-        Ok(())
-    }
-
-    pub(super) async fn write_all_with_timeout(
-        &self,
-        writer: &mut OwnedWriteHalf,
-        buf: &[u8],
-        label: &'static str,
-    ) -> Result<()> {
-        #[cfg(feature = "profiling-puffin")]
-        profiling::scope!("write_all_with_timeout", label);
-        io_with_timeout(
-            label,
-            writer.write_all(buf),
-            self.cfg.runtime.timeout_connection,
-            &self.cancel,
-        )
-        .await
-        .map_err(|error| {
-            if is_timeout_error(&error) {
-                self.poison(format!("{label} timeout: {error}"));
-            }
-            error
-        })?;
-        Ok(())
-    }
-
-    #[inline]
-    fn cancel_now(&self) {
-        self.cancel.cancel();
-    }
-
-    pub(crate) fn from_split_no_reader(
-        r: OwnedReadHalf,
-        w: OwnedWriteHalf,
-        cfg: Config,
-        cancel: CancellationToken,
-    ) -> Arc<Self> {
-        let pending = PendingRequests::new(cfg.runtime.response_queue_capacity);
-        Arc::new(Self {
-            reader: Mutex::new(r),
-            writer: Mutex::new(w),
-            cfg,
-            pending,
-            session_ref: OnceCell::new(),
-            cancel,
-            stop_writes: CancellationToken::new(),
-            poisoned: AtomicBool::new(false),
-        })
     }
 
     /// Forbid new writes (no FIN). The reader continues to receive and deliver
@@ -266,16 +166,16 @@ impl ClientConnection {
     /// Prefer `graceful_quiesce()` + `half_close_writes()` for graceful
     /// shutdowns.
     pub fn kill_now(&self) {
-        self.cancel_now();
+        self.cancel.cancel();
     }
 
     pub fn is_poisoned(&self) -> bool {
-        self.poisoned.load(Ordering::SeqCst)
+        self.state.is_poisoned()
     }
 
     pub(crate) fn poison(&self, reason: impl Into<String>) {
         let reason = reason.into();
-        let first_poison = !self.poisoned.swap(true, Ordering::SeqCst);
+        let first_poison = self.state.mark_poisoned();
         self.stop_writes.cancel();
         self.cancel.cancel();
         self.pending.abort_all();
@@ -285,21 +185,28 @@ impl ClientConnection {
         }
     }
 
-    pub async fn send_keepalive_via_pool_lun(self: &Arc<Self>, lun: Lun) -> Result<()> {
+    /// Sends a keepalive through the owning session, including its recovery
+    /// policy.
+    pub async fn send_keepalive(self: &Arc<Self>, lun: Lun) -> Result<()> {
         let sr = self
             .session_ref
             .get()
             .ok_or_else(|| anyhow!("connection is not bound to a pool/session"))?;
-        let pool = sr
-            .pool
+        let session = sr
+            .session
             .upgrade()
-            .ok_or_else(|| anyhow!("pool has been dropped"))?;
+            .ok_or_else(|| anyhow!("session has been dropped"))?;
         let ttt = NopOutRequest::DEFAULT_TAG;
 
-        pool.execute_with_ctx(sr.tsih, sr.cid, move |env| {
-            NopCtx::from_execute_env(env, lun, ttt)
-        })
-        .await?;
+        session
+            .execute_with_ctx(sr.cid, move |env| NopCtx::from_execute_env(env, lun, ttt))
+            .await?;
         Ok(())
+    }
+
+    /// Compatibility entry point for callers using the original pool-based
+    /// name.
+    pub async fn send_keepalive_via_pool_lun(self: &Arc<Self>, lun: Lun) -> Result<()> {
+        self.send_keepalive(lun).await
     }
 }

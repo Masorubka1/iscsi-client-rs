@@ -9,8 +9,12 @@ pub mod client;
 #[cfg(test)]
 mod client_faults_tests;
 mod common;
+mod connection_state;
 /// Traits for handling PDU serialization and deserialization.
 pub mod pdu_connection;
 mod pending_requests;
 /// Manages a pool of iSCSI sessions.
 pub mod pool_sessions;
+/// Session state, command execution, and recovery.
+pub mod session;
+mod transport;

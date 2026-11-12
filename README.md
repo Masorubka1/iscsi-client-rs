@@ -138,6 +138,19 @@ let jobs = (0..8).map(|_| {
 try_join_all(jobs).await?;
 ```
 
+## Client structure
+
+* `Pool` owns the session registry, login, logout, and shutdown.
+* `Session` owns command execution, session counters, and connection recovery.
+* `ClientConnection` routes responses by ITT and handles connection lifecycle and NOP exchanges.
+* The internal `Transport` owns TCP, complete-PDU framing, socket timeouts, and serialized writes.
+
+The existing `Pool::execute_with_ctx` entry point delegates to the session.
+`pool.session(tsih)?` returns an `Arc<Session>` for calling
+`session.execute_with_ctx(cid, build)` directly, without holding a registry lock.
+`Session`, `Connection`, and `ExecuteEnv` remain available through
+`client::pool_sessions`; their implementation lives in `client::session`.
+
 ## Troubleshooting
 
 * Stuck ITTs usually mean broken finality rules. `ScsiDataIn` is final only when `F=1 && S=1`; `ScsiCommandResponse` is always final; `R2T` is never final.
@@ -147,8 +160,24 @@ try_join_all(jobs).await?;
 ## CI
 
 * Unit tests
+* Separate Loom concurrency models
 * Integration matrix for `tgt`, `LIO/targetcli`, and `TrueNAS SCALE`
 * Integration test binary is built once and reused across target jobs
+
+Run the concurrency models separately:
+
+```bash
+RUSTFLAGS="--cfg iscsi_loom" CARGO_TARGET_DIR=target/loom \
+  cargo test --locked --release --test loom
+```
+
+The custom cfg instruments this crate without enabling dependency-internal Loom
+configurations. These models exercise the production ITT generator and connection
+poison marker: concurrent allocation, reserved-tag wraparound, concurrent reads,
+and the single first poison caller. They do not model Tokio cancellation, TCP,
+DashMap, or response queues; those remain covered by unit and integration tests.
+Do not run ordinary test targets with `iscsi_loom`: instrumented atomics require
+execution inside `loom::model`.
 
 ## Roadmap
 

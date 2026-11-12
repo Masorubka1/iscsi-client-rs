@@ -8,13 +8,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
-use std::{
-    fmt::{self, Write},
-    sync::atomic::{AtomicU32, Ordering},
-};
+use std::fmt::{self, Write};
 
 use anyhow::bail;
 use rand::RngExt;
+
+use crate::sync::{AtomicU32, Ordering};
 
 // ── Initiator Session Identifier (ISID) ─────────────────────────────────────
 
@@ -346,15 +345,24 @@ impl IttGen {
     /// Atomically fetch the current value and advance to the next valid ITT.
     #[inline]
     pub fn fetch_inc(&self) -> Itt {
-        let curr = self
-            .0
-            .try_update(Ordering::SeqCst, Ordering::SeqCst, |curr| {
-                let next = curr.wrapping_add(1);
-                Some(if next == Itt::RESERVED { 0 } else { next })
-            })
-            .expect("Atomic ITT update failed");
-
-        Itt::new(curr).expect("Stored reserved ITT in generator")
+        // Use the same CAS loop with std and Loom atomics. Loom does not expose
+        // std's newer try_update API.
+        let mut curr = self.0.load(Ordering::SeqCst);
+        loop {
+            let next = curr.wrapping_add(1);
+            let next = if next == Itt::RESERVED { 0 } else { next };
+            match self.0.compare_exchange_weak(
+                curr,
+                next,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            ) {
+                Ok(_) => {
+                    return Itt::new(curr).expect("Stored reserved ITT in generator");
+                },
+                Err(actual) => curr = actual,
+            }
+        }
     }
 
     #[inline]

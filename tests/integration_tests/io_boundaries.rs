@@ -97,3 +97,67 @@ async fn io_around_negotiated_segment_boundaries() -> Result<()> {
 
     pool.shutdown_gracefully(Duration::from_secs(10)).await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[serial]
+async fn read_larger_than_negotiated_max_burst() -> Result<()> {
+    let _ = init_logger(&test_path());
+    let cfg = load_config()?;
+    let pool = Pool::new(&cfg);
+    let conn = connect_cfg(&cfg).await?;
+    let tsih = pool
+        .login_and_insert(
+            Arc::from(cfg.login.identity.target_name.as_str()),
+            test_isid(),
+            Cid::ZERO,
+            conn,
+        )
+        .await
+        .context("pool login failed")?;
+    let lun = get_lun();
+    let _ = pool
+        .execute_with_ctx(tsih, Cid::ZERO, |env| TurCtx::from_execute_env(env, lun))
+        .await;
+    pool.execute_with_ctx(tsih, Cid::ZERO, |env| TurCtx::from_execute_env(env, lun))
+        .await
+        .context("TUR failed")?;
+
+    let capacity = pool
+        .execute_with_ctx(tsih, Cid::ZERO, |env| {
+            let mut cdb = [0; 16];
+            build_read_capacity10(&mut cdb, 0, false, 0);
+            ReadCtx::from_execute_env(env, lun, 8, cdb)
+        })
+        .await
+        .context("READ CAPACITY(10) failed")?;
+    let capacity = parse_read_capacity10_zerocopy(&capacity.data)?;
+    let block_size = capacity.block_len.get();
+    anyhow::ensure!(block_size > 0, "target reported zero block size");
+    let max_burst = cfg.login.flow.max_burst_length;
+    let blocks = max_burst / block_size + 1;
+    anyhow::ensure!(
+        u64::from(blocks) <= u64::from(capacity.max_lba.get()) + 1,
+        "target is too small for a read larger than MaxBurstLength"
+    );
+    let blocks = u16::try_from(blocks).context("read exceeds READ(10) block count")?;
+    let byte_len = u32::from(blocks)
+        .checked_mul(block_size)
+        .context("read length overflow")?;
+    assert!(byte_len > max_burst);
+
+    // Exercise a single command larger than MaxBurstLength. Actual Data-In
+    // sequence boundaries depend on the target; size alone does not assert F.
+    let result = pool
+        .execute_with_ctx(tsih, Cid::ZERO, |env| {
+            let mut cdb = [0; 16];
+            build_read10(&mut cdb, 0, blocks, 0, 0);
+            ReadCtx::from_execute_env(env, lun, byte_len, cdb)
+        })
+        .await;
+    let shutdown = pool.shutdown_gracefully(Duration::from_secs(10)).await;
+    let read = result.with_context(|| {
+        format!("single READ(10): bytes={byte_len}, MaxBurstLength={max_burst}")
+    })?;
+    assert_eq!(read.data.len(), byte_len as usize);
+    shutdown
+}

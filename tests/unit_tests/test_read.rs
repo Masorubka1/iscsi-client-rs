@@ -7,6 +7,7 @@ use std::{
         Arc,
         atomic::{AtomicU32, Ordering},
     },
+    time::Duration,
 };
 
 use anyhow::{Context, Result};
@@ -26,9 +27,13 @@ use iscsi_client_rs::{
         data_fromat::{PduRequest, PduResponse},
         identifiers::{IttGen, Lun},
     },
-    state_machine::read_states::ReadCtx,
+    state_machine::{common::StateMachineCtx, read_states::ReadCtx},
 };
-use tokio::net::TcpListener;
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpListener,
+    time::timeout,
+};
 use tokio_util::sync::CancellationToken;
 
 fn load_fixture(path: &str) -> Result<Vec<u8>> {
@@ -169,7 +174,7 @@ async fn datain_acknowledges_statsn_only_when_status_is_present() -> Result<()> 
         let mut pdu = PduResponse::<ScsiDataIn>::from_header_slice(header, &cfg);
         pdu.parse_with_buff(&Bytes::new())?;
 
-        assert!(ctx.apply_datain_append(&pdu)?);
+        assert_eq!(ctx.apply_datain_append(&pdu)?, status_present);
         assert_eq!(
             exp_stat_sn.load(Ordering::SeqCst),
             expected,
@@ -183,4 +188,81 @@ async fn datain_acknowledges_statsn_only_when_status_is_present() -> Result<()> 
     conn.kill_now();
     drop(peer);
     Ok(())
+}
+
+async fn read_multiple_sequences(status_in_datain: bool) -> Result<()> {
+    let mut cfg = Config::load_from_file("tests/config.yaml")?;
+    cfg.login.flow.max_burst_length = 512;
+    cfg.login.flow.first_burst_length = 512;
+    cfg.login.flow.max_recv_data_segment_length = 512;
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    cfg.login.transport.target_address = listener.local_addr()?.to_string();
+    let stop = CancellationToken::new();
+    let server_stop = stop.clone();
+    let server = tokio::spawn(async move {
+        let (mut peer, _) = listener.accept().await?;
+        let mut request = [0; HEADER_LEN];
+        peer.read_exact(&mut request).await?;
+        assert_eq!(request[32], 0x28, "expected READ(10)");
+        for data_sn in 0..2u32 {
+            let mut header = [0; HEADER_LEN];
+            header[0] = 0x25; // Data-In
+            header[1] = 0x80; // F ends each sequence, including the first one.
+            if data_sn == 1 && status_in_datain {
+                header[1] |= 1; // S: status accompanies the last data sequence.
+                header[24..28].copy_from_slice(&11u32.to_be_bytes());
+            }
+            header[5..8].copy_from_slice(&512u32.to_be_bytes()[1..]);
+            header[16..20].copy_from_slice(&request[16..20]);
+            header[28..32].copy_from_slice(&2u32.to_be_bytes());
+            header[32..36].copy_from_slice(&128u32.to_be_bytes());
+            header[36..40].copy_from_slice(&data_sn.to_be_bytes());
+            header[40..44].copy_from_slice(&(data_sn * 512).to_be_bytes());
+            peer.write_all(&header).await?;
+            peer.write_all(&[data_sn as u8 + 1; 512]).await?;
+        }
+        if !status_in_datain {
+            let mut response = [0; HEADER_LEN];
+            response[0] = 0x21; // Separate SCSI Response, GOOD status.
+            response[1] = 0x80;
+            response[16..20].copy_from_slice(&request[16..20]);
+            response[24..28].copy_from_slice(&11u32.to_be_bytes());
+            response[28..32].copy_from_slice(&2u32.to_be_bytes());
+            response[32..36].copy_from_slice(&128u32.to_be_bytes());
+            response[36..40].copy_from_slice(&2u32.to_be_bytes());
+            peer.write_all(&response).await?;
+        }
+        server_stop.cancelled().await;
+        Ok::<_, anyhow::Error>(())
+    });
+    let conn = ClientConnection::connect(cfg, stop.child_token()).await?;
+    let mut cdb = [0; 16];
+    build_read10(&mut cdb, 0, 2, 0, 0);
+    let mut ctx = ReadCtx::new(
+        conn,
+        Lun::ZERO,
+        &IttGen::default(),
+        Arc::new(AtomicU32::new(1)),
+        Arc::new(AtomicU32::new(11)),
+        1024,
+        cdb,
+    );
+    let cancel = CancellationToken::new();
+    let result = timeout(Duration::from_secs(2), ctx.execute(&cancel)).await;
+    stop.cancel();
+    server.await??;
+    let read = result.context("read did not finish")??;
+    assert_eq!(read.data, [vec![1; 512], vec![2; 512]].concat());
+    assert_eq!(read.last_response.is_some(), !status_in_datain);
+    Ok(())
+}
+
+#[tokio::test]
+async fn read_multiple_sequences_with_status_in_last_datain() -> Result<()> {
+    read_multiple_sequences(true).await
+}
+
+#[tokio::test]
+async fn read_multiple_sequences_with_separate_scsi_response() -> Result<()> {
+    read_multiple_sequences(false).await
 }

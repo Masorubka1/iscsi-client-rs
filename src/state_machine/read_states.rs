@@ -170,7 +170,9 @@ impl<'a> ReadCtx<'a> {
         self.conn.read_response(itt).await
     }
 
-    /// Appends the data from a Data-In PDU to the accumulator.
+    /// Appends Data-In payload and returns whether it carries the final command
+    /// status. F alone ends a data sequence, so further Data-In PDUs may
+    /// follow.
     pub fn apply_datain_append(&mut self, pdu: &PduResponse<ScsiDataIn>) -> Result<bool> {
         let h = pdu.header_view()?;
 
@@ -196,7 +198,7 @@ impl<'a> ReadCtx<'a> {
             self.rt.residual_in_datain = Some(h.residual_effective());
         }
 
-        Ok(h.get_real_final_bit())
+        Ok(h.get_real_final_bit() && h.get_status_bit())
     }
 
     /// Finalizes the status of the read operation after all data has been

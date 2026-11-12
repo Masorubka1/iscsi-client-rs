@@ -81,7 +81,12 @@ impl ClientConnection {
         loop {
             #[cfg(feature = "profiling-puffin")]
             profiling::finish_frame!();
-            let (raw_itt, is_final, pdu) = self.read_pdu(&mut scratch).await?;
+            self.ensure_active()?;
+            let mut pdu = self.transport.read_pdu(&mut scratch).await?;
+            let (raw_itt, is_final) = {
+                let header = Pdu::from_bhs_bytes(&mut pdu.header)?;
+                (header.get_initiator_task_tag(), header.get_final_bit())
+            };
 
             if self
                 .pending
@@ -99,7 +104,7 @@ impl ClientConnection {
                 continue;
             }
 
-            // When not bound to a Pool (e.g. during SendTargets discovery),
+            // When not bound to a session (e.g. during SendTargets discovery),
             // silently discard unsolicited PDUs that we cannot route.
             if self.session_ref.get().is_none() {
                 debug!(
@@ -111,60 +116,6 @@ impl ClientConnection {
 
             bail!("no pending request for itt={raw_itt}");
         }
-    }
-
-    async fn read_pdu(&self, scratch: &mut BytesMut) -> Result<(Itt, bool, RawPdu)> {
-        #[cfg(feature = "profiling-puffin")]
-        profiling::scope!("read_pdu");
-        self.ensure_active()?;
-        scratch.clear();
-        scratch.resize(HEADER_LEN, 0);
-
-        let mut reader = self.reader.lock().await;
-        self.read_exact_with_timeout(
-            &mut reader,
-            &mut scratch[..HEADER_LEN],
-            "read header",
-        )
-        .await?;
-
-        let header = Pdu::from_bhs_bytes(&mut scratch[..HEADER_LEN])?;
-        debug!("RECV BHS: {header:?}");
-
-        let itt = header.get_initiator_task_tag();
-        let is_final = header.get_final_bit();
-        let (header_digest, data_digest) = self.digest_flags();
-        let data_length = header.total_length_bytes();
-        let data_digest_length = if data_length > HEADER_LEN {
-            header.get_data_diggest(data_digest)
-        } else {
-            0
-        };
-        let total_length =
-            data_length + header.get_header_diggest(header_digest) + data_digest_length;
-
-        scratch.resize(total_length, 0);
-        if total_length > HEADER_LEN {
-            self.read_exact_with_timeout(
-                &mut reader,
-                &mut scratch[HEADER_LEN..],
-                "read payload",
-            )
-            .await?;
-        }
-        drop(reader);
-
-        let mut raw_header = [0u8; HEADER_LEN];
-        raw_header.copy_from_slice(&scratch[..HEADER_LEN]);
-        let bytes = scratch.split_to(total_length).freeze();
-        Ok((
-            itt,
-            is_final,
-            RawPdu {
-                header: raw_header,
-                payload: bytes.slice(HEADER_LEN..),
-            },
-        ))
     }
 
     async fn try_handle_unsolicited_nop_in(
@@ -198,24 +149,22 @@ impl ClientConnection {
         }
 
         let Some(session_ref) = self.session_ref.get().cloned() else {
-            warn!("NOP-In: missing Pool/session binding; cannot auto-reply");
+            warn!("NOP-In: missing session binding; cannot auto-reply");
             return false;
         };
-        let Some(pool) = session_ref.pool.upgrade() else {
-            warn!("NOP-In: Pool dropped; cannot auto-reply");
+        let Some(session) = session_ref.session.upgrade() else {
+            warn!("NOP-In: session dropped; cannot auto-reply");
             return false;
         };
 
         tokio::spawn(async move {
-            let result = pool
-                .execute_nop_reply(session_ref.tsih, session_ref.cid, pdu)
-                .await;
+            let result = session.execute_nop_reply(session_ref.cid, pdu).await;
             if let Err(error) = result {
                 warn!("NOP-In auto-reply failed: {error}");
             } else {
                 debug!(
                     "NOP-In auto-replied (TSIH={}, CID={})",
-                    session_ref.tsih, session_ref.cid
+                    session.tsih, session_ref.cid
                 );
             }
         });
