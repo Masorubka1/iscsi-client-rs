@@ -1,13 +1,20 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2012-2025 Andrei Maltsev
 
-use std::fs;
+use std::{
+    fs,
+    sync::{
+        Arc,
+        atomic::{AtomicU32, Ordering},
+    },
+};
 
 use anyhow::{Context, Result};
 use bytes::Bytes;
 use hex::FromHex;
 use iscsi_client_rs::{
     cfg::{cli::resolve_config_path, config::Config},
+    client::client::ClientConnection,
     control_block::read::build_read10,
     models::{
         command::{
@@ -17,8 +24,12 @@ use iscsi_client_rs::{
         common::{BasicHeaderSegment, Builder, HEADER_LEN},
         data::response::ScsiDataIn,
         data_fromat::{PduRequest, PduResponse},
+        identifiers::{IttGen, Lun},
     },
+    state_machine::read_states::ReadCtx,
 };
+use tokio::net::TcpListener;
+use tokio_util::sync::CancellationToken;
 
 fn load_fixture(path: &str) -> Result<Vec<u8>> {
     let s = fs::read_to_string(path)?;
@@ -121,5 +132,55 @@ fn test_read_response_good() -> Result<()> {
     let payload = vec![0x00; header.get_data_length_bytes()];
     assert_eq!(&pdu.data()?, &payload);
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn datain_acknowledges_statsn_only_when_status_is_present() -> Result<()> {
+    let mut cfg = Config::load_from_file("tests/config.yaml")?;
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    cfg.login.transport.target_address = listener.local_addr()?.to_string();
+    let (conn, peer) = tokio::try_join!(
+        ClientConnection::connect(cfg.clone(), CancellationToken::new()),
+        async { listener.accept().await.context("accept test connection") }
+    )?;
+
+    for (status_present, stat_sn, expected) in [
+        (true, 0u32, 1u32),
+        (true, 41, 42),
+        (true, u32::MAX, 0),
+        (false, 0, 17),
+        (false, 41, 17),
+    ] {
+        let exp_stat_sn = Arc::new(AtomicU32::new(17));
+        let mut ctx = ReadCtx::new(
+            conn.clone(),
+            Lun::ZERO,
+            &IttGen::default(),
+            Arc::new(AtomicU32::new(0)),
+            exp_stat_sn.clone(),
+            0,
+            [0; 16],
+        );
+        let mut header = [0; HEADER_LEN];
+        header[0] = 0x25; // SCSI Data-In
+        header[1] = if status_present { 0x81 } else { 0x80 }; // F and optional S
+        header[24..28].copy_from_slice(&stat_sn.to_be_bytes());
+        let mut pdu = PduResponse::<ScsiDataIn>::from_header_slice(header, &cfg);
+        pdu.parse_with_buff(&Bytes::new())?;
+
+        assert!(ctx.apply_datain_append(&pdu)?);
+        assert_eq!(
+            exp_stat_sn.load(Ordering::SeqCst),
+            expected,
+            "S={status_present}, StatSN={stat_sn}"
+        );
+        assert_eq!(
+            ctx.rt.status_in_datain,
+            status_present.then_some(ScsiStatus::Good)
+        );
+    }
+    conn.kill_now();
+    drop(peer);
     Ok(())
 }
