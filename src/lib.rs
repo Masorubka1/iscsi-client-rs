@@ -5,6 +5,8 @@
 #[cfg(test)]
 extern crate self as iscsi_client_rs;
 
+mod sync;
+
 /// Handles configuration, command-line parsing, and logging.
 pub mod cfg;
 /// Manages client connections, sessions, and the session pool.

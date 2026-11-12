@@ -160,8 +160,24 @@ The existing `Pool::execute_with_ctx` entry point delegates to the session.
 ## CI
 
 * Unit tests
+* Separate Loom concurrency models
 * Integration matrix for `tgt`, `LIO/targetcli`, and `TrueNAS SCALE`
 * Integration test binary is built once and reused across target jobs
+
+Run the concurrency models separately:
+
+```bash
+RUSTFLAGS="--cfg iscsi_loom" CARGO_TARGET_DIR=target/loom \
+  cargo test --locked --release --test loom
+```
+
+The custom cfg instruments this crate without enabling dependency-internal Loom
+configurations. These models exercise the production ITT generator and connection
+poison marker: concurrent allocation, reserved-tag wraparound, concurrent reads,
+and the single first poison caller. They do not model Tokio cancellation, TCP,
+DashMap, or response queues; those remain covered by unit and integration tests.
+Do not run ordinary test targets with `iscsi_loom`: instrumented atomics require
+execution inside `loom::model`.
 
 ## Roadmap
 

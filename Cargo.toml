@@ -24,6 +24,13 @@ name = "integration"
 path = "tests/_integration_entry.rs"
 harness = true
 
+[[test]]
+name = "loom"
+path = "tests/_loom_entry.rs"
+
+[target.'cfg(iscsi_loom)'.dependencies]
+loom = "0.7.3"
+
 [dependencies]
 tokio = { version = "1.52.3", features = ["full"] }
 serde = { version = "1.0.228", features = ["derive", "serde_derive"] }
@@ -78,3 +85,6 @@ unwrap_used = "deny"
 redundant_clone = "deny"
 unnecessary_to_owned = "deny"
 large_enum_variant = "deny"
+
+[workspace.lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(iscsi_loom)'] }

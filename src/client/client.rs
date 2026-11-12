@@ -5,10 +5,7 @@ mod read;
 mod write;
 
 use std::{
-    sync::{
-        Arc, Weak,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::{Arc, Weak},
     time::Duration,
 };
 
@@ -24,8 +21,8 @@ use tracing::{debug, warn};
 use crate::{
     cfg::config::Config,
     client::{
-        common::is_timeout_error, pending_requests::PendingRequests, session::Session,
-        transport::Transport,
+        common::is_timeout_error, connection_state::ConnectionState,
+        pending_requests::PendingRequests, session::Session, transport::Transport,
     },
     models::{
         identifiers::{Cid, Lun},
@@ -66,7 +63,7 @@ pub struct ClientConnection {
     /// "Soft stop" gate for writes: when cancelled, new writes are rejected,
     /// but the read loop keeps draining in-flight responses.
     pub(crate) stop_writes: CancellationToken,
-    poisoned: AtomicBool,
+    state: ConnectionState,
 }
 
 impl ClientConnection {
@@ -83,7 +80,7 @@ impl ClientConnection {
             session_ref: OnceCell::new(),
             cancel,
             stop_writes: CancellationToken::new(),
-            poisoned: AtomicBool::new(false),
+            state: ConnectionState::default(),
         });
 
         let reader = Arc::clone(&conn);
@@ -173,12 +170,12 @@ impl ClientConnection {
     }
 
     pub fn is_poisoned(&self) -> bool {
-        self.poisoned.load(Ordering::SeqCst)
+        self.state.is_poisoned()
     }
 
     pub(crate) fn poison(&self, reason: impl Into<String>) {
         let reason = reason.into();
-        let first_poison = !self.poisoned.swap(true, Ordering::SeqCst);
+        let first_poison = self.state.mark_poisoned();
         self.stop_writes.cancel();
         self.cancel.cancel();
         self.pending.abort_all();

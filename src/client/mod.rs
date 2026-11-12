@@ -9,6 +9,7 @@ pub mod client;
 #[cfg(test)]
 mod client_faults_tests;
 mod common;
+mod connection_state;
 /// Traits for handling PDU serialization and deserialization.
 pub mod pdu_connection;
 mod pending_requests;
